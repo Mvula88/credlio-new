@@ -1,0 +1,220 @@
+'use client'
+
+import { useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
+import { createClient } from '@/lib/supabase/client'
+import { loginSchema, type LoginInput } from '@/lib/validations/auth'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Loader2, AlertCircle, Building2, Eye, EyeOff } from 'lucide-react'
+
+export default function LenderLoginPage() {
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const router = useRouter()
+  const supabase = createClient()
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginInput>({
+    resolver: zodResolver(loginSchema),
+  })
+
+  const onSubmit = async (data: LoginInput) => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      // Sign in with Supabase
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
+      })
+
+      if (authError) {
+        setError(authError.message)
+        return
+      }
+
+      if (!authData.user) {
+        setError('Login failed. Please try again.')
+        return
+      }
+
+      // Check if user has lender role using multi-role system
+      const { data: userRoles, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', authData.user.id)
+
+      if (rolesError) {
+        setError('Error checking user roles. Please try again.')
+        await supabase.auth.signOut()
+        return
+      }
+
+      const roles = userRoles?.map(r => r.role) || []
+
+      if (roles.length === 0) {
+        setError('No roles found for this account. Please register first.')
+        await supabase.auth.signOut()
+        return
+      }
+
+      if (!roles.includes('lender')) {
+        const userRolesList = roles.join(', ')
+        setError(`You are registered as: ${userRolesList}. This portal is for lenders only. If you want to become a lender, please register at the lender registration page.`)
+        await supabase.auth.signOut()
+        return
+      }
+
+      // Redirect to lender dashboard
+      router.push('/l/overview')
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-blue-50 px-4 py-12">
+      <div className="w-full max-w-md">
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <Link href="/" className="inline-flex items-center space-x-2">
+            <div className="w-10 h-10 bg-gradient-to-br from-green-600 to-blue-600 rounded-lg" />
+            <span className="text-2xl font-bold">Credlio</span>
+          </Link>
+        </div>
+
+        <Card>
+          <CardHeader className="space-y-1">
+            <div className="flex items-center space-x-2">
+              <Building2 className="h-5 w-5 text-green-600" />
+              <CardTitle className="text-2xl">Lender Sign In</CardTitle>
+            </div>
+            <CardDescription>
+              Enter your credentials to access your lender dashboard
+            </CardDescription>
+          </CardHeader>
+
+          <form onSubmit={handleSubmit(onSubmit)}>
+            <CardContent className="space-y-4">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="lender@example.com"
+                  autoComplete="email"
+                  {...register('email')}
+                />
+                {errors.email && (
+                  <p className="text-sm text-red-500">{errors.email.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Link
+                    href="/l/forgot-password"
+                    className="text-sm text-green-600 hover:text-green-700"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    {...register('password')}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {errors.password && (
+                  <p className="text-sm text-red-500">{errors.password.message}</p>
+                )}
+              </div>
+            </CardContent>
+
+            <CardFooter className="flex flex-col space-y-4">
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  'Sign In'
+                )}
+              </Button>
+
+              <div className="text-center text-sm text-gray-600">
+                Don't have an account?{' '}
+                <Link href="/l/register" className="text-green-600 hover:text-green-700 font-medium">
+                  Register as Lender
+                </Link>
+              </div>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-2 text-gray-500">Or</span>
+                </div>
+              </div>
+
+              <div className="text-center text-sm">
+                <Link href="/b/login" className="text-gray-600 hover:text-gray-800">
+                  Sign in as Borrower
+                </Link>
+              </div>
+            </CardFooter>
+          </form>
+        </Card>
+
+        <p className="mt-8 text-center text-xs text-gray-500">
+          By signing in, you agree to our{' '}
+          <Link href="/terms" className="underline hover:text-gray-700">
+            Terms of Service
+          </Link>{' '}
+          and{' '}
+          <Link href="/privacy" className="underline hover:text-gray-700">
+            Privacy Policy
+          </Link>
+        </p>
+      </div>
+    </div>
+  )
+}

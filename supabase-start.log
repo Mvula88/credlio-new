@@ -1,0 +1,101 @@
+WARNING: You are running different service versions locally than your linked project:
+supabase/gotrue:v2.178.0 => v2.180.0
+Run supabase link to update them.
+Starting database...
+Initialising schema...
+Seeding globals from roles.sql...
+Applying migration 001_create_enums.sql...
+Applying migration 002_create_countries_and_currencies.sql...
+Applying migration 003_create_core_tables.sql...
+NOTICE (42710): extension "uuid-ossp" already exists, skipping
+NOTICE (42710): extension "pgcrypto" already exists, skipping
+Applying migration 004_create_loan_tables.sql...
+Applying migration 005_create_marketplace_tables.sql...
+Applying migration 006_create_support_tables.sql...
+Applying migration 007_create_views_and_functions.sql...
+Applying migration 008_create_loan_functions.sql...
+Applying migration 009_create_risk_engine.sql...
+Applying migration 010_create_rls_policies.sql...
+Applying migration 011_single_loan_and_security.sql...
+NOTICE (42P07): relation "uniq_active_loan_per_borrower" already exists, skipping
+NOTICE (42P07): relation "uniq_accepted_offer_per_request" already exists, skipping
+NOTICE (42P07): relation "search_logs" already exists, skipping
+NOTICE (42P07): relation "idx_search_logs_lender" already exists, skipping
+NOTICE (42P07): relation "borrower_identity_index" already exists, skipping
+NOTICE (42P07): relation "document_hashes" already exists, skipping
+NOTICE (42P07): relation "idx_doc_hashes_borrower" already exists, skipping
+NOTICE (42P07): relation "subscriptions" already exists, skipping
+NOTICE (42P07): relation "fraud_signals" already exists, skipping
+NOTICE (42P07): relation "job_runs" already exists, skipping
+Applying migration 012_accept_offer_function.sql...
+NOTICE (00000): function public.register_borrower(text,text,text,date) does not exist, skipping
+Applying migration 013_link_borrower_user.sql...
+NOTICE (00000): function public.list_borrower_as_risky(uuid,risk_type,text,pg_catalog.int8) does not exist, skipping
+NOTICE (00000): function public.list_borrower_as_risky(uuid,risk_type,text) does not exist, skipping
+Stopping containers...
+ERROR: cannot change name of input parameter "p_flag_id" (SQLSTATE 42P13)
+At statement: 7                                                          
+-- Function to resolve a risk flag                                       
+CREATE OR REPLACE FUNCTION public.resolve_risk_flag(                     
+  p_risk_id UUID,                                                        
+  p_resolution_reason TEXT                                               
+)                                                                        
+RETURNS VOID                                                             
+LANGUAGE plpgsql                                                         
+SECURITY DEFINER                                                         
+AS $$                                                                    
+DECLARE                                                                  
+  v_borrower_id UUID;                                                    
+  v_resolver_id UUID;                                                    
+BEGIN                                                                    
+  -- Verify caller is a lender or admin                                  
+  IF jwt_role() NOT IN ('lender', 'admin') THEN                          
+    RAISE EXCEPTION 'Only lenders and admins can resolve risk flags';    
+  END IF;                                                                
+                                                                         
+  v_resolver_id := auth.uid();                                           
+                                                                         
+  -- Get borrower_id from risk flag                                      
+  SELECT borrower_id INTO v_borrower_id                                  
+  FROM public.risk_flags                                                 
+  WHERE id = p_risk_id;                                                  
+                                                                         
+  IF v_borrower_id IS NULL THEN                                          
+    RAISE EXCEPTION 'Risk flag not found';                               
+  END IF;                                                                
+                                                                         
+  -- Update risk flag                                                    
+  UPDATE public.risk_flags                                               
+  SET                                                                    
+    resolved_at = NOW(),                                                 
+    resolved_by = v_resolver_id,                                         
+    resolution_reason = p_resolution_reason,                             
+    type = 'CLEARED'                                                     
+  WHERE id = p_risk_id                                                   
+    AND resolved_at IS NULL;                                             
+                                                                         
+  -- Recalculate borrower score                                          
+  PERFORM public.refresh_borrower_score(v_borrower_id);                  
+                                                                         
+  -- Log the action                                                      
+  INSERT INTO public.audit_ledger (                                      
+    actor_id,                                                            
+    action,                                                              
+    target_type,                                                         
+    target_id,                                                           
+    payload,                                                             
+    created_at                                                           
+  ) VALUES (                                                             
+    v_resolver_id,                                                       
+    'resolve_risk',                                                      
+    'risk_flag',                                                         
+    p_risk_id,                                                           
+    jsonb_build_object(                                                  
+      'borrower_id', v_borrower_id,                                      
+      'resolution_reason', p_resolution_reason                           
+    ),                                                                   
+    NOW()                                                                
+  );                                                                     
+END;                                                                     
+$$                                                                       
+Try rerunning the command with --debug to troubleshoot the error.

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(supabase status:*)",
+      "Bash(timeout 60 bash -c 'while ! npx supabase status 2>&1 | grep -q \"\"API URL\"\"; do sleep 2; done; echo \"\"Complete\"\"')"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
