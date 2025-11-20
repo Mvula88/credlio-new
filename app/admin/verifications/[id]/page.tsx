@@ -21,7 +21,14 @@ import {
   Calendar,
   FileText,
   Image as ImageIcon,
-  Info
+  Info,
+  MapPin,
+  Briefcase,
+  Phone,
+  Users,
+  Landmark,
+  Link as LinkIcon,
+  ExternalLink
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -304,6 +311,198 @@ export default function VerificationDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Enhanced Verification Details - 2 Column Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Physical Address */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-green-600" />
+              Physical Address
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div>
+              <p className="text-muted-foreground">Street Address</p>
+              <p className="font-medium">{borrower.street_address || 'Not provided'}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-muted-foreground">City</p>
+                <p className="font-medium">{borrower.city || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Postal Code</p>
+                <p className="font-medium">{borrower.postal_code || 'N/A'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Employment & Income */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Briefcase className="h-4 w-4 text-purple-600" />
+              Employment & Income
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-muted-foreground">Status</p>
+                <p className="font-medium capitalize">{borrower.employment_status?.replace('_', ' ') || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Income Range</p>
+                <p className="font-medium">{borrower.monthly_income_range || 'N/A'}</p>
+              </div>
+            </div>
+            {borrower.employer_name && (
+              <div>
+                <p className="text-muted-foreground">Employer</p>
+                <p className="font-medium">{borrower.employer_name}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-muted-foreground">Income Source</p>
+              <p className="font-medium">{borrower.income_source || 'N/A'}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Emergency Contact */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Phone className="h-4 w-4 text-orange-600" />
+              Emergency Contact
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div>
+              <p className="text-muted-foreground">Name</p>
+              <p className="font-medium">{borrower.emergency_contact_name || 'N/A'}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-muted-foreground">Phone</p>
+                <p className="font-medium">{borrower.emergency_contact_phone || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Relationship</p>
+                <p className="font-medium capitalize">{borrower.emergency_contact_relationship || 'N/A'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Next of Kin */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Users className="h-4 w-4 text-red-600" />
+              Next of Kin
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div>
+              <p className="text-muted-foreground">Name</p>
+              <p className="font-medium">{borrower.next_of_kin_name || 'N/A'}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-muted-foreground">Phone</p>
+                <p className="font-medium">{borrower.next_of_kin_phone || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Relationship</p>
+                <p className="font-medium capitalize">{borrower.next_of_kin_relationship || 'N/A'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Bank Account */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Landmark className="h-4 w-4 text-cyan-600" />
+              Bank Account
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div>
+              <p className="text-muted-foreground">Bank Name</p>
+              <p className="font-medium">{borrower.bank_name || 'N/A'}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-muted-foreground">Account Number</p>
+                <p className="font-medium font-mono">{borrower.bank_account_number || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Account Name</p>
+                <p className="font-medium">{borrower.bank_account_name || 'N/A'}</p>
+              </div>
+            </div>
+            {borrower.bank_account_name && borrower.full_name &&
+             borrower.bank_account_name.toLowerCase() !== borrower.full_name.toLowerCase() && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  Account name doesn't match borrower name!
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Social Media / Digital Presence */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <LinkIcon className="h-4 w-4 text-gray-600" />
+              Digital Presence
+              {borrower.has_social_media ? (
+                <Badge className="bg-green-100 text-green-800 text-xs">Verified</Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs">None</Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {borrower.linkedin_url && (
+              <div className="flex items-center gap-2">
+                <p className="text-muted-foreground">LinkedIn:</p>
+                <a href={borrower.linkedin_url} target="_blank" rel="noopener noreferrer"
+                   className="text-blue-600 hover:underline flex items-center gap-1 text-xs">
+                  View Profile <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            )}
+            {borrower.facebook_url && (
+              <div className="flex items-center gap-2">
+                <p className="text-muted-foreground">Facebook:</p>
+                <a href={borrower.facebook_url} target="_blank" rel="noopener noreferrer"
+                   className="text-blue-600 hover:underline flex items-center gap-1 text-xs">
+                  View Profile <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            )}
+            {borrower.referrer_phone && (
+              <div>
+                <p className="text-muted-foreground">Referred by</p>
+                <p className="font-medium">{borrower.referrer_phone}</p>
+              </div>
+            )}
+            {!borrower.linkedin_url && !borrower.facebook_url && !borrower.referrer_phone && (
+              <p className="text-muted-foreground italic">No social media or referral provided</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Document Review */}
       <div className="max-w-2xl mx-auto">
         {/* Selfie with ID - ONLY DOCUMENT REQUIRED */}
@@ -420,9 +619,91 @@ export default function VerificationDetailPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="rejection-reason">Rejection Reason (if rejecting)</Label>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("ID photo is too blurry - cannot clearly verify face or ID details")}
+                  >
+                    Blurry Photo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("Face in selfie does not match face on ID card")}
+                  >
+                    Face Mismatch
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("ID card appears fake, edited, or altered")}
+                  >
+                    Fake ID
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("Photo appears to be uploaded/old photo, not live camera capture")}
+                  >
+                    Not Live Photo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("ID card is not clearly visible or readable in photo")}
+                  >
+                    ID Not Clear
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("Name on profile does not match name on ID card")}
+                  >
+                    Name Mismatch
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("Poor lighting - cannot verify identity clearly")}
+                  >
+                    Poor Lighting
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("Photo appears edited, filtered, or manipulated")}
+                  >
+                    Edited Photo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("Wrong document type - must use national ID card")}
+                  >
+                    Wrong Document
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectionReason("Face is obscured, covered, or not clearly visible")}
+                  >
+                    Face Not Clear
+                  </Button>
+                </div>
                 <Textarea
                   id="rejection-reason"
-                  placeholder="e.g., ID photo is blurry, face doesn't match ID, ID appears fake..."
+                  placeholder="Select a reason above or type a custom reason..."
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   rows={3}

@@ -1,23 +1,28 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { createClient } from '@/lib/supabase/client'
-import { simpleRegistrationSchema, type SimpleRegistrationInput } from '@/lib/validations/auth'
+import { borrowerRegistrationSchema, type BorrowerRegistrationInput } from '@/lib/validations/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Loader2, AlertCircle, User, Info } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Loader2, AlertCircle, User, Info, Globe, CheckCircle } from 'lucide-react'
 
 export default function BorrowerRegisterPage() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [countries, setCountries] = useState<{ code: string; name: string }[]>([])
+  const [loadingCountries, setLoadingCountries] = useState(true)
+  const [detectedCountry, setDetectedCountry] = useState<{ code: string; name: string; ip: string } | null>(null)
+  const [detectingLocation, setDetectingLocation] = useState(true)
   const router = useRouter()
   const supabase = createClient()
 
@@ -26,14 +31,92 @@ export default function BorrowerRegisterPage() {
     handleSubmit,
     setValue,
     watch,
+    control,
     formState: { errors },
-  } = useForm<SimpleRegistrationInput>({
-    resolver: zodResolver(simpleRegistrationSchema),
+  } = useForm<BorrowerRegistrationInput>({
+    resolver: zodResolver(borrowerRegistrationSchema),
   })
 
   const acceptTerms = watch('acceptTerms')
 
-  const onSubmit = async (data: SimpleRegistrationInput) => {
+  // Load countries on mount
+  useEffect(() => {
+    const loadCountries = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('countries')
+          .select('code, name')
+          .order('name')
+
+        if (error) throw error
+        setCountries(data || [])
+      } catch (err) {
+        console.error('Error loading countries:', err)
+        // Fallback to common countries
+        setCountries([
+          { code: 'NA', name: 'Namibia' },
+          { code: 'ZA', name: 'South Africa' },
+          { code: 'BW', name: 'Botswana' },
+          { code: 'GH', name: 'Ghana' },
+          { code: 'KE', name: 'Kenya' },
+          { code: 'NG', name: 'Nigeria' },
+        ])
+      } finally {
+        setLoadingCountries(false)
+      }
+    }
+
+    loadCountries()
+  }, [])
+
+  // Detect country from IP geolocation with fallback
+  useEffect(() => {
+    const detectCountry = async () => {
+      try {
+        setDetectingLocation(true)
+
+        // Use multi-API fallback system (ipapi.co → ip-api.com)
+        const { detectCountryFromIP, isCountrySupported, getCountryInfo } = await import('@/lib/utils/geolocation')
+        const result = await detectCountryFromIP()
+
+        console.log('IP Geolocation result:', result)
+
+        if (result.success && result.country_code) {
+          // Check if detected country is in our supported countries list
+          const countryInfo = getCountryInfo(result.country_code, countries)
+
+          if (countryInfo) {
+            // Auto-select detected country
+            setValue('country', result.country_code)
+
+            setDetectedCountry({
+              code: result.country_code,
+              name: countryInfo.name,
+              ip: result.ip || 'Unknown'
+            })
+
+            console.log(`✅ Country detected using ${result.api_used}: ${countryInfo.name}`)
+          } else {
+            console.warn('Detected country not in supported list:', result.country_code)
+          }
+        } else {
+          console.error('Geolocation failed:', result.error)
+        }
+      } catch (error) {
+        console.error('Could not detect country from IP:', error)
+        // Silently fail - user will see error message
+      } finally {
+        setDetectingLocation(false)
+      }
+    }
+
+    // Only run detection after countries are loaded
+    if (countries.length > 0 && !loadingCountries) {
+      detectCountry()
+    }
+  }, [countries, loadingCountries, setValue])
+
+  const onSubmit = async (data: BorrowerRegistrationInput) => {
     try {
       setIsLoading(true)
       setError(null)
@@ -47,6 +130,7 @@ export default function BorrowerRegisterPage() {
         body: JSON.stringify({
           email: data.email,
           password: data.password,
+          country: data.country,
         }),
       })
 
@@ -155,6 +239,57 @@ export default function BorrowerRegisterPage() {
                 </AlertDescription>
               </Alert>
 
+              {/* Location Detection Info */}
+              {detectingLocation && (
+                <Alert className="border-blue-200 bg-blue-50">
+                  <Globe className="h-4 w-4 text-blue-600 animate-spin" />
+                  <AlertDescription className="text-blue-800">
+                    <span className="font-semibold">Detecting your location...</span>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {detectedCountry && (
+                <Alert className="border-green-200 bg-green-50">
+                  <Globe className="h-4 w-4 text-green-600" />
+                  <AlertDescription className="text-green-800">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-semibold">Country detected:</span> {detectedCountry.name}
+                        <br />
+                        <span className="text-xs text-green-700">IP Address: {detectedCountry.ip}</span>
+                      </div>
+                      <CheckCircle className="h-6 w-6 text-green-600" />
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {!detectingLocation && !detectedCountry && (
+                <Alert className="border-red-200 bg-red-50">
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  <AlertTitle className="text-red-900">Location Detection Failed</AlertTitle>
+                  <AlertDescription className="text-red-800">
+                    We couldn't automatically detect your country. This is required for registration.
+                    Please check your internet connection and refresh the page.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Country Verification Info */}
+              {detectedCountry && (
+                <Alert className="border-blue-200 bg-blue-50">
+                  <Info className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-blue-800 text-sm">
+                    <strong>Note:</strong> Your country is automatically detected from your IP address for security purposes.
+                    All transactions will be in {detectedCountry.name}'s currency and you'll only be able to borrow within {detectedCountry.name}.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Hidden input for country - auto-filled by geolocation */}
+              <input type="hidden" {...register('country')} />
+
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -221,7 +356,7 @@ export default function BorrowerRegisterPage() {
               <Button
                 type="submit"
                 className="w-full"
-                disabled={isLoading || !acceptTerms}
+                disabled={isLoading || !acceptTerms || !detectedCountry}
               >
                 {isLoading ? (
                   <>

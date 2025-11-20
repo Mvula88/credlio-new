@@ -3,11 +3,18 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json()
+    const { email, password, country } = await request.json()
 
     if (!email || !password) {
       return NextResponse.json(
         { error: 'Email and password are required' },
+        { status: 400 }
+      )
+    }
+
+    if (!country) {
+      return NextResponse.json(
+        { error: 'Country is required for data isolation' },
         { status: 400 }
       )
     }
@@ -84,15 +91,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get a default country code (use Nigeria as default, or first available)
-    const { data: defaultCountry } = await supabase
+    // Validate that the provided country exists
+    const { data: countryData, error: countryError } = await supabase
       .from('countries')
       .select('code')
-      .in('code', ['NG', 'KE', 'GH', 'ZA', 'TZ', 'UG', 'NA', 'ZM', 'MW', 'RW', 'CM', 'CI'])
-      .limit(1)
+      .eq('code', country)
+      .eq('is_active', true)
       .single()
 
-    const defaultCountryCode = defaultCountry?.code || 'NG'
+    if (countryError || !countryData) {
+      return NextResponse.json(
+        { error: 'Invalid country selected. Please choose a valid country.' },
+        { status: 400 }
+      )
+    }
 
     // Create auth user
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -101,7 +113,7 @@ export async function POST(request: NextRequest) {
       email_confirm: false, // Require email verification for security
       app_metadata: {
         app_role: 'lender',
-        country_code: defaultCountryCode,
+        country_code: country, // Use the country selected by the user
         tier: 'BASIC',
       },
     })
@@ -131,13 +143,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create profile with service role permissions
+    // Create profile with service role permissions - using provided country
     const { error: profileError } = await supabase
       .from('profiles')
       .insert({
         user_id: authData.user.id,
         full_name: 'Pending',
-        country_code: defaultCountryCode, // Use existing country code
+        country_code: country, // Use the country selected by the user
         app_role: 'lender', // For backward compatibility
         onboarding_completed: false,
       })

@@ -18,7 +18,16 @@ import {
   Camera,
   ArrowLeft,
   Loader2,
-  Info
+  Info,
+  ClipboardList,
+  User,
+  MapPin,
+  Briefcase,
+  Landmark,
+  Phone,
+  Users,
+  Link as LinkIcon,
+  ExternalLink
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -402,6 +411,189 @@ export default function DocumentVerificationPage() {
           Only verification hashes and risk scores are saved.
         </AlertDescription>
       </Alert>
+
+      {/* Borrower Info Summary & Document Checklist */}
+      <Card className="border-2 border-blue-200 bg-blue-50/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-blue-900">
+            <ClipboardList className="h-5 w-5" />
+            What Borrower Provided vs Documents to Request
+          </CardTitle>
+          <CardDescription>
+            Compare what the borrower filled in during onboarding with the documents you should request in person
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Left Column - What Borrower Provided */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-sm text-gray-700 border-b pb-2">
+                Information Provided by Borrower
+              </h4>
+
+              {/* Bank Info */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Landmark className="h-4 w-4 text-gray-500" />
+                  Bank Account
+                  {borrower?.bank_name ? (
+                    <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Info Provided</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs bg-gray-50 text-gray-500">Not Provided</Badge>
+                  )}
+                </div>
+                <div className="pl-6 text-sm space-y-1">
+                  <p><span className="text-gray-500">Bank:</span> {borrower?.bank_name || 'N/A'}</p>
+                  <p><span className="text-gray-500">Account #:</span> {borrower?.bank_account_number || 'N/A'}</p>
+                  <p><span className="text-gray-500">Account Name:</span> {borrower?.bank_account_name || 'N/A'}</p>
+                </div>
+              </div>
+
+              {/* Address Info */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <MapPin className="h-4 w-4 text-gray-500" />
+                  Address
+                  {borrower?.street_address ? (
+                    <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Info Provided</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs bg-gray-50 text-gray-500">Not Provided</Badge>
+                  )}
+                </div>
+                <div className="pl-6 text-sm space-y-1">
+                  <p><span className="text-gray-500">Street:</span> {borrower?.street_address || 'N/A'}</p>
+                  <p><span className="text-gray-500">City:</span> {borrower?.city || 'N/A'}</p>
+                </div>
+              </div>
+
+              {/* Employment Info */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Briefcase className="h-4 w-4 text-gray-500" />
+                  Employment
+                  {borrower?.employment_status ? (
+                    <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Info Provided</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs bg-gray-50 text-gray-500">Not Provided</Badge>
+                  )}
+                </div>
+                <div className="pl-6 text-sm space-y-1">
+                  <p><span className="text-gray-500">Status:</span> {borrower?.employment_status?.replace('_', ' ') || 'N/A'}</p>
+                  <p><span className="text-gray-500">Employer:</span> {borrower?.employer_name || 'N/A'}</p>
+                  <p><span className="text-gray-500">Income:</span> {borrower?.monthly_income_range || 'N/A'}</p>
+                </div>
+              </div>
+
+              {/* Emergency Contact */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Phone className="h-4 w-4 text-gray-500" />
+                  Emergency Contact
+                  {borrower?.emergency_contact_name ? (
+                    <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Info Provided</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs bg-gray-50 text-gray-500">Not Provided</Badge>
+                  )}
+                </div>
+                <div className="pl-6 text-sm space-y-1">
+                  <p><span className="text-gray-500">Name:</span> {borrower?.emergency_contact_name || 'N/A'}</p>
+                  <p><span className="text-gray-500">Phone:</span> {borrower?.emergency_contact_phone || 'N/A'}</p>
+                </div>
+              </div>
+
+              {/* Next of Kin */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Users className="h-4 w-4 text-gray-500" />
+                  Next of Kin
+                  {borrower?.next_of_kin_name ? (
+                    <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Info Provided</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs bg-gray-50 text-gray-500">Not Provided</Badge>
+                  )}
+                </div>
+                <div className="pl-6 text-sm space-y-1">
+                  <p><span className="text-gray-500">Name:</span> {borrower?.next_of_kin_name || 'N/A'}</p>
+                  <p><span className="text-gray-500">Phone:</span> {borrower?.next_of_kin_phone || 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column - Documents to Request */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-sm text-gray-700 border-b pb-2">
+                Documents to Request from Borrower
+              </h4>
+
+              <Alert className="bg-yellow-50 border-yellow-200">
+                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                <AlertDescription className="text-yellow-800 text-sm">
+                  <strong>Important:</strong> Ask the borrower to bring these documents when you meet in person. Verify that the details match what they provided above.
+                </AlertDescription>
+              </Alert>
+
+              <div className="space-y-3">
+                <div className="p-3 border rounded-lg bg-white">
+                  <div className="flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">1</div>
+                    <div>
+                      <p className="font-medium text-sm">Bank Statement (Last 3 months)</p>
+                      <p className="text-xs text-gray-500">Verify: Account number, account name, salary deposits</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 border rounded-lg bg-white">
+                  <div className="flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">2</div>
+                    <div>
+                      <p className="font-medium text-sm">Utility Bill or Lease Agreement</p>
+                      <p className="text-xs text-gray-500">Verify: Address matches what was provided</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 border rounded-lg bg-white">
+                  <div className="flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">3</div>
+                    <div>
+                      <p className="font-medium text-sm">Payslips (Last 3 months)</p>
+                      <p className="text-xs text-gray-500">Verify: Employer name, income matches range</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 border rounded-lg bg-white">
+                  <div className="flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">4</div>
+                    <div>
+                      <p className="font-medium text-sm">National ID / Passport</p>
+                      <p className="text-xs text-gray-500">Verify: Name, photo matches person</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 border rounded-lg bg-white">
+                  <div className="flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-sm">5</div>
+                    <div>
+                      <p className="font-medium text-sm">Employment Letter (Optional)</p>
+                      <p className="text-xs text-gray-500">Verify: Employment status, position</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Alert className="bg-green-50 border-green-200">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+                <AlertDescription className="text-green-800 text-sm">
+                  <strong>Verification Tip:</strong> Call the emergency contact and next of kin numbers to verify they know the borrower.
+                </AlertDescription>
+              </Alert>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Document Checklist */}
       <Card>

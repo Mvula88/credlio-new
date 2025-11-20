@@ -35,7 +35,12 @@ import {
   Ban,
   Hash,
   FileCheck,
-  Calculator
+  Calculator,
+  MapPin,
+  Briefcase,
+  Landmark,
+  Users,
+  Link as LinkIcon
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -197,18 +202,24 @@ export default function BorrowersPage() {
       const { data, error } = await supabase
         .from('borrowers')
         .select(`
-          *,
+          id,
+          full_name,
+          city,
+          country_code,
+          created_at,
+          employment_status,
+          monthly_income_range,
+          has_social_media,
+          street_address,
+          emergency_contact_name,
+          next_of_kin_name,
+          bank_name,
           borrower_scores(score),
           loans(id, status),
-          risk_flags(id, type, resolved_at, origin, created_by),
-          borrower_verification_summary(
-            overall_risk_score,
-            overall_risk_level,
-            total_documents_verified,
-            total_documents_required,
-            video_verified,
-            verification_complete,
-            requires_manual_review
+          risk_flags(id, type, resolved_at, origin, created_by, reason),
+          borrower_self_verification_status(
+            verification_status,
+            selfie_uploaded
           )
         `)
         .eq('national_id_hash', idHash)
@@ -231,12 +242,13 @@ export default function BorrowersPage() {
             .map((f: any) => f.created_by)
         )
 
-        // Format the result
+        // Format the result with verification badges
+        const verificationStatus = borrower.borrower_self_verification_status?.[0]
+
         setSearchResult({
           borrower_id: borrower.id,
           full_name: borrower.full_name,
-          phone_e164: borrower.phone_e164,
-          date_of_birth: borrower.date_of_birth,
+          city: borrower.city,
           country_code: borrower.country_code,
           credit_score: borrower.borrower_scores?.[0]?.score || 500,
           active_loan: borrower.loans?.some((l: any) => l.status === 'active') || false,
@@ -244,8 +256,21 @@ export default function BorrowersPage() {
           listed_by_lenders: uniqueLenders.size,
           created_at: borrower.created_at,
           has_defaults: borrower.risk_flags?.some((f: any) => !f.resolved_at && f.type === 'DEFAULT') || false,
-          verification_summary: borrower.borrower_verification_summary?.[0] || null,
           risk_flags: borrower.risk_flags,
+          // Loan history summary (show everything)
+          total_loans: borrower.loans?.length || 0,
+          completed_loans: borrower.loans?.filter((l: any) => l.status === 'completed').length || 0,
+          // Verification badges (summary only - no sensitive data)
+          verification_badges: {
+            identity_verified: verificationStatus?.verification_status === 'approved',
+            address_verified: !!borrower.street_address,
+            employment_verified: !!borrower.employment_status,
+            bank_verified: !!borrower.bank_name,
+            contacts_verified: !!(borrower.emergency_contact_name && borrower.next_of_kin_name),
+            digital_presence: borrower.has_social_media || false,
+          },
+          employment_status: borrower.employment_status,
+          monthly_income_range: borrower.monthly_income_range,
         })
       }
     } catch (error: any) {
@@ -572,22 +597,30 @@ export default function BorrowersPage() {
                   ) : (
                     <CardContent className="pt-6">
                       <div className="space-y-6">
-                        {/* Borrower Info */}
+                        {/* Borrower Info - Summary Only */}
                         <div className="flex items-start justify-between">
                           <div className="space-y-1">
                             <h3 className="text-xl font-semibold">{searchResult.full_name}</h3>
                             <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Phone className="h-3 w-3" />
-                                {searchResult.phone_e164}
-                              </span>
+                              {searchResult.city && (
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" />
+                                  {searchResult.city}
+                                </span>
+                              )}
                               <span className="flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
-                                Born {format(new Date(searchResult.date_of_birth), 'MMM d, yyyy')}
+                                Member since {format(new Date(searchResult.created_at), 'MMM yyyy')}
                               </span>
+                              {searchResult.employment_status && (
+                                <span className="flex items-center gap-1">
+                                  <Briefcase className="h-3 w-3" />
+                                  {searchResult.employment_status.replace('_', ' ')}
+                                </span>
+                              )}
                             </div>
                           </div>
-                          
+
                           <div className="text-right">
                             <div className="text-3xl font-bold">
                               <span className={getScoreColor(searchResult.credit_score)}>
@@ -595,6 +628,58 @@ export default function BorrowersPage() {
                               </span>
                             </div>
                             <p className="text-sm text-muted-foreground">Credit Score</p>
+                          </div>
+                        </div>
+
+                        {/* Verification Badges */}
+                        {searchResult.verification_badges && (
+                          <div className="p-4 bg-gray-50 rounded-lg border">
+                            <p className="text-sm font-medium text-gray-700 mb-3">Information Provided Status</p>
+                            <div className="flex flex-wrap gap-2">
+                              <Badge className={searchResult.verification_badges.identity_verified ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}>
+                                {searchResult.verification_badges.identity_verified ? <CheckCircle className="h-3 w-3 mr-1" /> : <X className="h-3 w-3 mr-1" />}
+                                Identity
+                              </Badge>
+                              <Badge className={searchResult.verification_badges.address_verified ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}>
+                                {searchResult.verification_badges.address_verified ? <CheckCircle className="h-3 w-3 mr-1" /> : <X className="h-3 w-3 mr-1" />}
+                                Address
+                              </Badge>
+                              <Badge className={searchResult.verification_badges.employment_verified ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}>
+                                {searchResult.verification_badges.employment_verified ? <CheckCircle className="h-3 w-3 mr-1" /> : <X className="h-3 w-3 mr-1" />}
+                                Employment
+                              </Badge>
+                              <Badge className={searchResult.verification_badges.bank_verified ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}>
+                                {searchResult.verification_badges.bank_verified ? <CheckCircle className="h-3 w-3 mr-1" /> : <X className="h-3 w-3 mr-1" />}
+                                Bank Info
+                              </Badge>
+                              <Badge className={searchResult.verification_badges.contacts_verified ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}>
+                                {searchResult.verification_badges.contacts_verified ? <CheckCircle className="h-3 w-3 mr-1" /> : <X className="h-3 w-3 mr-1" />}
+                                Contacts
+                              </Badge>
+                              <Badge className={searchResult.verification_badges.digital_presence ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}>
+                                {searchResult.verification_badges.digital_presence ? <CheckCircle className="h-3 w-3 mr-1" /> : <X className="h-3 w-3 mr-1" />}
+                                Social Media
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">
+                              {Object.values(searchResult.verification_badges).filter(Boolean).length}/6 fields provided - Request documents to verify
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Loan History Summary */}
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="p-3 bg-blue-50 rounded-lg text-center">
+                            <p className="text-2xl font-bold text-blue-900">{searchResult.total_loans}</p>
+                            <p className="text-xs text-blue-700">Total Loans</p>
+                          </div>
+                          <div className="p-3 bg-green-50 rounded-lg text-center">
+                            <p className="text-2xl font-bold text-green-900">{searchResult.completed_loans}</p>
+                            <p className="text-xs text-green-700">Completed</p>
+                          </div>
+                          <div className="p-3 bg-purple-50 rounded-lg text-center">
+                            <p className="text-2xl font-bold text-purple-900">{searchResult.monthly_income_range || 'N/A'}</p>
+                            <p className="text-xs text-purple-700">Income Range</p>
                           </div>
                         </div>
 
@@ -657,37 +742,6 @@ export default function BorrowersPage() {
                             <Badge variant="outline" className="text-green-600 border-green-600">
                               <CheckCircle className="h-3 w-3 mr-1" />
                               Clean Record
-                            </Badge>
-                          )}
-
-                          {/* Verification Status Badge */}
-                          {searchResult.verification_summary ? (
-                            searchResult.verification_summary.verification_complete ? (
-                              <Badge className={
-                                searchResult.verification_summary.overall_risk_level === 'low'
-                                  ? 'bg-green-100 text-green-800'
-                                  : searchResult.verification_summary.overall_risk_level === 'medium'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-red-100 text-red-800'
-                              }>
-                                <Shield className="h-3 w-3 mr-1" />
-                                Verified - {searchResult.verification_summary.overall_risk_level?.toUpperCase()} Risk
-                              </Badge>
-                            ) : searchResult.verification_summary.requires_manual_review ? (
-                              <Badge className="bg-red-100 text-red-800">
-                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                High Risk - Review Needed
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">
-                                <Clock className="h-3 w-3 mr-1" />
-                                Verification In Progress
-                              </Badge>
-                            )
-                          ) : (
-                            <Badge variant="outline" className="text-gray-600 border-gray-400">
-                              <FileCheck className="h-3 w-3 mr-1" />
-                              Not Verified
                             </Badge>
                           )}
                         </div>

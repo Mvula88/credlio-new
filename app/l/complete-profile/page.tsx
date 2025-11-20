@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, AlertCircle, Building2, CheckCircle, Upload, Camera, Video, RotateCcw } from 'lucide-react'
+import { Loader2, AlertCircle, Building2, CheckCircle, Upload, Camera, Video, RotateCcw, Lock } from 'lucide-react'
 
 // Utility function to generate SHA-256 hash of a file
 async function generateFileHash(file: File): Promise<string> {
@@ -22,21 +22,6 @@ async function generateFileHash(file: File): Promise<string> {
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
   return hashHex
 }
-
-const COUNTRIES = [
-  { code: 'NG', name: 'Nigeria' },
-  { code: 'KE', name: 'Kenya' },
-  { code: 'ZA', name: 'South Africa' },
-  { code: 'GH', name: 'Ghana' },
-  { code: 'TZ', name: 'Tanzania' },
-  { code: 'UG', name: 'Uganda' },
-  { code: 'NA', name: 'Namibia' },
-  { code: 'ZM', name: 'Zambia' },
-  { code: 'MW', name: 'Malawi' },
-  { code: 'RW', name: 'Rwanda' },
-  { code: 'CM', name: 'Cameroon' },
-  { code: 'CI', name: 'Ivory Coast' },
-]
 
 const ID_TYPES = [
   { value: 'national_id', label: 'National ID' },
@@ -275,13 +260,12 @@ export default function CompleteProfilePage() {
       setUploadProgress('Verifying photo integrity...')
       const photoHash = await generateFileHash(idPhotoFile)
 
-      // Update profile
+      // Update profile (country_code is already set during signup)
       setUploadProgress('Updating profile...')
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
           full_name: data.fullName,
-          country_code: data.country,
           phone_e164: data.phoneNumber,
           onboarding_completed: true,
         })
@@ -324,7 +308,6 @@ export default function CompleteProfilePage() {
       const { error: metadataError } = await supabase.auth.updateUser({
         data: {
           full_name: data.fullName,
-          country_code: data.country,
         },
       })
 
@@ -375,8 +358,16 @@ export default function CompleteProfilePage() {
               <div className="space-y-4 p-4 bg-green-50 rounded-lg border border-green-200">
                 <h3 className="font-semibold text-green-900 text-sm">Required Information - Quick & Simple</h3>
 
+                {/* Locked Fields Warning */}
+                <Alert className="bg-red-50 border-red-200">
+                  <Lock className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-800 text-xs">
+                    <strong>Important:</strong> Your name, phone number, and ID number <strong>cannot be changed</strong> after submission. Please ensure all information is correct before proceeding.
+                  </AlertDescription>
+                </Alert>
+
                 <div className="space-y-2">
-                  <Label htmlFor="fullName">Full Legal Name *</Label>
+                  <Label htmlFor="fullName">Full Legal Name * <span className="text-red-500 text-xs">(Cannot be changed)</span></Label>
                   <Input
                     id="fullName"
                     placeholder="John Doe"
@@ -388,7 +379,7 @@ export default function CompleteProfilePage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="phoneNumber">Phone Number *</Label>
+                  <Label htmlFor="phoneNumber">Phone Number * <span className="text-red-500 text-xs">(Cannot be changed)</span></Label>
                   <Input
                     id="phoneNumber"
                     type="tel"
@@ -397,31 +388,6 @@ export default function CompleteProfilePage() {
                   />
                   {errors.phoneNumber && (
                     <p className="text-sm text-red-500">{errors.phoneNumber.message}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country *</Label>
-                  <Controller
-                    name="country"
-                    control={control}
-                    render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select your country" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {COUNTRIES.map((country) => (
-                            <SelectItem key={country.code} value={country.code}>
-                              {country.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  {errors.country && (
-                    <p className="text-sm text-red-500">{errors.country.message}</p>
                   )}
                 </div>
 
@@ -438,7 +404,7 @@ export default function CompleteProfilePage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="idType">ID Type *</Label>
+                  <Label htmlFor="idType">ID Type * <span className="text-red-500 text-xs">(Cannot be changed)</span></Label>
                   <Controller
                     name="idType"
                     control={control}
@@ -463,7 +429,7 @@ export default function CompleteProfilePage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="idNumber">ID Number *</Label>
+                  <Label htmlFor="idNumber">ID Number * <span className="text-red-500 text-xs">(Cannot be changed)</span></Label>
                   <Input
                     id="idNumber"
                     placeholder="Enter your ID number"

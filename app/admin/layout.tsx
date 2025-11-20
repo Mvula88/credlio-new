@@ -30,7 +30,9 @@ import {
   AlertTriangle,
   UserCheck,
   Globe,
-  FileSignature
+  FileSignature,
+  Building2,
+  User
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -39,6 +41,8 @@ const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
   { name: 'Countries', href: '/admin/countries', icon: Globe },
   { name: 'User Management', href: '/admin/users', icon: Users },
+  { name: 'Borrowers', href: '/admin/borrowers', icon: User },
+  { name: 'Lenders', href: '/admin/lenders', icon: Building2 },
   { name: 'Verifications', href: '/admin/verifications', icon: UserCheck },
   { name: 'Risk Management', href: '/admin/risk', icon: ShieldAlert },
   { name: 'Loan Agreements', href: '/admin/agreements', icon: FileSignature },

@@ -31,7 +31,8 @@ interface VerificationItem {
   borrower_id: string
   user_id: string
   borrower_name: string
-  borrower_email: string
+  borrower_phone: string
+  borrower_email: string | null
   borrower_country: string
   borrower_country_name: string
   verification_status: 'pending' | 'approved' | 'rejected'
@@ -93,6 +94,9 @@ export default function AdminVerificationsPage() {
             countries!borrowers_country_code_fkey (
               code,
               name
+            ),
+            borrower_user_links(
+              user_id
             )
           )
         `)
@@ -108,21 +112,43 @@ export default function AdminVerificationsPage() {
 
       console.log('Verification data:', data)
 
-      const mapped: VerificationItem[] = (data || []).map((item: any) => ({
-        id: item.id,
-        borrower_id: item.borrower_id,
-        user_id: item.user_id,
-        borrower_name: item.borrowers.full_name,
-        borrower_email: item.borrowers.phone_e164 || 'N/A', // Using phone as identifier since email is not in borrowers table
-        borrower_country: item.borrowers.country_code || 'N/A',
-        borrower_country_name: item.borrowers.countries?.name || 'Unknown',
-        verification_status: item.verification_status,
-        selfie_uploaded: item.selfie_uploaded,
-        selfie_hash: item.selfie_hash,
-        submitted_at: item.started_at,
-        overall_risk_score: item.overall_risk_score || 0,
-        overall_risk_level: item.overall_risk_level || 'unknown'
-      }))
+      // Get emails for borrowers who have user accounts
+      const userIds = (data || [])
+        .map((item: any) => item.borrowers.borrower_user_links?.[0]?.user_id)
+        .filter(Boolean)
+
+      const emailMap: Record<string, string> = {}
+
+      if (userIds.length > 0) {
+        const { data: userData } = await supabase.auth.admin.listUsers()
+        userData?.users.forEach((user: any) => {
+          if (userIds.includes(user.id)) {
+            emailMap[user.id] = user.email
+          }
+        })
+      }
+
+      const mapped: VerificationItem[] = (data || []).map((item: any) => {
+        const linkedUserId = item.borrowers.borrower_user_links?.[0]?.user_id
+        const email = linkedUserId ? emailMap[linkedUserId] : null
+
+        return {
+          id: item.id,
+          borrower_id: item.borrower_id,
+          user_id: item.user_id,
+          borrower_name: item.borrowers.full_name,
+          borrower_phone: item.borrowers.phone_e164 || 'N/A',
+          borrower_email: email || null,
+          borrower_country: item.borrowers.country_code || 'N/A',
+          borrower_country_name: item.borrowers.countries?.name || 'Unknown',
+          verification_status: item.verification_status,
+          selfie_uploaded: item.selfie_uploaded,
+          selfie_hash: item.selfie_hash,
+          submitted_at: item.started_at,
+          overall_risk_score: item.overall_risk_score || 0,
+          overall_risk_level: item.overall_risk_level || 'unknown'
+        }
+      })
 
       setVerifications(mapped)
     } catch (error) {
@@ -165,7 +191,7 @@ export default function AdminVerificationsPage() {
       const search = searchTerm.toLowerCase()
       filtered = filtered.filter(v =>
         v.borrower_name.toLowerCase().includes(search) ||
-        v.borrower_email.toLowerCase().includes(search)
+        (v.borrower_email && v.borrower_email.toLowerCase().includes(search))
       )
     }
 
@@ -274,7 +300,7 @@ export default function AdminVerificationsPage() {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search by name or email..."
+                    placeholder="Search by National ID..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10"
@@ -347,6 +373,7 @@ export default function AdminVerificationsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Borrower</TableHead>
+                  <TableHead>Phone</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Country</TableHead>
                   <TableHead>Status</TableHead>
@@ -360,7 +387,10 @@ export default function AdminVerificationsPage() {
                 {filteredVerifications.map((verification) => (
                   <TableRow key={verification.id}>
                     <TableCell className="font-medium">{verification.borrower_name}</TableCell>
-                    <TableCell>{verification.borrower_email}</TableCell>
+                    <TableCell>{verification.borrower_phone}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {verification.borrower_email || '-'}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline">{verification.borrower_country_name}</Badge>
                     </TableCell>

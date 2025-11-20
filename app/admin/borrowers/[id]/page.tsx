@@ -60,7 +60,10 @@ export default function AdminBorrowerProfilePage() {
         .eq('id', borrowerId)
         .single()
 
-      if (borrowerError) throw borrowerError
+      if (borrowerError) {
+        console.error('Error fetching borrower:', borrowerError)
+        throw borrowerError
+      }
 
       setBorrower(borrowerData)
 
@@ -70,13 +73,18 @@ export default function AdminBorrowerProfilePage() {
         .select(`
           *,
           lenders(business_name, contact_email),
-          repayment_schedules(*),
-          repayment_events(*)
+          repayment_schedules(
+            *,
+            repayment_events(*)
+          )
         `)
         .eq('borrower_id', borrowerId)
         .order('created_at', { ascending: false })
 
-      if (loansError) throw loansError
+      if (loansError) {
+        console.error('Error fetching loans:', loansError)
+        throw loansError
+      }
 
       setLoans(loansData || [])
 
@@ -87,11 +95,17 @@ export default function AdminBorrowerProfilePage() {
         .eq('borrower_id', borrowerId)
         .order('created_at', { ascending: false })
 
-      if (flagsError) throw flagsError
+      if (flagsError) {
+        console.error('Error fetching risk flags:', flagsError)
+        throw flagsError
+      }
 
       setRiskFlags(flagsData || [])
     } catch (error) {
       console.error('Error loading borrower profile:', error)
+      console.error('Error details:', JSON.stringify(error, null, 2))
+      console.error('Error message:', error instanceof Error ? error.message : 'Unknown error')
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace')
     } finally {
       setLoading(false)
     }

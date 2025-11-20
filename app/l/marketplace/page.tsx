@@ -35,7 +35,15 @@ import {
   MessageSquare,
   Flag,
   TrendingDown,
-  Shield
+  Shield,
+  MapPin,
+  Briefcase,
+  Landmark,
+  Phone,
+  Users,
+  Link as LinkIcon,
+  ExternalLink,
+  X
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
@@ -146,16 +154,40 @@ export default function MarketplacePage() {
 
       setSavedSearches(searches || [])
 
-      // Get loan requests from borrowers
+      // CRITICAL: Only show loan requests from the SAME COUNTRY as the lender
+      // Get loan requests from borrowers with full verification details
       const { data: requests } = await supabase
         .from('loan_requests')
         .select(`
           *,
           borrowers(
+            id,
             full_name,
             phone_e164,
             country_code,
-            borrower_scores(score)
+            date_of_birth,
+            city,
+            street_address,
+            postal_code,
+            employment_status,
+            employer_name,
+            monthly_income_range,
+            income_source,
+            emergency_contact_name,
+            emergency_contact_phone,
+            emergency_contact_relationship,
+            next_of_kin_name,
+            next_of_kin_phone,
+            next_of_kin_relationship,
+            bank_name,
+            bank_account_number,
+            bank_account_name,
+            linkedin_url,
+            facebook_url,
+            has_social_media,
+            created_at,
+            borrower_scores(score),
+            borrower_self_verification_status(verification_status)
           ),
           loan_offers(
             id,
@@ -164,6 +196,7 @@ export default function MarketplacePage() {
           )
         `)
         .eq('status', 'open')
+        .eq('country_code', profile.country_code) // COUNTRY FILTER: Only same country
         .order('created_at', { ascending: false })
 
       // Keep amounts in minor units, convert only interest rates
@@ -655,12 +688,29 @@ export default function MarketplacePage() {
                   {loanRequests
                     .filter(req => {
                       const score = req.borrowers?.borrower_scores?.[0]?.score || 0
-                      return score >= filters.minScore && req.amount <= filters.maxAmount
+                      const verificationStatus = req.borrowers?.borrower_self_verification_status?.[0]?.verification_status
+                      // Only show verified borrowers
+                      return score >= filters.minScore &&
+                             req.amount <= filters.maxAmount &&
+                             verificationStatus === 'approved'
                     })
                     .map((request) => {
                       const score = request.borrowers?.borrower_scores?.[0]?.score || 500
                       const hasMyOffer = request.loan_offers?.some((o: any) => o.status === 'pending')
-                      
+                      const borrower = request.borrowers
+                      const verificationStatus = borrower?.borrower_self_verification_status?.[0]
+
+                      // Calculate verification badges
+                      const badges = {
+                        identity: verificationStatus?.verification_status === 'approved',
+                        address: !!borrower?.street_address,
+                        employment: !!borrower?.employment_status,
+                        bank: !!borrower?.bank_name,
+                        contacts: !!(borrower?.emergency_contact_name && borrower?.next_of_kin_name),
+                        social: borrower?.has_social_media || false,
+                      }
+                      const verifiedCount = Object.values(badges).filter(Boolean).length
+
                       return (
                         <Card key={request.id} className="hover:shadow-lg transition-shadow">
                           <CardHeader>
@@ -682,20 +732,39 @@ export default function MarketplacePage() {
                             <div className="space-y-2 text-sm">
                               <div className="flex items-center justify-between">
                                 <span className="text-gray-600">Borrower:</span>
-                                <span className="font-medium">{request.borrowers?.full_name}</span>
+                                <span className="font-medium">{borrower?.full_name}</span>
                               </div>
+                              {borrower?.city && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-600">Location:</span>
+                                  <span className="flex items-center gap-1">
+                                    <MapPin className="h-3 w-3" />
+                                    {borrower.city}
+                                  </span>
+                                </div>
+                              )}
+                              {borrower?.employment_status && (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-600">Employment:</span>
+                                  <span className="capitalize">{borrower.employment_status.replace('_', ' ')}</span>
+                                </div>
+                              )}
                               <div className="flex items-center justify-between">
                                 <span className="text-gray-600">Term:</span>
                                 <span>{request.term_months} months</span>
                               </div>
                               <div className="flex items-center justify-between">
-                                <span className="text-gray-600">Country:</span>
-                                <span>{request.borrowers?.country_code}</span>
-                              </div>
-                              <div className="flex items-center justify-between">
                                 <span className="text-gray-600">Offers:</span>
                                 <span>{request.loan_offers?.length || 0}</span>
                               </div>
+                            </div>
+
+                            {/* Verification Badges Summary */}
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-500">Verification:</span>
+                              <Badge variant={verifiedCount >= 5 ? 'default' : verifiedCount >= 3 ? 'secondary' : 'outline'}>
+                                {verifiedCount}/6 verified
+                              </Badge>
                             </div>
 
                             {hasMyOffer ? (
@@ -718,49 +787,134 @@ export default function MarketplacePage() {
                                     Make Offer
                                   </Button>
                                 </DialogTrigger>
-                                <DialogContent>
+                                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                                   <DialogHeader>
                                     <DialogTitle>Make Loan Offer</DialogTitle>
                                     <DialogDescription>
-                                      Submit your offer for this loan request
+                                      Review borrower details and submit your offer
                                     </DialogDescription>
                                   </DialogHeader>
                                   <div className="space-y-4 py-4">
+                                    {/* Basic Info */}
                                     <div className="border rounded-lg p-3 bg-gray-50">
-                                      <p className="text-sm text-gray-600">Borrower</p>
-                                      <p className="font-medium">{request.borrowers?.full_name}</p>
-                                      <p className="text-sm">Credit Score: {score}</p>
+                                      <div className="flex justify-between items-start">
+                                        <div>
+                                          <p className="font-medium text-lg">{borrower?.full_name}</p>
+                                          <p className="text-sm text-gray-600">Credit Score: {score}</p>
+                                        </div>
+                                        <Badge variant={verifiedCount >= 5 ? 'default' : 'secondary'}>
+                                          {verifiedCount}/6 verified
+                                        </Badge>
+                                      </div>
                                     </div>
 
-                                    <div className="space-y-2">
-                                      <Label htmlFor="offer-amount">Loan Amount</Label>
-                                      <Input
-                                        id="offer-amount"
-                                        type="number"
-                                        value={offerAmount}
-                                        onChange={(e) => setOfferAmount(e.target.value)}
-                                      />
+                                    {/* Full Verification Details */}
+                                    <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50/30">
+                                      <h4 className="font-semibold text-sm text-blue-900 mb-3 flex items-center gap-2">
+                                        <Shield className="h-4 w-4" />
+                                        Full Verification Details
+                                      </h4>
+                                      <div className="grid grid-cols-2 gap-4 text-sm">
+                                        {/* Left Column */}
+                                        <div className="space-y-3">
+                                          <div>
+                                            <p className="text-gray-500 text-xs">Phone</p>
+                                            <p className="font-medium">{borrower?.phone_e164 || 'N/A'}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-gray-500 text-xs">Address</p>
+                                            <p className="font-medium">{borrower?.street_address || 'N/A'}</p>
+                                            <p className="text-xs">{borrower?.city}{borrower?.postal_code ? `, ${borrower.postal_code}` : ''}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-gray-500 text-xs">Employment</p>
+                                            <p className="font-medium capitalize">{borrower?.employment_status?.replace('_', ' ') || 'N/A'}</p>
+                                            {borrower?.employer_name && <p className="text-xs">{borrower.employer_name}</p>}
+                                          </div>
+                                          <div>
+                                            <p className="text-gray-500 text-xs">Income Range</p>
+                                            <p className="font-medium">{borrower?.monthly_income_range || 'N/A'}</p>
+                                          </div>
+                                        </div>
+                                        {/* Right Column */}
+                                        <div className="space-y-3">
+                                          <div>
+                                            <p className="text-gray-500 text-xs">Bank Account</p>
+                                            <p className="font-medium">{borrower?.bank_name || 'N/A'}</p>
+                                            <p className="text-xs font-mono">{borrower?.bank_account_number || 'N/A'}</p>
+                                            <p className="text-xs">{borrower?.bank_account_name || 'N/A'}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-gray-500 text-xs">Emergency Contact</p>
+                                            <p className="font-medium">{borrower?.emergency_contact_name || 'N/A'}</p>
+                                            <p className="text-xs">{borrower?.emergency_contact_phone || 'N/A'}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-gray-500 text-xs">Next of Kin</p>
+                                            <p className="font-medium">{borrower?.next_of_kin_name || 'N/A'}</p>
+                                            <p className="text-xs">{borrower?.next_of_kin_phone || 'N/A'}</p>
+                                          </div>
+                                          {(borrower?.linkedin_url || borrower?.facebook_url) && (
+                                            <div>
+                                              <p className="text-gray-500 text-xs">Social Media</p>
+                                              <div className="flex gap-2">
+                                                {borrower?.linkedin_url && (
+                                                  <a href={borrower.linkedin_url} target="_blank" rel="noopener noreferrer"
+                                                     className="text-blue-600 hover:underline text-xs flex items-center gap-1">
+                                                    LinkedIn <ExternalLink className="h-3 w-3" />
+                                                  </a>
+                                                )}
+                                                {borrower?.facebook_url && (
+                                                  <a href={borrower.facebook_url} target="_blank" rel="noopener noreferrer"
+                                                     className="text-blue-600 hover:underline text-xs flex items-center gap-1">
+                                                    Facebook <ExternalLink className="h-3 w-3" />
+                                                  </a>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <Alert className="mt-3 bg-yellow-50 border-yellow-200">
+                                        <AlertCircle className="h-3 w-3 text-yellow-600" />
+                                        <AlertDescription className="text-xs text-yellow-800">
+                                          Verify this info matches what the borrower tells you in person before disbursing.
+                                        </AlertDescription>
+                                      </Alert>
                                     </div>
 
-                                    <div className="space-y-2">
-                                      <Label htmlFor="offer-rate">Interest Rate (%)</Label>
-                                      <Input
-                                        id="offer-rate"
-                                        type="number"
-                                        step="0.1"
-                                        value={offerRate}
-                                        onChange={(e) => setOfferRate(e.target.value)}
-                                      />
-                                    </div>
+                                    {/* Offer Form */}
+                                    <div className="grid grid-cols-3 gap-3">
+                                      <div className="space-y-2">
+                                        <Label htmlFor="offer-amount">Amount</Label>
+                                        <Input
+                                          id="offer-amount"
+                                          type="number"
+                                          value={offerAmount}
+                                          onChange={(e) => setOfferAmount(e.target.value)}
+                                        />
+                                      </div>
 
-                                    <div className="space-y-2">
-                                      <Label htmlFor="offer-terms">Term (Months)</Label>
-                                      <Input
-                                        id="offer-terms"
-                                        type="number"
-                                        value={offerTerms}
-                                        onChange={(e) => setOfferTerms(e.target.value)}
-                                      />
+                                      <div className="space-y-2">
+                                        <Label htmlFor="offer-rate">Rate (%)</Label>
+                                        <Input
+                                          id="offer-rate"
+                                          type="number"
+                                          step="0.1"
+                                          value={offerRate}
+                                          onChange={(e) => setOfferRate(e.target.value)}
+                                        />
+                                      </div>
+
+                                      <div className="space-y-2">
+                                        <Label htmlFor="offer-terms">Months</Label>
+                                        <Input
+                                          id="offer-terms"
+                                          type="number"
+                                          value={offerTerms}
+                                          onChange={(e) => setOfferTerms(e.target.value)}
+                                        />
+                                      </div>
                                     </div>
                                   </div>
                                   <DialogFooter>

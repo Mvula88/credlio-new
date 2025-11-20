@@ -10,11 +10,31 @@ function hashNationalId(nationalId: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { nationalId, phone, dateOfBirth, userId } = await request.json()
+    const {
+      nationalId, phone, dateOfBirth, userId,
+      // Enhanced verification fields
+      streetAddress, city, postalCode,
+      employmentStatus, employerName, monthlyIncomeRange, incomeSource,
+      emergencyContactName, emergencyContactPhone, emergencyContactRelationship,
+      nextOfKinName, nextOfKinPhone, nextOfKinRelationship,
+      bankName, bankAccountNumber, bankAccountName,
+      linkedinUrl, facebookUrl, referrerPhone
+    } = await request.json()
 
     if (!nationalId || !phone || !dateOfBirth || !userId) {
       return NextResponse.json(
         { error: 'Missing required fields' },
+        { status: 400 }
+      )
+    }
+
+    // Validate enhanced required fields
+    if (!streetAddress || !city || !employmentStatus || !monthlyIncomeRange || !incomeSource ||
+        !emergencyContactName || !emergencyContactPhone || !emergencyContactRelationship ||
+        !nextOfKinName || !nextOfKinPhone || !nextOfKinRelationship ||
+        !bankName || !bankAccountNumber || !bankAccountName) {
+      return NextResponse.json(
+        { error: 'Missing required verification fields' },
         { status: 400 }
       )
     }
@@ -61,8 +81,11 @@ export async function POST(request: NextRequest) {
 
     let borrowerId: string
 
+    // Check if has social media
+    const hasSocialMedia = !!(linkedinUrl || facebookUrl)
+
     if (existingBorrower) {
-      // Update existing borrower
+      // Update existing borrower with all enhanced fields
       borrowerId = existingBorrower.id
       await supabase
         .from('borrowers')
@@ -70,13 +93,34 @@ export async function POST(request: NextRequest) {
           full_name: profile.full_name,
           phone_e164: phone,
           date_of_birth: dateOfBirth,
-          email_verified: true, // Email verified via auth
-          profile_completed: true, // Mark profile as completed
+          email_verified: true,
+          profile_completed: true,
+          // Enhanced verification fields
+          street_address: streetAddress,
+          city: city,
+          postal_code: postalCode,
+          employment_status: employmentStatus,
+          employer_name: employerName,
+          monthly_income_range: monthlyIncomeRange,
+          income_source: incomeSource,
+          emergency_contact_name: emergencyContactName,
+          emergency_contact_phone: emergencyContactPhone,
+          emergency_contact_relationship: emergencyContactRelationship,
+          next_of_kin_name: nextOfKinName,
+          next_of_kin_phone: nextOfKinPhone,
+          next_of_kin_relationship: nextOfKinRelationship,
+          bank_name: bankName,
+          bank_account_number: bankAccountNumber,
+          bank_account_name: bankAccountName,
+          linkedin_url: linkedinUrl,
+          facebook_url: facebookUrl,
+          has_social_media: hasSocialMedia,
+          referrer_phone: referrerPhone,
           updated_at: new Date().toISOString()
         })
         .eq('id', borrowerId)
     } else {
-      // Create new borrower
+      // Create new borrower with all enhanced fields
       const { data: newBorrower, error: borrowerError } = await supabase
         .from('borrowers')
         .insert({
@@ -85,8 +129,29 @@ export async function POST(request: NextRequest) {
           national_id_hash: idHash,
           phone_e164: phone,
           date_of_birth: dateOfBirth,
-          email_verified: true, // Email verified via auth
-          profile_completed: true, // Mark profile as completed - triggers 24h waiting period
+          email_verified: true,
+          profile_completed: true,
+          // Enhanced verification fields
+          street_address: streetAddress,
+          city: city,
+          postal_code: postalCode,
+          employment_status: employmentStatus,
+          employer_name: employerName,
+          monthly_income_range: monthlyIncomeRange,
+          income_source: incomeSource,
+          emergency_contact_name: emergencyContactName,
+          emergency_contact_phone: emergencyContactPhone,
+          emergency_contact_relationship: emergencyContactRelationship,
+          next_of_kin_name: nextOfKinName,
+          next_of_kin_phone: nextOfKinPhone,
+          next_of_kin_relationship: nextOfKinRelationship,
+          bank_name: bankName,
+          bank_account_number: bankAccountNumber,
+          bank_account_name: bankAccountName,
+          linkedin_url: linkedinUrl,
+          facebook_url: facebookUrl,
+          has_social_media: hasSocialMedia,
+          referrer_phone: referrerPhone,
         })
         .select('id')
         .single()

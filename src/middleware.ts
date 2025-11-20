@@ -154,7 +154,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/b/onboarding', request.url))
       }
 
-      // If borrower record exists, check document verification
+      // If borrower record exists, check document verification for incomplete profiles only
       if (borrower) {
         const { data: verificationStatus } = await supabase
           .from('borrower_self_verification_status')
@@ -162,27 +162,17 @@ export async function middleware(request: NextRequest) {
           .eq('borrower_id', borrower.id)
           .maybeSingle()
 
-        // STRICT CHECK: User must have verification approved to access ANY borrower page
-        // If no verification record OR not approved OR no selfie, redirect to onboarding
-        const isFullyVerified = verificationStatus &&
-          verificationStatus.verification_status === 'approved' &&
-          verificationStatus.selfie_uploaded
+        // RELAXED CHECK: Only redirect to onboarding if they haven't uploaded documents yet
+        // Once documents are uploaded (status is pending/approved/rejected/banned), allow dashboard access
+        // Application-level blocks will prevent loan requests until approved
 
-        // Block ALL borrower pages except onboarding and pending-verification until approved
-        const allowedPendingPaths = ['/b/onboarding', '/b/pending-verification', '/b/settings']
-        const isAllowedPath = allowedPendingPaths.some(allowedPath => path.startsWith(allowedPath))
-
-        if (!isFullyVerified && !isAllowedPath) {
-          // If they have pending/rejected status, send to pending page
-          // Otherwise send to onboarding
-          if (verificationStatus && (verificationStatus.verification_status === 'pending' || verificationStatus.verification_status === 'rejected')) {
-            if (path !== '/b/pending-verification') {
-              return NextResponse.redirect(new URL('/b/pending-verification', request.url))
-            }
-          } else {
-            return NextResponse.redirect(new URL('/b/onboarding', request.url))
-          }
+        // Only redirect if NO verification record exists (first time user)
+        if (!verificationStatus && path !== '/b/onboarding') {
+          return NextResponse.redirect(new URL('/b/onboarding', request.url))
         }
+
+        // If verification record exists with any status (incomplete/pending/approved/rejected/banned),
+        // allow access to all pages. Loan request blocking handled at application level.
       }
     }
   }

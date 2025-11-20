@@ -40,7 +40,12 @@ import {
   Award,
   Flag,
   Users,
-  FileCheck
+  FileCheck,
+  MapPin,
+  Briefcase,
+  Landmark,
+  Link as LinkIcon,
+  ExternalLink
 } from 'lucide-react'
 import { format, isPast } from 'date-fns'
 import { RadialBarChart, RadialBar, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
@@ -92,7 +97,28 @@ export default function LenderBorrowerProfilePage() {
           phone_e164,
           created_at,
           country_code,
-          borrower_scores(score)
+          date_of_birth,
+          street_address,
+          city,
+          postal_code,
+          employment_status,
+          employer_name,
+          monthly_income_range,
+          income_source,
+          emergency_contact_name,
+          emergency_contact_phone,
+          emergency_contact_relationship,
+          next_of_kin_name,
+          next_of_kin_phone,
+          next_of_kin_relationship,
+          bank_name,
+          bank_account_number,
+          bank_account_name,
+          linkedin_url,
+          facebook_url,
+          has_social_media,
+          borrower_scores(score),
+          borrower_self_verification_status(verification_status)
         `)
         .eq('id', borrowerId)
         .maybeSingle()
@@ -648,6 +674,193 @@ export default function LenderBorrowerProfilePage() {
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Full Verification Details - For Lender to Verify In Person */}
+      <Card className="border-2 border-blue-200 bg-blue-50/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-blue-900">
+            <Shield className="h-5 w-5" />
+            Full Verification Details
+          </CardTitle>
+          <CardDescription>
+            Use this information to verify the borrower's identity in person. Compare what they tell you with what's recorded here.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Personal & Contact */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Personal Information
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Full Name:</span>
+                  <span className="font-medium">{borrower.full_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Phone:</span>
+                  <span className="font-medium">{borrower.phone_e164}</span>
+                </div>
+                {borrower.date_of_birth && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Date of Birth:</span>
+                    <span className="font-medium">{format(new Date(borrower.date_of_birth), 'MMM d, yyyy')}</span>
+                  </div>
+                )}
+              </div>
+
+              <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2 pt-2">
+                <MapPin className="h-4 w-4" />
+                Physical Address
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Street:</span>
+                  <span className="font-medium">{borrower.street_address || 'Not provided'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">City:</span>
+                  <span className="font-medium">{borrower.city || 'N/A'}</span>
+                </div>
+                {borrower.postal_code && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Postal Code:</span>
+                    <span className="font-medium">{borrower.postal_code}</span>
+                  </div>
+                )}
+              </div>
+
+              <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2 pt-2">
+                <Briefcase className="h-4 w-4" />
+                Employment & Income
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Status:</span>
+                  <span className="font-medium capitalize">{borrower.employment_status?.replace('_', ' ') || 'N/A'}</span>
+                </div>
+                {borrower.employer_name && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Employer:</span>
+                    <span className="font-medium">{borrower.employer_name}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Income Range:</span>
+                  <span className="font-medium">{borrower.monthly_income_range || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Source:</span>
+                  <span className="font-medium">{borrower.income_source || 'N/A'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Bank & Contacts */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2">
+                <Landmark className="h-4 w-4" />
+                Bank Account
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Bank:</span>
+                  <span className="font-medium">{borrower.bank_name || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Account No:</span>
+                  <span className="font-medium font-mono">{borrower.bank_account_number || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Account Name:</span>
+                  <span className="font-medium">{borrower.bank_account_name || 'N/A'}</span>
+                </div>
+                {borrower.bank_account_name && borrower.full_name &&
+                 borrower.bank_account_name.toLowerCase() !== borrower.full_name.toLowerCase() && (
+                  <Alert variant="destructive" className="mt-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      Account name doesn't match borrower name!
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+
+              <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2 pt-2">
+                <Phone className="h-4 w-4" />
+                Emergency Contact
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Name:</span>
+                  <span className="font-medium">{borrower.emergency_contact_name || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Phone:</span>
+                  <span className="font-medium">{borrower.emergency_contact_phone || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Relationship:</span>
+                  <span className="font-medium capitalize">{borrower.emergency_contact_relationship || 'N/A'}</span>
+                </div>
+              </div>
+
+              <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2 pt-2">
+                <Users className="h-4 w-4" />
+                Next of Kin
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Name:</span>
+                  <span className="font-medium">{borrower.next_of_kin_name || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Phone:</span>
+                  <span className="font-medium">{borrower.next_of_kin_phone || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Relationship:</span>
+                  <span className="font-medium capitalize">{borrower.next_of_kin_relationship || 'N/A'}</span>
+                </div>
+              </div>
+
+              {/* Social Media */}
+              {(borrower.linkedin_url || borrower.facebook_url) && (
+                <>
+                  <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2 pt-2">
+                    <LinkIcon className="h-4 w-4" />
+                    Social Media
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    {borrower.linkedin_url && (
+                      <a href={borrower.linkedin_url} target="_blank" rel="noopener noreferrer"
+                         className="flex items-center gap-2 text-blue-600 hover:underline">
+                        LinkedIn <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                    {borrower.facebook_url && (
+                      <a href={borrower.facebook_url} target="_blank" rel="noopener noreferrer"
+                         className="flex items-center gap-2 text-blue-600 hover:underline">
+                        Facebook <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <Alert className="mt-4 bg-yellow-50 border-yellow-200">
+            <AlertTriangle className="h-4 w-4 text-yellow-600" />
+            <AlertDescription className="text-yellow-800 text-sm">
+              <strong>Verification Tip:</strong> Call the emergency contact and next of kin to verify the borrower's identity.
+              Check that the bank account name matches the borrower's name exactly.
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
 

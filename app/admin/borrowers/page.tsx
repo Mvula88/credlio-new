@@ -21,21 +21,20 @@ import { exportToCSV, formatBorrowerForExport } from '@/lib/export'
 import { isPast } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
 
+type VerificationFilter = 'all' | 'approved' | 'pending' | 'incomplete' | 'rejected' | 'banned'
+
 export default function AdminBorrowersPage() {
   const [borrowers, setBorrowers] = useState<any[]>([])
   const [filteredBorrowers, setFilteredBorrowers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>('all')
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
     loadAllBorrowers()
   }, [])
-
-  useEffect(() => {
-    filterBorrowers()
-  }, [searchQuery, borrowers])
 
   const loadAllBorrowers = async () => {
     try {
@@ -45,14 +44,13 @@ export default function AdminBorrowersPage() {
         return
       }
 
-      // Get ALL borrowers in the system
+      // Get ALL borrowers in the system with verification status
       const { data: borrowersData, error } = await supabase
         .from('borrowers')
         .select(`
           id,
           full_name,
           phone_e164,
-          email,
           created_at,
           country_code,
           borrower_scores(score),
@@ -61,12 +59,30 @@ export default function AdminBorrowersPage() {
             status,
             principal_minor,
             currency,
-            repayment_schedules(id, status, due_date, paid_at)
+            repayment_schedules(
+              id,
+              due_date,
+              repayment_events(paid_at)
+            )
+          ),
+          borrower_self_verification_status(
+            verification_status,
+            admin_override,
+            auto_approved,
+            auto_rejected,
+            rejection_reason,
+            verified_at,
+            rejected_at
           )
         `)
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('Supabase error details:', JSON.stringify(error, null, 2))
+        throw error
+      }
+
+      console.log('Borrowers data loaded successfully:', borrowersData?.length || 0, 'borrowers')
 
       // Calculate payment health for each borrower
       const borrowersWithHealth = borrowersData?.map((borrower: any) => {
@@ -82,16 +98,21 @@ export default function AdminBorrowersPage() {
           if (loan.status === 'active') activeLoans++
 
           loan.repayment_schedules?.forEach((schedule: any) => {
-            if (schedule.status === 'paid' && schedule.paid_at) {
+            // Check if this schedule has any payments
+            const hasPayment = schedule.repayment_events && schedule.repayment_events.length > 0
+
+            if (hasPayment) {
               totalPaid++
               const dueDate = new Date(schedule.due_date)
-              const paidDate = new Date(schedule.paid_at)
+              // Get the first payment date (could have multiple partial payments)
+              const paidDate = new Date(schedule.repayment_events[0].paid_at)
               if (paidDate <= dueDate) {
                 totalOnTime++
               } else {
                 totalLate++
               }
-            } else if (schedule.status !== 'paid' && isPast(new Date(schedule.due_date))) {
+            } else if (isPast(new Date(schedule.due_date))) {
+              // Schedule is past due and hasn't been paid
               totalOverdue++
             }
           })
@@ -99,6 +120,9 @@ export default function AdminBorrowersPage() {
 
         const healthScore = totalPaid > 0 ? Math.round((totalOnTime / totalPaid) * 100) : 0
         const creditScore = borrower.borrower_scores?.[0]?.score || 0
+        const verificationData = borrower.borrower_self_verification_status?.[0]
+        const verificationStatus = verificationData?.verification_status || 'incomplete'
+        const rejectionReason = verificationData?.rejection_reason || null
 
         return {
           ...borrower,
@@ -110,11 +134,13 @@ export default function AdminBorrowersPage() {
           totalOnTime,
           totalLate,
           totalOverdue,
+          verificationStatus,
+          rejectionReason,
         }
       }) || []
 
       setBorrowers(borrowersWithHealth)
-      setFilteredBorrowers(borrowersWithHealth)
+      applyFilters(borrowersWithHealth, verificationFilter, searchQuery)
     } catch (error) {
       console.error('Error loading borrowers:', error)
     } finally {
@@ -122,24 +148,65 @@ export default function AdminBorrowersPage() {
     }
   }
 
-  const filterBorrowers = async () => {
-    if (!searchQuery.trim()) {
-      setFilteredBorrowers(borrowers)
-      return
+  const applyFilters = async (
+    data: any[],
+    verificationStatus: VerificationFilter,
+    search: string
+  ) => {
+    let filtered = data
+
+    // Apply verification status filter
+    if (verificationStatus !== 'all') {
+      filtered = filtered.filter(b => b.verificationStatus === verificationStatus)
     }
 
-    // ONLY search by National ID (hashed) for security
-    try {
-      const { hashNationalIdAsync } = await import('@/lib/auth')
-      const idHash = await hashNationalIdAsync(searchQuery)
+    // Apply search filter
+    if (search.trim()) {
+      try {
+        const { hashNationalIdAsync } = await import('@/lib/auth')
+        const idHash = await hashNationalIdAsync(search)
+        filtered = filtered.filter(b => b.national_id_hash === idHash)
+      } catch (error) {
+        console.error('Error hashing National ID:', error)
+        filtered = []
+      }
+    }
 
-      const filtered = borrowers.filter((borrower) =>
-        borrower.national_id_hash === idHash
-      )
-      setFilteredBorrowers(filtered)
-    } catch (error) {
-      console.error('Error hashing National ID:', error)
-      setFilteredBorrowers([])
+    setFilteredBorrowers(filtered)
+  }
+
+  const filterBorrowers = async () => {
+    applyFilters(borrowers, verificationFilter, searchQuery)
+  }
+
+  const handleVerificationFilterChange = (filter: VerificationFilter) => {
+    setVerificationFilter(filter)
+    applyFilters(borrowers, filter, searchQuery)
+  }
+
+  const getVerificationBadge = (status: string, rejectionReason?: string | null) => {
+    switch (status) {
+      case 'approved':
+        return <Badge className="bg-green-100 text-green-800"><CheckCircle className="h-3 w-3 mr-1" />Verified</Badge>
+      case 'pending':
+        return <Badge className="bg-blue-100 text-blue-800"><AlertTriangle className="h-3 w-3 mr-1" />Pending</Badge>
+      case 'incomplete':
+        return <Badge variant="secondary">Incomplete</Badge>
+      case 'rejected':
+        return (
+          <div className="flex flex-col gap-1">
+            <Badge variant="destructive">Rejected</Badge>
+            {rejectionReason && (
+              <p className="text-xs text-red-600 italic max-w-xs">
+                {rejectionReason}
+              </p>
+            )}
+          </div>
+        )
+      case 'banned':
+        return <Badge variant="destructive">Banned</Badge>
+      default:
+        return <Badge variant="outline">{status}</Badge>
     }
   }
 
@@ -235,13 +302,88 @@ export default function AdminBorrowersPage() {
           <CardDescription>Search by National ID number only - the most secure unique identifier</CardDescription>
         </CardHeader>
         <CardContent>
-          <Input
-            type="text"
-            placeholder="Enter National ID number..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="max-w-md"
-          />
+          <div className="flex gap-2 items-center">
+            <Input
+              type="text"
+              placeholder="Enter National ID number..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  filterBorrowers()
+                }
+              }}
+              className="max-w-md"
+            />
+            <Button
+              onClick={() => filterBorrowers()}
+              disabled={!searchQuery.trim()}
+            >
+              <Search className="h-4 w-4 mr-2" />
+              Search
+            </Button>
+            {searchQuery && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchQuery('')
+                  applyFilters(borrowers, verificationFilter, '')
+                }}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Verification Status Filter Tabs */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={verificationFilter === 'all' ? 'default' : 'outline'}
+              onClick={() => handleVerificationFilterChange('all')}
+            >
+              All ({borrowers.length})
+            </Button>
+            <Button
+              variant={verificationFilter === 'approved' ? 'default' : 'outline'}
+              onClick={() => handleVerificationFilterChange('approved')}
+              className={verificationFilter === 'approved' ? '' : 'border-green-200'}
+            >
+              <CheckCircle className="h-4 w-4 mr-1" />
+              Verified ({borrowers.filter(b => b.verificationStatus === 'approved').length})
+            </Button>
+            <Button
+              variant={verificationFilter === 'pending' ? 'default' : 'outline'}
+              onClick={() => handleVerificationFilterChange('pending')}
+              className={verificationFilter === 'pending' ? '' : 'border-blue-200'}
+            >
+              <AlertTriangle className="h-4 w-4 mr-1" />
+              Pending ({borrowers.filter(b => b.verificationStatus === 'pending').length})
+            </Button>
+            <Button
+              variant={verificationFilter === 'incomplete' ? 'default' : 'outline'}
+              onClick={() => handleVerificationFilterChange('incomplete')}
+            >
+              Incomplete ({borrowers.filter(b => b.verificationStatus === 'incomplete').length})
+            </Button>
+            <Button
+              variant={verificationFilter === 'rejected' ? 'default' : 'outline'}
+              onClick={() => handleVerificationFilterChange('rejected')}
+              className={verificationFilter === 'rejected' ? '' : 'border-red-200'}
+            >
+              Rejected ({borrowers.filter(b => b.verificationStatus === 'rejected').length})
+            </Button>
+            <Button
+              variant={verificationFilter === 'banned' ? 'default' : 'outline'}
+              onClick={() => handleVerificationFilterChange('banned')}
+              className={verificationFilter === 'banned' ? '' : 'border-red-200'}
+            >
+              Banned ({borrowers.filter(b => b.verificationStatus === 'banned').length})
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -321,6 +463,7 @@ export default function AdminBorrowersPage() {
                   <TableRow>
                     <TableHead>Borrower</TableHead>
                     <TableHead>Contact</TableHead>
+                    <TableHead>Verification</TableHead>
                     <TableHead>Credit Score</TableHead>
                     <TableHead>Loans</TableHead>
                     <TableHead>Total Disbursed</TableHead>
@@ -343,18 +486,13 @@ export default function AdminBorrowersPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1 text-sm">
-                            <Phone className="h-3 w-3 text-gray-400" />
-                            {borrower.phone_e164}
-                          </div>
-                          {borrower.email && (
-                            <div className="flex items-center gap-1 text-sm text-gray-500">
-                              <Mail className="h-3 w-3 text-gray-400" />
-                              {borrower.email}
-                            </div>
-                          )}
+                        <div className="flex items-center gap-1 text-sm">
+                          <Phone className="h-3 w-3 text-gray-400" />
+                          {borrower.phone_e164}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {getVerificationBadge(borrower.verificationStatus, borrower.rejectionReason)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

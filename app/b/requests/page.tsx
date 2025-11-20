@@ -65,6 +65,8 @@ export default function LoanRequestsPage() {
   const [currencyInfo, setCurrencyInfo] = useState<CurrencyInfo | null>(null)
   const [templates, setTemplates] = useState<any[]>([])
   const [showTemplates, setShowTemplates] = useState(false)
+  const [verificationStatus, setVerificationStatus] = useState<any>(null)
+  const [isVerified, setIsVerified] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -138,17 +140,15 @@ export default function LoanRequestsPage() {
       }
 
       // Check verification status - BLOCK if not verified
-      const { data: verificationStatus } = await supabase
+      const { data: verificationData } = await supabase
         .from('borrower_self_verification_status')
         .select('*')
         .eq('borrower_id', linkData.borrower_id)
-        .single()
+        .maybeSingle()
 
-      if (!verificationStatus || verificationStatus.verification_status !== 'approved') {
-        console.warn('Borrower not verified, redirecting to verification page')
-        router.push('/b/verify')
-        return
-      }
+      setVerificationStatus(verificationData)
+      const verified = verificationData?.verification_status === 'approved'
+      setIsVerified(verified)
 
       setBorrower(borrowerData)
       setCreditScore(borrowerData.borrower_scores?.[0]?.score || 500)
@@ -375,6 +375,95 @@ export default function LoanRequestsPage() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
+  // Show verification required message if not verified
+  if (!isVerified) {
+    return (
+      <div className="max-w-2xl mx-auto py-12">
+        <Card>
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center">
+              <AlertCircle className="h-6 w-6 text-orange-600" />
+            </div>
+            <CardTitle className="text-2xl">Identity Verification Required</CardTitle>
+            <CardDescription>
+              Complete identity verification to access loan requests
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!verificationStatus && (
+              <Alert className="border-orange-200 bg-orange-50">
+                <AlertCircle className="h-4 w-4 text-orange-600" />
+                <AlertTitle className="text-orange-900">Verification Not Started</AlertTitle>
+                <AlertDescription className="text-orange-800">
+                  You need to complete the identity verification process before you can request loans.
+                  This helps protect both you and our lenders.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {verificationStatus?.verification_status === 'incomplete' && (
+              <Alert className="border-orange-200 bg-orange-50">
+                <AlertCircle className="h-4 w-4 text-orange-600" />
+                <AlertTitle className="text-orange-900">Verification Incomplete</AlertTitle>
+                <AlertDescription className="text-orange-800">
+                  You started the verification process but haven't completed it yet.
+                  Please complete all required steps to access loan requests.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {verificationStatus?.verification_status === 'pending' && (
+              <Alert className="border-blue-200 bg-blue-50">
+                <Clock className="h-4 w-4 text-blue-600" />
+                <AlertTitle className="text-blue-900">Verification Under Review</AlertTitle>
+                <AlertDescription className="text-blue-800">
+                  Your identity verification documents are currently being reviewed by our team.
+                  You'll be able to request loans once your verification is approved.
+                  This usually takes 1-2 business days.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {verificationStatus?.verification_status === 'rejected' && (
+              <Alert className="border-red-200 bg-red-50">
+                <XCircle className="h-4 w-4 text-red-600" />
+                <AlertTitle className="text-red-900">Verification Rejected</AlertTitle>
+                <AlertDescription className="text-red-800">
+                  Your verification was rejected. Please review the feedback and resubmit your documents.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {verificationStatus?.verification_status === 'banned' && (
+              <Alert className="border-red-200 bg-red-50">
+                <XCircle className="h-4 w-4 text-red-600" />
+                <AlertTitle className="text-red-900">Account Suspended</AlertTitle>
+                <AlertDescription className="text-red-800">
+                  Your account has been suspended. Please contact support for more information.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="flex justify-center space-x-3">
+              {(!verificationStatus ||
+                verificationStatus.verification_status === 'incomplete' ||
+                verificationStatus.verification_status === 'rejected') && (
+                <Button onClick={() => router.push('/b/onboarding')}>
+                  {!verificationStatus || verificationStatus.verification_status === 'incomplete'
+                    ? 'Complete Verification'
+                    : 'Resubmit Documents'}
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => router.push('/b/overview')}>
+                Back to Dashboard
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }

@@ -39,8 +39,7 @@ import {
   RadialBarChart,
   RadialBar
 } from 'recharts'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { VerificationStatusBanner } from '@/components/verification-status-banner'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 
 export default function BorrowerOverviewPage() {
@@ -58,51 +57,10 @@ export default function BorrowerOverviewPage() {
   const router = useRouter()
   const supabase = createClient()
 
-  // Quick verification check on mount - redirect IMMEDIATELY if not verified
+  // Load dashboard data on mount - allow all borrowers regardless of verification status
   useEffect(() => {
-    const quickCheck = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/b/login')
-        return
-      }
-
-      const { data: linkData } = await supabase
-        .from('borrower_user_links')
-        .select('borrower_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!linkData) {
-        router.push('/b/onboarding')
-        return
-      }
-
-      const { data: verifyStatus } = await supabase
-        .from('borrower_self_verification_status')
-        .select('verification_status')
-        .eq('borrower_id', linkData.borrower_id)
-        .single()
-
-      if (!verifyStatus || verifyStatus.verification_status !== 'approved') {
-        if (verifyStatus?.verification_status === 'pending') {
-          router.push('/b/pending-verification')
-        } else {
-          router.push('/b/onboarding')
-        }
-        return
-      }
-
-      // Only if approved, allow loading the full dashboard
-      setChecking(false)
-      loadDashboardData()
-    }
-
-    quickCheck()
-  }, [])
-
-  useEffect(() => {
-    // Empty dependency to prevent auto-load - quickCheck handles it
+    setChecking(false)
+    loadDashboardData()
   }, [])
 
   const loadDashboardData = async () => {
@@ -144,7 +102,7 @@ export default function BorrowerOverviewPage() {
             *,
             borrower_scores(
               score,
-              factors,
+              score_factors,
               updated_at
             )
           `)
@@ -161,7 +119,7 @@ export default function BorrowerOverviewPage() {
             setBorrowerCurrency(currency)
           }
 
-          // Load verification status
+          // Load verification status - but allow access regardless
           const { data: verifyStatus } = await supabase
             .from('borrower_self_verification_status')
             .select('*')
@@ -170,19 +128,8 @@ export default function BorrowerOverviewPage() {
 
           setVerificationStatus(verifyStatus)
 
-          // STRICT REDIRECT: Users MUST be approved to see overview
-          if (!verifyStatus || verifyStatus.verification_status !== 'approved') {
-            if (verifyStatus?.verification_status === 'pending') {
-              router.push('/b/pending-verification')
-            } else if (verifyStatus?.verification_status === 'rejected') {
-              router.push('/b/onboarding')
-            } else {
-              router.push('/b/onboarding')
-            }
-            return
-          }
-
-          // If we reach here, user is fully verified
+          // Allow all borrowers to access dashboard
+          // Verification status will be shown via banner
           setAuthorized(true)
 
           const { data: loanData } = await supabase
@@ -386,85 +333,68 @@ export default function BorrowerOverviewPage() {
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Identity Verification Warning */}
         {verificationStatus && verificationStatus.verification_status !== 'approved' && (
-          <Alert className="border-orange-200 bg-orange-50">
-            <Shield className="h-5 w-5 text-orange-600" />
-            <AlertTitle className="text-orange-900 text-lg font-bold">Action Required: Complete Identity Verification</AlertTitle>
-            <AlertDescription className="text-orange-800">
-              <p className="mb-3">
-                You must verify your identity before you can request loans. This protects both you and lenders from fraud.
-              </p>
-              <Button onClick={() => router.push('/b/verify')} className="bg-orange-600 hover:bg-orange-700">
-                Complete Verification Now
-              </Button>
-              {verificationStatus.verification_status === 'rejected' && (
-                <p className="mt-3 text-sm text-red-700 font-medium">
-                  ❌ {verificationStatus.rejection_reason}
-                </p>
-              )}
-              {verificationStatus.verification_status === 'banned' && (
-                <p className="mt-3 text-sm text-red-800 font-bold">
-                  🚫 {verificationStatus.rejection_reason}
-                </p>
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
+          <>
+            {/* Show "Complete Verification" for incomplete profiles */}
+            {verificationStatus.verification_status === 'incomplete' && (
+              <Alert className="border-orange-200 bg-orange-50">
+                <Shield className="h-5 w-5 text-orange-600" />
+                <AlertTitle className="text-orange-900 text-lg font-bold">Action Required: Complete Identity Verification</AlertTitle>
+                <AlertDescription className="text-orange-800">
+                  <p className="mb-3">
+                    You must verify your identity before you can request loans. This protects both you and lenders from fraud.
+                  </p>
+                  <Button onClick={() => router.push('/b/onboarding')} className="bg-orange-600 hover:bg-orange-700">
+                    Complete Verification Now
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
 
-        {/* Verification Status Banner */}
-        {borrower && (
-          <VerificationStatusBanner
-            emailVerified={borrower.email_verified}
-            phoneVerified={borrower.phone_verified}
-            idVerified={borrower.id_verified}
-            profileCompleted={borrower.profile_completed && !!borrower.country_code}
-            accountActivatedAt={borrower.account_activated_at}
-            verificationPendingUntil={borrower.verification_pending_until}
-            userType="borrower"
-            verificationStatus={verificationStatus?.verification_status || 'incomplete'}
-          />
-        )}
+            {/* Show "Under Review" for pending profiles */}
+            {verificationStatus.verification_status === 'pending' && (
+              <Alert className="border-blue-200 bg-blue-50">
+                <Clock className="h-5 w-5 text-blue-600" />
+                <AlertTitle className="text-blue-900 text-lg font-bold">Verification Under Review</AlertTitle>
+                <AlertDescription className="text-blue-800">
+                  <p className="mb-2">
+                    Your identity verification documents are being reviewed by our admin team. You'll be notified within 24 hours.
+                  </p>
+                  <p className="text-sm">
+                    You can browse the platform but cannot request loans until verified.
+                  </p>
+                </AlertDescription>
+              </Alert>
+            )}
 
-        {/* Show limited dashboard if not verified */}
-        {verificationStatus?.verification_status !== 'approved' && (
-          <Card className="border-2 border-orange-200 bg-orange-50">
-            <CardHeader>
-              <CardTitle className="text-orange-900 flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Limited Access - Verification Required
-              </CardTitle>
-              <CardDescription className="text-orange-700">
-                Some features are disabled until you complete identity verification
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <XCircle className="h-4 w-4 text-red-500" />
-                  <span className="text-muted-foreground">Request new loans</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <XCircle className="h-4 w-4 text-red-500" />
-                  <span className="text-muted-foreground">Accept loan offers</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                  <span className="text-muted-foreground">View your credit score</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                  <span className="text-muted-foreground">Browse platform features</span>
-                </div>
-              </div>
-              <Button
-                onClick={() => router.push('/b/verify')}
-                className="w-full bg-orange-600 hover:bg-orange-700 text-white"
-                size="lg"
-              >
-                <Shield className="h-4 w-4 mr-2" />
-                Complete Identity Verification
-              </Button>
-            </CardContent>
-          </Card>
+            {/* Show rejection reason for rejected profiles */}
+            {verificationStatus.verification_status === 'rejected' && (
+              <Alert className="border-red-200 bg-red-50">
+                <XCircle className="h-5 w-5 text-red-600" />
+                <AlertTitle className="text-red-900 text-lg font-bold">Verification Rejected</AlertTitle>
+                <AlertDescription className="text-red-800">
+                  <p className="mb-3">
+                    Your verification was rejected: <span className="font-semibold">{verificationStatus.rejection_reason}</span>
+                  </p>
+                  <Button onClick={() => router.push('/b/onboarding')} className="bg-red-600 hover:bg-red-700">
+                    Resubmit Verification
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Show ban notice for banned profiles */}
+            {verificationStatus.verification_status === 'banned' && (
+              <Alert className="border-red-300 bg-red-100">
+                <AlertTriangle className="h-5 w-5 text-red-700" />
+                <AlertTitle className="text-red-900 text-lg font-bold">Account Suspended</AlertTitle>
+                <AlertDescription className="text-red-900">
+                  <p className="font-semibold">
+                    🚫 {verificationStatus.rejection_reason}
+                  </p>
+                </AlertDescription>
+              </Alert>
+            )}
+          </>
         )}
 
         {/* Key Metrics */}
@@ -492,7 +422,7 @@ export default function BorrowerOverviewPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                {activeLoan ? formatCurrency(activeLoan.principal_minor || 0) : '$0'}
+                {activeLoan ? formatCurrency(activeLoan.principal_minor || 0) : formatCurrency(0)}
               </div>
               <p className="text-sm text-muted-foreground mt-1 font-medium">
                 {activeLoan ? `${calculateLoanProgress()}% Repaid` : 'No Active Loans'}
@@ -517,7 +447,7 @@ export default function BorrowerOverviewPage() {
                 </>
               ) : (
                 <>
-                  <div className="text-3xl font-bold text-muted-foreground">$0</div>
+                  <div className="text-3xl font-bold text-muted-foreground">{formatCurrency(0)}</div>
                   <p className="text-sm text-accent mt-1 font-medium">All Current</p>
                 </>
               )}
@@ -531,7 +461,7 @@ export default function BorrowerOverviewPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-accent">
-                {activeLoan ? formatCurrency(recentPayments.reduce((sum, p) => sum + (p.amount_minor || 0), 0)) : '$0'}
+                {activeLoan ? formatCurrency(recentPayments.reduce((sum, p) => sum + (p.amount_minor || 0), 0)) : formatCurrency(0)}
               </div>
               <p className="text-sm text-muted-foreground mt-1 font-medium">
                 Lifetime Payments
