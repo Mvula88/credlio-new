@@ -834,7 +834,8 @@ export default function LoanDetailPage() {
         </Card>
       )}
 
-      {/* Repayment Progress Visualization */}
+      {/* Repayment Progress Visualization - Only show for tracked loans */}
+      {['active', 'completed', 'defaulted', 'written_off'].includes(loan.status) && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -976,6 +977,7 @@ export default function LoanDetailPage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Borrower & Loan Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1024,80 +1026,82 @@ export default function LoanDetailPage() {
         </Card>
       </div>
 
-      {/* Repayment Schedule */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Repayment Schedule</CardTitle>
-          <CardDescription>Track and mark payments as they come in</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Installment</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Amount Due</TableHead>
-                  <TableHead>Principal</TableHead>
-                  <TableHead>Interest</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loan.repayment_schedules?.map((schedule: any) => {
-                  const status = getScheduleStatus(schedule)
-                  const isOverdue = status === 'overdue'
+      {/* Repayment Schedule - Only show for tracked loans */}
+      {['active', 'completed', 'defaulted', 'written_off'].includes(loan.status) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Repayment Schedule</CardTitle>
+            <CardDescription>Track and mark payments as they come in</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Installment</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Amount Due</TableHead>
+                    <TableHead>Principal</TableHead>
+                    <TableHead>Interest</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loan.repayment_schedules?.map((schedule: any) => {
+                    const status = getScheduleStatus(schedule)
+                    const isOverdue = status === 'overdue'
 
-                  return (
-                    <TableRow key={schedule.id} className={isOverdue ? 'bg-red-50' : ''}>
-                      <TableCell className="font-medium">#{schedule.installment_no}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          {format(new Date(schedule.due_date), 'MMM dd, yyyy')}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {formatCurrency(schedule.amount_due_minor || 0, loan.country_code)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatCurrency(schedule.principal_portion_minor || 0, loan.country_code)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatCurrency(schedule.interest_portion_minor || 0, loan.country_code)}
-                      </TableCell>
-                      <TableCell>
-                        {getStatusBadge(status)}
-                      </TableCell>
-                      <TableCell>
-                        {status !== 'paid' && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleMarkAsPaid(schedule)}
-                          >
-                            <Check className="h-3 w-3 mr-1" />
-                            Mark as Paid
-                          </Button>
-                        )}
-                        {status === 'paid' && getSchedulePaidAt(schedule) && (
-                          <span className="text-sm text-muted-foreground">
-                            Paid {format(new Date(getSchedulePaidAt(schedule)), 'MMM dd')}
-                          </span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                    return (
+                      <TableRow key={schedule.id} className={isOverdue ? 'bg-red-50' : ''}>
+                        <TableCell className="font-medium">#{schedule.installment_no}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-muted-foreground" />
+                            {format(new Date(schedule.due_date), 'MMM dd, yyyy')}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {formatCurrency(schedule.amount_due_minor || 0, loan.country_code)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatCurrency(schedule.principal_portion_minor || 0, loan.country_code)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatCurrency(schedule.interest_portion_minor || 0, loan.country_code)}
+                        </TableCell>
+                        <TableCell>
+                          {getStatusBadge(status)}
+                        </TableCell>
+                        <TableCell>
+                          {status !== 'paid' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleMarkAsPaid(schedule)}
+                            >
+                              <Check className="h-3 w-3 mr-1" />
+                              Mark as Paid
+                            </Button>
+                          )}
+                          {status === 'paid' && getSchedulePaidAt(schedule) && (
+                            <span className="text-sm text-muted-foreground">
+                              Paid {format(new Date(getSchedulePaidAt(schedule)), 'MMM dd')}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Payment History */}
-      {getAllRepaymentEvents().length > 0 && (
+      {/* Payment History - Only show for tracked loans */}
+      {['active', 'completed', 'defaulted', 'written_off'].includes(loan.status) && getAllRepaymentEvents().length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Payment History</CardTitle>
