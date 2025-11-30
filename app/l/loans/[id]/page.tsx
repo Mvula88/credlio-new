@@ -41,6 +41,8 @@ import { format, isPast, differenceInDays } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
 import { toast } from 'sonner'
 import { RadialBarChart, RadialBar, Legend, ResponsiveContainer, Tooltip } from 'recharts'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 export default function LoanDetailPage() {
   const [loan, setLoan] = useState<any>(null)
@@ -144,6 +146,7 @@ export default function LoanDetailPage() {
   const handleDownloadAgreement = async () => {
     try {
       setDownloadingAgreement(true)
+      toast.info('Generating PDF... Please wait')
 
       // Call API to generate/fetch agreement
       const response = await fetch(`/api/loans/agreement?loanId=${loanId}`)
@@ -156,42 +159,64 @@ export default function LoanDetailPage() {
       // Get the HTML content
       const htmlContent = await response.text()
 
-      // Open in a new window with print-friendly styling for PDF
-      const printWindow = window.open('', '_blank')
-      if (printWindow) {
-        const printHTML = `<!DOCTYPE html><html><head><title>Loan Agreement</title>
-          <style>
-            @media print { body { margin: 0; padding: 20px; } .no-print { display: none !important; } }
-            .print-box { background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-family: system-ui, sans-serif; }
-            .print-box h3 { margin: 0 0 8px 0; color: #0369a1; }
-            .print-box p { margin: 4px 0; color: #475569; }
-            .print-box button { background: #0ea5e9; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; margin-top: 12px; }
-          </style></head><body>
-          <div class="print-box no-print">
-            <h3>Save as PDF Instructions</h3>
-            <p>1. Click button below or press <strong>Ctrl+P</strong> (Cmd+P on Mac)</p>
-            <p>2. Change Destination to <strong>"Save as PDF"</strong></p>
-            <p>3. Click Save</p>
-            <button onclick="window.print()">Print / Save as PDF</button>
-          </div>
-          ${htmlContent}
-        </body></html>`
-        printWindow.document.write(printHTML)
-        printWindow.document.close()
-        toast.success('Agreement opened - Use Print > Save as PDF')
-      } else {
-        // Fallback if popup blocked
-        const blob = new Blob([htmlContent], { type: 'text/html' })
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `loan-agreement-${loanId}.html`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        window.URL.revokeObjectURL(url)
-        toast.success('Downloaded HTML - Open and print to PDF')
+      // Create a hidden container to render the HTML
+      const container = document.createElement('div')
+      container.innerHTML = htmlContent
+      container.style.position = 'absolute'
+      container.style.left = '-9999px'
+      container.style.top = '0'
+      container.style.width = '210mm' // A4 width
+      container.style.padding = '20px'
+      container.style.background = 'white'
+      container.style.fontFamily = 'Arial, sans-serif'
+      document.body.appendChild(container)
+
+      // Wait for images to load
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Convert to canvas
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      })
+
+      // Remove the hidden container
+      document.body.removeChild(container)
+
+      // Create PDF
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      })
+
+      const imgWidth = 210 // A4 width in mm
+      const pageHeight = 297 // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      let heightLeft = imgHeight
+      let position = 0
+
+      // Add first page
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+
+      // Add additional pages if needed
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
       }
+
+      // Download the PDF
+      const borrowerName = loan.borrowers?.full_name?.replace(/\s+/g, '-') || 'borrower'
+      const fileName = `Loan-Agreement-${borrowerName}-${format(new Date(), 'yyyy-MM-dd')}.pdf`
+      pdf.save(fileName)
+
+      toast.success('PDF downloaded successfully!')
     } catch (error: any) {
       console.error('Error downloading agreement:', error)
       toast.error(error.message || 'Failed to download loan agreement')
@@ -557,16 +582,17 @@ export default function LoanDetailPage() {
             variant="outline"
             onClick={handleDownloadAgreement}
             disabled={downloadingAgreement}
+            className="bg-blue-50 hover:bg-blue-100 border-blue-200"
           >
             {downloadingAgreement ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Downloading...
+                Generating PDF...
               </>
             ) : (
               <>
                 <Download className="h-4 w-4 mr-2" />
-                Download Agreement
+                Download PDF
               </>
             )}
           </Button>
