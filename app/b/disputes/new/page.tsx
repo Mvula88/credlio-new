@@ -30,6 +30,7 @@ export default function NewDisputePage() {
   const [loanId, setLoanId] = useState('')
   const [description, setDescription] = useState('')
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([])
+  const [uploadingEvidence, setUploadingEvidence] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -72,17 +73,7 @@ export default function NewDisputePage() {
         return
       }
 
-      // Hash evidence files (don't upload actual files for privacy)
-      const evidenceHashes: string[] = []
-      for (const file of evidenceFiles) {
-        const buffer = await file.arrayBuffer()
-        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
-        const hashArray = Array.from(new Uint8Array(hashBuffer))
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-        evidenceHashes.push(hashHex)
-      }
-
-      // Create dispute
+      // Create dispute first (without evidence)
       const { data: dispute, error: disputeError } = await supabase
         .from('disputes')
         .insert({
@@ -90,7 +81,6 @@ export default function NewDisputePage() {
           loan_id: loanId || null,
           type: disputeType,
           description: description,
-          evidence_hashes: evidenceHashes,
           status: 'open',
           priority: disputeType === 'identity_theft' || disputeType === 'harassment' ? 'high' : 'medium',
         })
@@ -101,6 +91,60 @@ export default function NewDisputePage() {
         console.error('Dispute creation error:', disputeError)
         setError(`Failed to create dispute: ${disputeError.message}`)
         return
+      }
+
+      // Upload evidence files to Supabase Storage
+      if (evidenceFiles.length > 0) {
+        setUploadingEvidence(true)
+
+        for (const file of evidenceFiles) {
+          try {
+            // Upload file to storage
+            const fileExt = file.name.split('.').pop()
+            const fileName = `${user.id}/${dispute.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+            const filePath = `dispute-evidence/${fileName}`
+
+            const { error: uploadError } = await supabase.storage
+              .from('evidence')
+              .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false
+              })
+
+            if (uploadError) {
+              console.error('File upload error:', uploadError)
+              continue // Skip this file and continue with others
+            }
+
+            // Get public URL
+            const { data: { publicUrl } } = supabase.storage
+              .from('evidence')
+              .getPublicUrl(filePath)
+
+            // Compute hash for tamper detection
+            const buffer = await file.arrayBuffer()
+            const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+            const hashArray = Array.from(new Uint8Array(hashBuffer))
+            const fileHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+            // Store evidence record in dispute_evidence table
+            await supabase
+              .from('dispute_evidence')
+              .insert({
+                dispute_id: dispute.id,
+                file_url: publicUrl,
+                file_hash: fileHash,
+                evidence_type: file.type.startsWith('image/') ? 'image' : 'document',
+                uploaded_by: user.id
+              })
+
+          } catch (err) {
+            console.error('Error processing evidence file:', err)
+            // Continue with other files
+          }
+        }
+
+        setUploadingEvidence(false)
       }
 
       setSuccess(true)
@@ -260,9 +304,15 @@ export default function NewDisputePage() {
                   </div>
                 )}
 
+                {uploadingEvidence && (
+                  <div className="flex items-center gap-2 text-sm text-blue-600 mt-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Uploading evidence files...</span>
+                  </div>
+                )}
+
                 <p className="text-xs text-gray-600 mt-2">
-                  ℹ️ For your privacy, only file hashes are stored, not the actual files.
-                  Keep original files for your records.
+                  ℹ️ Files are securely uploaded and stored for admin review during dispute resolution.
                 </p>
               </div>
 

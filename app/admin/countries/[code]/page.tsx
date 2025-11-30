@@ -175,8 +175,9 @@ export default function CountryAdminPage() {
     const activeLoans = loans?.filter(l => l.status === 'active').length || 0
     const completedLoans = loans?.filter(l => l.status === 'completed').length || 0
     const defaultedLoans = loans?.filter(l => l.status === 'defaulted').length || 0
-    const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor / 100), 0) || 0
-    const avgLoanSize = totalLoans > 0 ? totalLoanVolume / totalLoans : 0
+    // Keep in MINOR units for consistent formatting
+    const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0
+    const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
     const avgAPR = loans && loans.length > 0
       ? Math.round(loans.reduce((sum, l) => sum + l.apr_bps, 0) / loans.length / 100)
       : 0
@@ -637,7 +638,7 @@ export default function CountryAdminPage() {
                     <TableRow key={loan.id}>
                       <TableCell className="font-medium">{loan.borrowers?.full_name || 'N/A'}</TableCell>
                       <TableCell>{loan.lenders?.business_name || loan.lenders?.profiles?.full_name || 'N/A'}</TableCell>
-                      <TableCell>{formatCurrency(loan.principal_minor / 100)}</TableCell>
+                      <TableCell>{formatCurrency(loan.principal_minor)}</TableCell>
                       <TableCell>{(loan.apr_bps / 100).toFixed(1)}%</TableCell>
                       <TableCell>{getStatusBadge(loan.status)}</TableCell>
                       <TableCell>{format(new Date(loan.created_at), 'MMM dd, yyyy')}</TableCell>

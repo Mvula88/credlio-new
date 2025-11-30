@@ -153,12 +153,17 @@ export default function BorrowerMessagesPage() {
       setMessages(data || [])
 
       // Mark messages as read
-      await supabase
+      const { error: updateError } = await supabase
         .from('messages')
         .update({ read_at: new Date().toISOString() })
         .eq('thread_id', threadId)
         .eq('sender_type', 'lender')
         .is('read_at', null)
+
+      if (!updateError) {
+        // Dispatch custom event to notify NotificationBell to refresh counts
+        window.dispatchEvent(new CustomEvent('messages-read'))
+      }
 
       // Reload threads to update unread count
       await loadThreads()

@@ -56,7 +56,9 @@ import {
   Users,
   Info,
   Eye,
-  X as CloseIcon
+  X as CloseIcon,
+  Lock,
+  Globe
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -93,6 +95,21 @@ interface Borrower {
   user_id: string | null
 }
 
+// Risky borrower from lender's own loans
+interface MyRiskyBorrower {
+  borrower_id: string
+  full_name: string
+  phone_e164: string
+  country_code: string
+  total_loans: number
+  active_loans: number
+  defaulted_loans: number
+  overdue_amount_minor: number
+  currency: string
+  risk_flags: any[]
+  latest_flag?: any
+}
+
 const statusConfig = {
   unpaid: { label: 'Unpaid', icon: Clock, color: 'bg-yellow-100 text-yellow-800' },
   paid: { label: 'Paid', icon: CheckCircle, color: 'bg-green-100 text-green-800' },
@@ -115,12 +132,17 @@ export default function LenderReportsPage() {
   const [reports, setReports] = useState<Report[]>([])
   const [borrowers, setBorrowers] = useState<Borrower[]>([])
   const [riskyBorrowers, setRiskyBorrowers] = useState<any[]>([])
+  const [myRiskyBorrowers, setMyRiskyBorrowers] = useState<MyRiskyBorrower[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMyRisky, setLoadingMyRisky] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [riskOriginFilter, setRiskOriginFilter] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [searchHash, setSearchHash] = useState('')
+  const [crossLenderSearchTerm, setCrossLenderSearchTerm] = useState('')
+  const [crossLenderSearching, setCrossLenderSearching] = useState(false)
+  const [crossLenderResult, setCrossLenderResult] = useState<any>(null)
   const [showFileDialog, setShowFileDialog] = useState(false)
   const [showRiskDialog, setShowRiskDialog] = useState(false)
   const [showQuickReportDialog, setShowQuickReportDialog] = useState(false)
@@ -132,7 +154,8 @@ export default function LenderReportsPage() {
   const [resolving, setResolving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState('intelligence')
+  const [activeTab, setActiveTab] = useState('my-risky')
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -153,7 +176,8 @@ export default function LenderReportsPage() {
   const [riskType, setRiskType] = useState<string>('DEFAULT')
   const [riskReason, setRiskReason] = useState('')
   const [riskAmount, setRiskAmount] = useState('')
-  const [proofHash, setProofHash] = useState('')
+  const [riskProofFile, setRiskProofFile] = useState<File | null>(null)
+  const [uploadingRiskProof, setUploadingRiskProof] = useState(false)
 
   // Form state for quick report (unregistered borrower)
   const [quickReportData, setQuickReportData] = useState({
@@ -166,13 +190,17 @@ export default function LenderReportsPage() {
     amount: '',
     proofHash: ''
   })
+  const [quickReportProofFile, setQuickReportProofFile] = useState<File | null>(null)
+  const [uploadingQuickProof, setUploadingQuickProof] = useState(false)
 
   useEffect(() => {
     loadData()
   }, [])
 
   useEffect(() => {
-    if (activeTab === 'intelligence' || activeTab === 'community') {
+    if (activeTab === 'my-risky') {
+      loadMyRiskyBorrowers()
+    } else if (activeTab === 'cross-lender' || activeTab === 'community') {
       loadRiskyBorrowers()
     }
   }, [activeTab])
@@ -198,6 +226,8 @@ export default function LenderReportsPage() {
         return
       }
 
+      setCurrentUserId(user.id)
+
       // Load payment reports
       const reportsResponse = await fetch('/api/reports')
       const reportsData = await reportsResponse.json()
@@ -221,11 +251,142 @@ export default function LenderReportsPage() {
 
         setBorrowers(borrowerData || [])
       }
+
+      // Load my risky borrowers on initial load
+      await loadMyRiskyBorrowers()
     } catch (error) {
       console.error('Error loading data:', error)
       setError('Failed to load data')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Load risky borrowers from lender's OWN loans
+  const loadMyRiskyBorrowers = async () => {
+    try {
+      setLoadingMyRisky(true)
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Get all loans for this lender with borrower info
+      const { data: loans, error: loansError } = await supabase
+        .from('loans')
+        .select(`
+          id,
+          status,
+          principal_minor,
+          currency,
+          borrower_id,
+          borrowers (
+            id,
+            full_name,
+            phone_e164,
+            country_code,
+            national_id_hash
+          ),
+          repayment_schedules (
+            id,
+            due_date,
+            amount_due_minor,
+            repayment_events (
+              id,
+              amount_paid_minor
+            )
+          )
+        `)
+        .eq('lender_id', user.id)
+        .in('status', ['active', 'defaulted', 'written_off'])
+
+      if (loansError) throw loansError
+
+      // Group by borrower and calculate risk info
+      const borrowerMap = new Map<string, MyRiskyBorrower>()
+
+      loans?.forEach((loan: any) => {
+        if (!loan.borrowers) return
+
+        const borrowerId = loan.borrower_id
+
+        if (!borrowerMap.has(borrowerId)) {
+          borrowerMap.set(borrowerId, {
+            borrower_id: borrowerId,
+            full_name: loan.borrowers.full_name,
+            phone_e164: loan.borrowers.phone_e164,
+            country_code: loan.borrowers.country_code,
+            total_loans: 0,
+            active_loans: 0,
+            defaulted_loans: 0,
+            overdue_amount_minor: 0,
+            currency: loan.currency,
+            risk_flags: []
+          })
+        }
+
+        const borrower = borrowerMap.get(borrowerId)!
+        borrower.total_loans++
+
+        if (loan.status === 'active') borrower.active_loans++
+        if (loan.status === 'defaulted' || loan.status === 'written_off') borrower.defaulted_loans++
+
+        // Calculate overdue amounts for active loans
+        if (loan.status === 'active' && loan.repayment_schedules) {
+          const today = new Date()
+          loan.repayment_schedules.forEach((schedule: any) => {
+            const dueDate = new Date(schedule.due_date)
+            if (dueDate < today) {
+              // Check if paid
+              const totalPaid = schedule.repayment_events?.reduce(
+                (sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0
+              ) || 0
+              const amountDue = schedule.amount_due_minor || 0
+              if (totalPaid < amountDue) {
+                borrower.overdue_amount_minor += (amountDue - totalPaid)
+              }
+            }
+          })
+        }
+      })
+
+      // Now get risk flags for these borrowers
+      const borrowerIds = Array.from(borrowerMap.keys())
+      if (borrowerIds.length > 0) {
+        const { data: flags } = await supabase
+          .from('risk_flags')
+          .select('*')
+          .in('borrower_id', borrowerIds)
+          .is('resolved_at', null)
+          .order('created_at', { ascending: false })
+
+        flags?.forEach((flag: any) => {
+          const borrower = borrowerMap.get(flag.borrower_id)
+          if (borrower) {
+            borrower.risk_flags.push(flag)
+            if (!borrower.latest_flag) {
+              borrower.latest_flag = flag
+            }
+          }
+        })
+      }
+
+      // Filter to only risky borrowers (overdue, defaulted, or flagged)
+      const riskyList = Array.from(borrowerMap.values()).filter(b =>
+        b.overdue_amount_minor > 0 || b.defaulted_loans > 0 || b.risk_flags.length > 0
+      )
+
+      // Sort by risk (defaulted first, then overdue amount)
+      riskyList.sort((a, b) => {
+        if (a.defaulted_loans !== b.defaulted_loans) return b.defaulted_loans - a.defaulted_loans
+        return b.overdue_amount_minor - a.overdue_amount_minor
+      })
+
+      setMyRiskyBorrowers(riskyList)
+    } catch (error) {
+      console.error('Error loading my risky borrowers:', error)
+      toast.error('Failed to load your risky borrowers')
+    } finally {
+      setLoadingMyRisky(false)
     }
   }
 
@@ -396,24 +557,133 @@ export default function LenderReportsPage() {
     }
   }
 
+  // Cross-lender search - searches ALL risk data (future: will be paid)
+  const handleCrossLenderSearch = async () => {
+    if (!crossLenderSearchTerm.trim()) {
+      toast.error('Please enter National ID number')
+      return
+    }
+
+    try {
+      setCrossLenderSearching(true)
+      setCrossLenderResult(null)
+
+      // Hash the national ID for search
+      const idHash = await hashNationalIdAsync(crossLenderSearchTerm)
+
+      const { data, error } = await supabase
+        .from('borrowers')
+        .select(`
+          *,
+          borrower_scores(score),
+          loans(id, status, lender_id),
+          risk_flags(id, type, resolved_at, origin, created_by, reason, created_at, amount_at_issue_minor)
+        `)
+        .eq('national_id_hash', idHash)
+
+      if (error) throw error
+
+      if (!data || data.length === 0) {
+        setCrossLenderResult({ notFound: true })
+      } else {
+        const borrower = Array.isArray(data) ? data[0] : data
+
+        // Calculate how many unique lenders have reported this borrower
+        const uniqueLenders = new Set(
+          borrower.risk_flags
+            ?.filter((f: any) => !f.resolved_at && f.origin === 'LENDER_REPORTED')
+            .map((f: any) => f.created_by)
+        )
+
+        // Count unique lenders who have given loans
+        const lendersWithLoans = new Set(
+          borrower.loans?.map((l: any) => l.lender_id)
+        )
+
+        setCrossLenderResult({
+          borrower_id: borrower.id,
+          full_name: borrower.full_name,
+          phone_e164: borrower.phone_e164,
+          date_of_birth: borrower.date_of_birth,
+          country_code: borrower.country_code,
+          credit_score: borrower.borrower_scores?.[0]?.score || 500,
+          total_loans: borrower.loans?.length || 0,
+          active_loans: borrower.loans?.filter((l: any) => l.status === 'active').length || 0,
+          defaulted_loans: borrower.loans?.filter((l: any) => l.status === 'defaulted' || l.status === 'written_off').length || 0,
+          lenders_count: lendersWithLoans.size,
+          risk_flags_count: borrower.risk_flags?.filter((f: any) => !f.resolved_at).length || 0,
+          risk_flags: borrower.risk_flags?.filter((f: any) => !f.resolved_at) || [],
+          listed_by_lenders: uniqueLenders.size,
+          has_defaults: borrower.risk_flags?.some((f: any) => !f.resolved_at && f.type === 'DEFAULT') || false,
+        })
+      }
+    } catch (error: any) {
+      console.error('Cross-lender search error:', error)
+      toast.error(error?.message || 'Search failed. Please try again.')
+    } finally {
+      setCrossLenderSearching(false)
+    }
+  }
+
   const handleListAsRisky = async () => {
     if (!selectedBorrowerForRisk) return
 
     try {
       setSubmitting(true)
 
-      if (!riskReason || !proofHash) {
-        toast.error('Please provide reason and proof document hash')
+      if (!riskReason || !riskProofFile) {
+        toast.error('Please provide reason and proof document')
         return
       }
 
-      const { data, error } = await supabase
-        .rpc('list_borrower_as_risky', {
-          p_borrower_id: selectedBorrowerForRisk.borrower_id,
-          p_risk_type: riskType,
-          p_reason: riskReason,
-          p_amount_minor: riskAmount ? parseInt(riskAmount) * 100 : null,
-          p_proof_hash: proofHash,
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('Please sign in to continue')
+        return
+      }
+
+      // Upload proof file to Supabase Storage
+      setUploadingRiskProof(true)
+      const fileExt = riskProofFile.name.split('.').pop()
+      const fileName = `${user.id}/${selectedBorrowerForRisk.borrower_id}/${Date.now()}.${fileExt}`
+      const filePath = `risk-evidence/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('evidence')
+        .upload(filePath, riskProofFile, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('evidence')
+        .getPublicUrl(filePath)
+
+      // Compute hash of file for tamper detection
+      const arrayBuffer = await riskProofFile.arrayBuffer()
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      const proofHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+      setUploadingRiskProof(false)
+
+      // Flag borrower with BOTH file URL and hash
+      const { error } = await supabase
+        .from('risk_flags')
+        .insert({
+          borrower_id: selectedBorrowerForRisk.borrower_id,
+          country_code: selectedBorrowerForRisk.country_code || 'GH',
+          origin: 'LENDER_REPORTED',
+          type: riskType,
+          reason: riskReason,
+          amount_at_issue_minor: riskAmount ? parseInt(riskAmount) * 100 : null,
+          proof_url: publicUrl,
+          proof_sha256: proofHash,
+          created_by: user.id,
         })
 
       if (error) throw error
@@ -423,7 +693,7 @@ export default function LenderReportsPage() {
       setRiskType('DEFAULT')
       setRiskReason('')
       setRiskAmount('')
-      setProofHash('')
+      setRiskProofFile(null)
       setSelectedBorrowerForRisk(null)
       setRiskSearchResult(null)
 
@@ -435,6 +705,7 @@ export default function LenderReportsPage() {
       toast.error(error.message || 'Failed to flag borrower')
     } finally {
       setSubmitting(false)
+      setUploadingRiskProof(false)
     }
   }
 
@@ -445,10 +716,45 @@ export default function LenderReportsPage() {
       // Validate required fields
       if (!quickReportData.fullName || !quickReportData.nationalId ||
           !quickReportData.phoneNumber || !quickReportData.dateOfBirth ||
-          !quickReportData.reason || !quickReportData.proofHash) {
+          !quickReportData.reason || !quickReportProofFile) {
         toast.error('Please fill in all required fields')
         return
       }
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('Please sign in to continue')
+        return
+      }
+
+      // Upload proof file to Supabase Storage
+      setUploadingQuickProof(true)
+      const fileExt = quickReportProofFile.name.split('.').pop()
+      const fileName = `${user.id}/quick-report/${Date.now()}.${fileExt}`
+      const filePath = `risk-evidence/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('evidence')
+        .upload(filePath, quickReportProofFile, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('evidence')
+        .getPublicUrl(filePath)
+
+      // Compute hash of file for tamper detection
+      const arrayBuffer = await quickReportProofFile.arrayBuffer()
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      const proofHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+      setUploadingQuickProof(false)
 
       // First, register the borrower
       const { data: borrowerId, error: registerError } = await supabase
@@ -461,14 +767,19 @@ export default function LenderReportsPage() {
 
       if (registerError) throw registerError
 
-      // Then, flag them as risky
+      // Then, flag them as risky with BOTH file URL and hash
       const { error: flagError } = await supabase
-        .rpc('list_borrower_as_risky', {
-          p_borrower_id: borrowerId,
-          p_risk_type: quickReportData.riskType,
-          p_reason: quickReportData.reason,
-          p_amount_minor: quickReportData.amount ? parseInt(quickReportData.amount) * 100 : null,
-          p_proof_hash: quickReportData.proofHash,
+        .from('risk_flags')
+        .insert({
+          borrower_id: borrowerId,
+          country_code: 'GH', // Will be updated from borrower data
+          origin: 'LENDER_REPORTED',
+          type: quickReportData.riskType,
+          reason: quickReportData.reason,
+          amount_at_issue_minor: quickReportData.amount ? parseInt(quickReportData.amount) * 100 : null,
+          proof_url: publicUrl,
+          proof_sha256: proofHash,
+          created_by: user.id,
         })
 
       if (flagError) throw flagError
@@ -487,6 +798,7 @@ export default function LenderReportsPage() {
         amount: '',
         proofHash: ''
       })
+      setQuickReportProofFile(null)
 
       // Refresh data
       if (activeTab === 'intelligence' || activeTab === 'community') {
@@ -497,6 +809,7 @@ export default function LenderReportsPage() {
       toast.error(error.message || 'Failed to report defaulter')
     } finally {
       setSubmitting(false)
+      setUploadingQuickProof(false)
     }
   }
 
@@ -556,23 +869,6 @@ export default function LenderReportsPage() {
     }
   }
 
-  const computeDocumentHash = async (file: File) => {
-    const buffer = await file.arrayBuffer()
-    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-    setProofHash(hashHex)
-    toast.success('Document hash computed: ' + hashHex.substring(0, 16) + '...')
-  }
-
-  const computeQuickReportHash = async (file: File) => {
-    const buffer = await file.arrayBuffer()
-    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-    setQuickReportData({ ...quickReportData, proofHash: hashHex })
-    toast.success('Document hash computed: ' + hashHex.substring(0, 16) + '...')
-  }
 
   const filteredReports = reports.filter(report => {
     const matchesStatus = statusFilter === 'all' || report.status === statusFilter
@@ -630,40 +926,377 @@ export default function LenderReportsPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="intelligence">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="my-risky">
             <Shield className="h-4 w-4 mr-2" />
-            Credit Intelligence
+            My Risky Borrowers
+          </TabsTrigger>
+          <TabsTrigger value="cross-lender">
+            <Globe className="h-4 w-4 mr-2" />
+            Cross-Lender Search
           </TabsTrigger>
           <TabsTrigger value="community">
             <AlertTriangle className="h-4 w-4 mr-2" />
-            Community Alerts
+            Report Fraud
           </TabsTrigger>
           <TabsTrigger value="payment-reports">
             <FileText className="h-4 w-4 mr-2" />
-            My Payment Tracking
+            Payment Tracking
           </TabsTrigger>
         </TabsList>
 
-        {/* Tab 1: Credit Intelligence (System Auto-Flags - PRIMARY) */}
-        <TabsContent value="intelligence" className="space-y-4">
+        {/* Tab 1: My Risky Borrowers (Lender's Own Data - FREE) */}
+        <TabsContent value="my-risky" className="space-y-4">
           {/* Info Banner */}
           <Alert className="bg-blue-50 border-blue-200">
             <Info className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-blue-900">
-              <strong>Automated Credit Tracking:</strong> These borrowers were automatically flagged by our system when their loans became overdue. This is real-time credit bureau data from all lenders on the platform.
+              <strong>Your Borrowers at Risk:</strong> These are borrowers from YOUR loans who have overdue payments, defaults, or have been flagged. This is your own data - always free.
             </AlertDescription>
           </Alert>
 
           {/* Stats Cards */}
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total at Risk</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-red-600">{myRiskyBorrowers.length}</div>
+                <p className="text-xs text-muted-foreground mt-1">From your loans</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Defaulted</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-red-600">
+                  {myRiskyBorrowers.filter(b => b.defaulted_loans > 0).length}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Borrowers with defaults</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Overdue Payments</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-orange-600">
+                  {myRiskyBorrowers.filter(b => b.overdue_amount_minor > 0).length}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">With overdue amounts</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Overdue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-orange-600">
+                  {new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: myRiskyBorrowers[0]?.currency || 'NAD',
+                    minimumFractionDigits: 0
+                  }).format(myRiskyBorrowers.reduce((sum, b) => sum + b.overdue_amount_minor, 0) / 100)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Amount overdue</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* My Risky Borrowers List */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5 text-red-500" />
+                Your Risky Borrowers ({myRiskyBorrowers.length})
+              </CardTitle>
+              <CardDescription>
+                Borrowers from your loans who need attention - overdue payments or defaults
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingMyRisky ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : myRiskyBorrowers.length === 0 ? (
+                <div className="text-center py-12">
+                  <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
+                  <h3 className="mt-4 text-lg font-medium text-green-700">All Clear!</h3>
+                  <p className="mt-2 text-muted-foreground">
+                    None of your borrowers have overdue payments or defaults. Great portfolio health!
+                  </p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Borrower</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Loans</TableHead>
+                      <TableHead>Overdue Amount</TableHead>
+                      <TableHead>Risk Flags</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {myRiskyBorrowers.map((borrower) => (
+                      <TableRow key={borrower.borrower_id} className="hover:bg-muted/50">
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{borrower.full_name}</p>
+                            <p className="text-sm text-muted-foreground">{borrower.phone_e164}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {borrower.defaulted_loans > 0 ? (
+                            <Badge className="bg-red-600 text-white">Defaulted</Badge>
+                          ) : borrower.overdue_amount_minor > 0 ? (
+                            <Badge className="bg-orange-500 text-white">Overdue</Badge>
+                          ) : (
+                            <Badge variant="secondary">Flagged</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <span className="font-medium">{borrower.active_loans}</span> active
+                            {borrower.defaulted_loans > 0 && (
+                              <span className="text-red-600 ml-2">
+                                {borrower.defaulted_loans} defaulted
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {borrower.overdue_amount_minor > 0 ? (
+                            <span className="font-medium text-orange-600">
+                              {new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: borrower.currency || 'NAD'
+                              }).format(borrower.overdue_amount_minor / 100)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {borrower.risk_flags.length > 0 ? (
+                            <Badge variant="destructive">
+                              {borrower.risk_flags.length} flag{borrower.risk_flags.length > 1 ? 's' : ''}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">None</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => router.push(`/l/borrowers/${borrower.borrower_id}`)}
+                            >
+                              View Profile
+                            </Button>
+                            {borrower.latest_flag && (
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                                onClick={() => {
+                                  setSelectedFlagToResolve({
+                                    ...borrower,
+                                    latestFlag: borrower.latest_flag
+                                  })
+                                  setShowResolveDialog(true)
+                                }}
+                              >
+                                <Check className="h-3 w-3 mr-1" />
+                                Resolve
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tab 2: Cross-Lender Search (All Data - FUTURE: PAID) */}
+        <TabsContent value="cross-lender" className="space-y-4">
+          {/* Info Banner */}
+          <Alert className="bg-purple-50 border-purple-200">
+            <Globe className="h-4 w-4 text-purple-600" />
+            <AlertDescription className="text-purple-900">
+              <strong>Cross-Lender Intelligence:</strong> Search for credit history across ALL lenders on the platform.
+              <span className="ml-1 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">Currently FREE - Will be a paid feature</span>
+            </AlertDescription>
+          </Alert>
+
+          {/* Search Card */}
+          <Card className="border-purple-200">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-purple-900">
+                <Search className="h-5 w-5" />
+                Search Borrower Credit History
+              </CardTitle>
+              <CardDescription>
+                Check if a potential borrower has any history or risk flags from other lenders
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Enter National ID number..."
+                  value={crossLenderSearchTerm}
+                  onChange={(e) => setCrossLenderSearchTerm(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCrossLenderSearch()}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={handleCrossLenderSearch}
+                  disabled={crossLenderSearching}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  {crossLenderSearching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Search className="h-4 w-4 mr-2" />
+                      Search
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* Search Result */}
+              {crossLenderResult && (
+                <div className="mt-4 p-4 border rounded-lg bg-white">
+                  {crossLenderResult.notFound ? (
+                    <div className="text-center space-y-2">
+                      <CheckCircle className="h-10 w-10 text-green-600 mx-auto" />
+                      <p className="font-semibold text-lg text-green-800">No Records Found</p>
+                      <p className="text-sm text-muted-foreground">
+                        This person has no lending history on Credlio. They appear to be a new borrower.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="font-semibold text-lg">{crossLenderResult.full_name}</h4>
+                          <p className="text-sm text-muted-foreground">{crossLenderResult.phone_e164}</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm text-muted-foreground">Credit Score</div>
+                          <div className={`text-2xl font-bold ${
+                            crossLenderResult.credit_score >= 700 ? 'text-green-600' :
+                            crossLenderResult.credit_score >= 500 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {crossLenderResult.credit_score}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Risk Warning */}
+                      {(crossLenderResult.risk_flags_count > 0 || crossLenderResult.has_defaults) && (
+                        <Alert className="bg-red-50 border-red-200">
+                          <AlertTriangle className="h-4 w-4 text-red-600" />
+                          <AlertDescription className="text-red-900">
+                            <strong>Risk Warning!</strong> This borrower has {crossLenderResult.risk_flags_count} active risk flag(s)
+                            {crossLenderResult.listed_by_lenders > 0 && (
+                              <span> reported by {crossLenderResult.listed_by_lenders} lender(s)</span>
+                            )}.
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {/* Stats */}
+                      <div className="grid grid-cols-4 gap-3">
+                        <div className="bg-gray-50 p-3 rounded-lg text-center">
+                          <div className="text-xl font-bold">{crossLenderResult.total_loans}</div>
+                          <div className="text-xs text-muted-foreground">Total Loans</div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg text-center">
+                          <div className="text-xl font-bold text-green-600">{crossLenderResult.active_loans}</div>
+                          <div className="text-xs text-muted-foreground">Active</div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg text-center">
+                          <div className="text-xl font-bold text-red-600">{crossLenderResult.defaulted_loans}</div>
+                          <div className="text-xs text-muted-foreground">Defaulted</div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg text-center">
+                          <div className="text-xl font-bold text-purple-600">{crossLenderResult.lenders_count}</div>
+                          <div className="text-xs text-muted-foreground">Lenders</div>
+                        </div>
+                      </div>
+
+                      {/* Risk Flags Details */}
+                      {crossLenderResult.risk_flags.length > 0 && (
+                        <div className="border-t pt-4">
+                          <h5 className="font-medium mb-2">Risk Flags ({crossLenderResult.risk_flags.length})</h5>
+                          <div className="space-y-2">
+                            {crossLenderResult.risk_flags.slice(0, 3).map((flag: any, idx: number) => (
+                              <div key={idx} className="bg-red-50 p-2 rounded text-sm">
+                                <div className="flex items-center gap-2">
+                                  <Badge className={getRiskBadge(flag.type).color}>
+                                    {getRiskBadge(flag.type).label}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {format(new Date(flag.created_at), 'MMM d, yyyy')}
+                                  </span>
+                                </div>
+                                {flag.reason && (
+                                  <p className="mt-1 text-xs text-gray-600">{flag.reason.substring(0, 100)}...</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-2 pt-2">
+                        <Button
+                          onClick={() => router.push(`/l/borrowers/${crossLenderResult.borrower_id}`)}
+                          className="flex-1"
+                          variant="outline"
+                        >
+                          View Full Profile
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setSelectedBorrowerForRisk(crossLenderResult)
+                            setShowRiskDialog(true)
+                          }}
+                          className="flex-1"
+                          variant="destructive"
+                        >
+                          <Flag className="h-4 w-4 mr-2" />
+                          Report Issue
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* All Platform Risk Data - Stats */}
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Risky Borrowers</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Platform-Wide Risky</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold">{riskyBorrowers.length}</div>
-                <p className="text-xs text-muted-foreground mt-1">Active risk flags</p>
+                <p className="text-xs text-muted-foreground mt-1">Total flagged borrowers</p>
               </CardContent>
             </Card>
             <Card>
@@ -685,172 +1318,15 @@ export default function LenderReportsPage() {
               </CardContent>
             </Card>
           </div>
-
-          {/* Filters */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
-                      placeholder="Search by National ID number..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && setSearchTerm(searchTerm)}
-                      className="pl-10"
-                    />
-                  </div>
-                </div>
-                <Button variant="outline" disabled={!searchTerm.trim()}>
-                  <Search className="h-4 w-4 mr-2" />
-                  Search
-                </Button>
-                <Select value={riskOriginFilter} onValueChange={setRiskOriginFilter}>
-                  <SelectTrigger className="w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sources</SelectItem>
-                    <SelectItem value="system">System Auto-Flagged</SelectItem>
-                    <SelectItem value="lender">Community Reported</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Risky Borrowers Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>All Risky Borrowers ({filteredRiskyBorrowers.length})</CardTitle>
-              <CardDescription>
-                Cross-lender credit intelligence - check before lending!
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : filteredRiskyBorrowers.length === 0 ? (
-                <div className="text-center py-12">
-                  <Shield className="mx-auto h-12 w-12 text-muted-foreground" />
-                  <h3 className="mt-4 text-lg font-medium">
-                    {searchHash ? 'Borrower Not Found' : 'No risky borrowers found'}
-                  </h3>
-                  <p className="mt-2 text-muted-foreground">
-                    {searchHash
-                      ? 'No borrower found with this National ID number in the risk database. This is good news - they have no risk flags!'
-                      : riskyBorrowers.length === 0
-                      ? 'No active risk flags in your country'
-                      : 'Try adjusting your filters'}
-                  </p>
-                  {searchHash && (
-                    <Alert className="mt-4 max-w-md mx-auto bg-green-50 border-green-200">
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                      <AlertDescription className="text-green-800">
-                        This borrower has a clean record with no reported payment issues or defaults.
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Borrower</TableHead>
-                      <TableHead>Risk Type</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Reported By</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredRiskyBorrowers.map((borrower) => {
-                      const badge = getRiskBadge(borrower.latestFlag.type)
-                      return (
-                        <TableRow key={borrower.borrower_id} className="hover:bg-muted/50">
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{borrower.full_name}</p>
-                              <p className="text-sm text-muted-foreground">{borrower.phone_e164}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={badge.color}>
-                              {badge.label}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={borrower.latestFlag.origin === 'LENDER_REPORTED' ? 'default' : 'secondary'}>
-                              {borrower.latestFlag.origin === 'LENDER_REPORTED' ? '👤 Lender' : '🤖 System'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {borrower.listedByCount > 0 ? (
-                              <span className="text-sm font-medium text-orange-600">
-                                {borrower.listedByCount} lender{borrower.listedByCount > 1 ? 's' : ''}
-                              </span>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">Automated</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {format(new Date(borrower.latestFlag.created_at), 'MMM d, yyyy')}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  setSelectedRiskDetail(borrower)
-                                  setShowDetailDialog(true)
-                                }}
-                              >
-                                <Eye className="h-3 w-3 mr-1" />
-                                Details
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => router.push(`/l/borrowers/${borrower.borrower_id}`)}
-                              >
-                                View Profile
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="default"
-                                className="bg-green-600 hover:bg-green-700 text-white"
-                                onClick={() => {
-                                  setSelectedFlagToResolve(borrower)
-                                  setShowResolveDialog(true)
-                                }}
-                              >
-                                <Check className="h-3 w-3 mr-1" />
-                                Resolve
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
         </TabsContent>
 
-        {/* Tab 2: Community Alerts (Manual Reports - SECONDARY) */}
+        {/* Tab 3: Report Fraud (Manual Reports for Community) */}
         <TabsContent value="community" className="space-y-4">
           {/* Warning Banner */}
           <Alert className="bg-red-50 border-red-200">
             <AlertTriangle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-900">
-              <strong>Community Fraud Protection:</strong> Report serial defaulters to protect other lenders. Even if they're not registered in our system, you can flag them here with proof.
+              <strong>Community Fraud Protection:</strong> Check for borrowers reported by other lenders for past fraud. You can also warn others about people who owed you money and disappeared in the past.
             </AlertDescription>
           </Alert>
 
@@ -951,15 +1427,15 @@ export default function LenderReportsPage() {
               </CardContent>
             </Card>
 
-            {/* Report Defaulter (Unregistered) */}
+            {/* Warn About Fraud */}
             <Card className="border-red-200 bg-red-50/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-red-900">
                   <UserPlus className="h-5 w-5" />
-                  Report a Defaulter
+                  Warn About Fraud
                 </CardTitle>
                 <CardDescription className="text-red-800">
-                  Someone scammed you? Report them to warn other lenders
+                  Report people who owed you money in the PAST and disappeared. Protect other lenders from serial fraudsters.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -968,10 +1444,11 @@ export default function LenderReportsPage() {
                   <AlertDescription className="text-xs text-yellow-900">
                     Use this to report people who:
                     <ul className="list-disc ml-4 mt-1 space-y-1">
-                      <li>Took money and disappeared</li>
-                      <li>Are going around to different lenders</li>
-                      <li>Have proof of default/non-payment</li>
+                      <li>Borrowed money and disappeared in the past</li>
+                      <li>Are serial fraudsters targeting multiple lenders</li>
+                      <li>You want to warn other lenders about</li>
                     </ul>
+                    This is NOT for current loans with late payments - those are tracked automatically.
                   </AlertDescription>
                 </Alert>
 
@@ -979,14 +1456,14 @@ export default function LenderReportsPage() {
                   <DialogTrigger asChild>
                     <Button className="w-full" variant="destructive" size="lg">
                       <AlertTriangle className="h-4 w-4 mr-2" />
-                      Report Defaulter Now
+                      Report Fraud Now
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle>Report a Defaulter</DialogTitle>
+                      <DialogTitle>Report Fraud - Warn Other Lenders</DialogTitle>
                       <DialogDescription>
-                        Warn other lenders about someone who defaulted on you
+                        Report someone who scammed you and disappeared. This person will be flagged in the system to protect other lenders from fraud.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
@@ -1072,31 +1549,41 @@ export default function LenderReportsPage() {
                         </div>
 
                         <div className="mt-4">
-                          <Label>Proof Document Hash *</Label>
+                          <Label htmlFor="quick-proof-file">Proof Document * (Required)</Label>
                           <div className="space-y-2">
                             <Input
-                              value={quickReportData.proofHash}
-                              onChange={(e) => setQuickReportData({...quickReportData, proofHash: e.target.value})}
-                              placeholder="SHA-256 hash of proof document"
+                              id="quick-proof-file"
+                              type="file"
+                              accept="image/*,.pdf"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) {
+                                  // Check file size (max 5MB)
+                                  if (file.size > 5 * 1024 * 1024) {
+                                    toast.error('File size must be less than 5MB')
+                                    e.target.value = ''
+                                    return
+                                  }
+                                  setQuickReportProofFile(file)
+                                }
+                              }}
+                              className="cursor-pointer"
                             />
-                            <div className="flex items-center gap-2">
-                              <Input
-                                type="file"
-                                accept=".pdf,.jpg,.png"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0]
-                                  if (file) computeQuickReportHash(file)
-                                }}
-                                className="text-sm"
-                              />
-                              <Badge variant="secondary">
-                                <Hash className="h-3 w-3 mr-1" />
-                                Compute Hash
-                              </Badge>
-                            </div>
                             <p className="text-xs text-muted-foreground">
-                              Upload proof (messages, agreement, ID photo). File is processed locally and never uploaded.
+                              Upload proof (receipt, screenshot, messages, etc.) - Max 5MB, images or PDF
                             </p>
+                            {quickReportProofFile && (
+                              <div className="flex items-center gap-2 text-sm text-green-600">
+                                <FileText className="h-4 w-4" />
+                                <span>Selected: {quickReportProofFile.name}</span>
+                              </div>
+                            )}
+                            {uploadingQuickProof && (
+                              <div className="flex items-center gap-2 text-sm text-blue-600">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span>Uploading proof document...</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1181,7 +1668,7 @@ export default function LenderReportsPage() {
           </Card>
         </TabsContent>
 
-        {/* Tab 3: Payment Tracking (Your private reports) */}
+        {/* Tab 4: Payment Tracking (Your private reports) */}
         <TabsContent value="payment-reports" className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
@@ -1547,31 +2034,41 @@ export default function LenderReportsPage() {
             </div>
 
             <div>
-              <Label>Proof Document Hash *</Label>
+              <Label htmlFor="risk-proof-file">Proof Document * (Required)</Label>
               <div className="space-y-2">
                 <Input
-                  value={proofHash}
-                  onChange={(e) => setProofHash(e.target.value)}
-                  placeholder="SHA-256 hash of proof document"
+                  id="risk-proof-file"
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      // Check file size (max 5MB)
+                      if (file.size > 5 * 1024 * 1024) {
+                        toast.error('File size must be less than 5MB')
+                        e.target.value = ''
+                        return
+                      }
+                      setRiskProofFile(file)
+                    }
+                  }}
+                  className="cursor-pointer"
                 />
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="file"
-                    accept=".pdf,.jpg,.png"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) computeDocumentHash(file)
-                    }}
-                    className="text-sm"
-                  />
-                  <Badge variant="secondary">
-                    <Hash className="h-3 w-3 mr-1" />
-                    Compute Hash
-                  </Badge>
-                </div>
                 <p className="text-xs text-muted-foreground">
-                  Upload proof. File processed locally and never uploaded.
+                  Upload proof (receipt, screenshot, messages, etc.) - Max 5MB, images or PDF
                 </p>
+                {riskProofFile && (
+                  <div className="flex items-center gap-2 text-sm text-green-600">
+                    <FileText className="h-4 w-4" />
+                    <span>Selected: {riskProofFile.name}</span>
+                  </div>
+                )}
+                {uploadingRiskProof && (
+                  <div className="flex items-center gap-2 text-sm text-blue-600">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Uploading proof document...</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

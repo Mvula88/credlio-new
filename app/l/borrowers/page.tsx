@@ -53,19 +53,22 @@ export default function BorrowersPage() {
   const [riskDialog, setRiskDialog] = useState(false)
   const [selectedBorrower, setSelectedBorrower] = useState<any>(null)
   const [riskyBorrowers, setRiskyBorrowers] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState('search')
+  const [activeTab, setActiveTab] = useState('my-borrowers')
   const [loading, setLoading] = useState(false)
+  const [myBorrowers, setMyBorrowers] = useState<any[]>([])
+  const [myBorrowersLoading, setMyBorrowersLoading] = useState(true)
   const [createLoanDialog, setCreateLoanDialog] = useState(false)
   const [newlyRegisteredBorrowerId, setNewlyRegisteredBorrowerId] = useState<string | null>(null)
   const [newlyRegisteredNationalId, setNewlyRegisteredNationalId] = useState<string>('')
   const [profileCompleted, setProfileCompleted] = useState<boolean | null>(null)
+  const [lenderCountry, setLenderCountry] = useState<string | null>(null)
 
   // Risk listing form
   const [riskType, setRiskType] = useState<string>('LATE_1_7')
   const [riskReason, setRiskReason] = useState('')
   const [riskAmount, setRiskAmount] = useState('')
   const [proofHash, setProofHash] = useState('')
-  
+
   // Register form
   const [registerData, setRegisterData] = useState({
     fullName: '',
@@ -77,6 +80,26 @@ export default function BorrowersPage() {
   const supabase = createClient()
   const router = useRouter()
 
+  // Load lender's country on mount
+  useEffect(() => {
+    const loadLenderCountry = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: lender } = await supabase
+        .from('lenders')
+        .select('country')
+        .eq('user_id', user.id)
+        .single()
+
+      if (lender) {
+        setLenderCountry(lender.country)
+      }
+    }
+
+    loadLenderCountry()
+  }, [])
+
   // Check lender profile completion on mount
   useEffect(() => {
     checkProfileCompletion()
@@ -87,6 +110,99 @@ export default function BorrowersPage() {
       loadRiskyBorrowers()
     }
   }, [activeTab])
+
+  // Load my borrowers on mount
+  useEffect(() => {
+    loadMyBorrowers()
+  }, [])
+
+  const loadMyBorrowers = async () => {
+    try {
+      setMyBorrowersLoading(true)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Get borrowers who have loans with this lender
+      // We get unique borrowers from loans table where lender_id = current user
+      const { data: loansData, error: loansError } = await supabase
+        .from('loans')
+        .select(`
+          borrower_id,
+          status,
+          principal_minor,
+          created_at,
+          borrowers (
+            id,
+            full_name,
+            phone_e164,
+            country_code,
+            created_at,
+            borrower_scores(score)
+          )
+        `)
+        .eq('lender_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (loansError) {
+        console.error('Error loading my borrowers:', loansError)
+        return
+      }
+
+      // Group by borrower and calculate stats for THIS lender only
+      const borrowerMap = new Map()
+
+      loansData?.forEach(loan => {
+        const borrowerId = loan.borrower_id
+        const borrower = loan.borrowers as any
+
+        if (!borrower) return
+
+        if (!borrowerMap.has(borrowerId)) {
+          borrowerMap.set(borrowerId, {
+            id: borrower.id,
+            full_name: borrower.full_name,
+            phone_e164: borrower.phone_e164,
+            country_code: borrower.country_code,
+            created_at: borrower.created_at,
+            credit_score: borrower.borrower_scores?.[0]?.score || 500,
+            // Stats for THIS lender only
+            total_loans: 0,
+            active_loans: 0,
+            completed_loans: 0,
+            total_disbursed: 0,
+            last_loan_date: loan.created_at,
+          })
+        }
+
+        const b = borrowerMap.get(borrowerId)
+        b.total_loans++
+
+        // Only count disbursed loans in total
+        const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
+        if (disbursedStatuses.includes(loan.status)) {
+          b.total_disbursed += loan.principal_minor || 0
+        }
+
+        if (loan.status === 'active') b.active_loans++
+        if (loan.status === 'completed') b.completed_loans++
+
+        // Track most recent loan
+        if (new Date(loan.created_at) > new Date(b.last_loan_date)) {
+          b.last_loan_date = loan.created_at
+        }
+      })
+
+      const borrowersList = Array.from(borrowerMap.values())
+      // Sort by most recent loan first
+      borrowersList.sort((a, b) => new Date(b.last_loan_date).getTime() - new Date(a.last_loan_date).getTime())
+
+      setMyBorrowers(borrowersList)
+    } catch (error) {
+      console.error('Error in loadMyBorrowers:', error)
+    } finally {
+      setMyBorrowersLoading(false)
+    }
+  }
 
   const checkProfileCompletion = async () => {
     try {
@@ -217,10 +333,11 @@ export default function BorrowersPage() {
           borrower_scores(score),
           loans(id, status),
           risk_flags(id, type, resolved_at, origin, created_by, reason),
-          borrower_self_verification_status(
+          borrower_self_verification_status!borrower_id(
             verification_status,
             selfie_uploaded
-          )
+          ),
+          borrower_user_links(user_id)
         `)
         .eq('national_id_hash', idHash)
 
@@ -244,6 +361,7 @@ export default function BorrowersPage() {
 
         // Format the result with verification badges
         const verificationStatus = borrower.borrower_self_verification_status?.[0]
+        const hasUserAccount = borrower.borrower_user_links && borrower.borrower_user_links.length > 0
 
         setSearchResult({
           borrower_id: borrower.id,
@@ -257,6 +375,8 @@ export default function BorrowersPage() {
           created_at: borrower.created_at,
           has_defaults: borrower.risk_flags?.some((f: any) => !f.resolved_at && f.type === 'DEFAULT') || false,
           risk_flags: borrower.risk_flags,
+          // Account status
+          has_user_account: hasUserAccount,
           // Loan history summary (show everything)
           total_loans: borrower.loans?.length || 0,
           completed_loans: borrower.loans?.filter((l: any) => l.status === 'completed').length || 0,
@@ -296,12 +416,13 @@ export default function BorrowersPage() {
       }
 
       // Call register function
-      const { data, error } = await supabase
+      const { data, error} = await supabase
         .rpc('register_borrower', {
           p_full_name: registerData.fullName,
           p_national_id: registerData.nationalId,
           p_phone: registerData.phoneNumber,
           p_date_of_birth: registerData.dateOfBirth,
+          p_country_code: lenderCountry, // Pass lender's country explicitly
         })
 
       if (error) throw error
@@ -433,14 +554,144 @@ export default function BorrowersPage() {
         <p className="text-muted-foreground">Search for complete borrower profiles, register new borrowers to track</p>
       </div>
 
-      {/* Tabs - Only Search/Register */}
+      {/* Tabs - My Borrowers + Search/Register */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="my-borrowers">
+            <Users className="h-4 w-4 mr-2" />
+            My Borrowers ({myBorrowers.length})
+          </TabsTrigger>
           <TabsTrigger value="search">
             <Search className="h-4 w-4 mr-2" />
             Search & Register
           </TabsTrigger>
         </TabsList>
+
+        {/* My Borrowers Tab */}
+        <TabsContent value="my-borrowers" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>My Borrowers</CardTitle>
+              <CardDescription>
+                Borrowers you have lent to - showing only your activity with each borrower
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {myBorrowersLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : myBorrowers.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="h-16 w-16 rounded-full bg-muted mx-auto flex items-center justify-center mb-4">
+                    <Users className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <p className="font-semibold text-lg">No Borrowers Yet</p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Create your first loan to start tracking borrowers
+                  </p>
+                  <div className="flex gap-2 justify-center mt-4">
+                    <Button onClick={() => setActiveTab('search')}>
+                      <Search className="h-4 w-4 mr-2" />
+                      Search for Borrower
+                    </Button>
+                    <Button variant="outline" onClick={() => router.push('/l/loans/new')}>
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Create New Loan
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Borrower</TableHead>
+                      <TableHead>Credit Score</TableHead>
+                      <TableHead>Your Loans</TableHead>
+                      <TableHead>Total Disbursed</TableHead>
+                      <TableHead>Last Activity</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {myBorrowers.map((borrower) => (
+                      <TableRow key={borrower.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{borrower.full_name}</p>
+                            <p className="text-sm text-muted-foreground">{borrower.phone_e164}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className={`font-bold ${getScoreColor(borrower.credit_score)}`}>
+                            {borrower.credit_score}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <p className="font-medium">{borrower.total_loans} total</p>
+                            <div className="flex gap-2 text-xs">
+                              {borrower.active_loans > 0 && (
+                                <Badge variant="secondary" className="text-green-700 bg-green-50">
+                                  {borrower.active_loans} active
+                                </Badge>
+                              )}
+                              {borrower.completed_loans > 0 && (
+                                <Badge variant="outline" className="text-blue-700">
+                                  {borrower.completed_loans} completed
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-medium">
+                            {formatCurrency(borrower.total_disbursed, borrower.country_code || 'NA')}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {format(new Date(borrower.last_loan_date), 'MMM d, yyyy')}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => router.push(`/l/borrowers/${borrower.id}`)}
+                            >
+                              <User className="h-3 w-3 mr-1" />
+                              View
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => router.push(`/l/loans/new?borrower=${borrower.id}`)}
+                            >
+                              <CreditCard className="h-3 w-3 mr-1" />
+                              New Loan
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Info about searching for full history */}
+          {myBorrowers.length > 0 && (
+            <Alert className="bg-blue-50 border-blue-200">
+              <AlertCircle className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-blue-900">
+                <strong>Note:</strong> This shows only YOUR activity with these borrowers.
+                To see their complete credit history from all lenders, use the <strong>Search & Register</strong> tab to search by National ID.
+              </AlertDescription>
+            </Alert>
+          )}
+        </TabsContent>
 
         {/* Search Tab */}
         <TabsContent value="search" className="space-y-4">
@@ -714,6 +965,19 @@ export default function BorrowersPage() {
 
                         {/* Status Badges */}
                         <div className="flex gap-2 flex-wrap">
+                          {/* Account Status Badge - Always show first */}
+                          {searchResult.has_user_account ? (
+                            <Badge className="bg-blue-100 text-blue-800 border-blue-300">
+                              <LinkIcon className="h-3 w-3 mr-1" />
+                              Has Account
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-300">
+                              <Users className="h-3 w-3 mr-1" />
+                              Lender-Tracked
+                            </Badge>
+                          )}
+
                           {searchResult.active_loan && (
                             <Badge variant="secondary">
                               <CreditCard className="h-3 w-3 mr-1" />

@@ -32,10 +32,12 @@ import {
   Globe,
   FileSignature,
   Building2,
-  User
+  User,
+  MessageSquare
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
+import { Badge } from '@/components/ui/badge'
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
@@ -49,6 +51,7 @@ const navigation = [
   { name: 'Compliance', href: '/admin/compliance', icon: FileCheck },
   { name: 'Disputes', href: '/admin/disputes', icon: Scale },
   { name: 'Fraud Signals', href: '/admin/fraud', icon: AlertTriangle },
+  { name: 'Notifications', href: '/admin/notifications', icon: Bell },
   { name: 'Reports', href: '/admin/reports', icon: FileText },
   { name: 'Settings', href: '/admin/settings', icon: Settings },
 ]
@@ -197,11 +200,12 @@ export default function AdminLayout({
             </button>
 
             <div className="flex items-center space-x-2 ml-auto">
-              {/* Notifications */}
-              <Button variant="ghost" size="icon" className="relative hover:bg-accent/50 transition-all duration-300 hover:scale-105">
-                <Bell className="h-5 w-5" />
-                <span className="absolute top-2 right-2 h-2 w-2 bg-destructive rounded-full animate-pulse"></span>
-              </Button>
+              {/* Messages Button */}
+              <Link href="/admin/messages">
+                <Button variant="ghost" size="icon" className="relative">
+                  <MessageSquare className="h-5 w-5" />
+                </Button>
+              </Link>
 
               {/* Role Switcher - shows when user has multiple roles */}
               <RoleSwitcher />

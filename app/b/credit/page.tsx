@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { 
+import {
   TrendingUp,
   TrendingDown,
   Activity,
@@ -32,7 +32,10 @@ import {
   CreditCard,
   History,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Flag,
+  AlertTriangle,
+  Users
 } from 'lucide-react'
 import { format, subMonths } from 'date-fns'
 import {
@@ -64,6 +67,7 @@ export default function CreditScorePage() {
   const [paymentHistory, setPaymentHistory] = useState<any[]>([])
   const [creditUtilization, setCreditUtilization] = useState<any>(null)
   const [recommendations, setRecommendations] = useState<any[]>([])
+  const [riskFlags, setRiskFlags] = useState<any[]>([])
   const router = useRouter()
   const supabase = createClient()
 
@@ -109,11 +113,29 @@ export default function CreditScorePage() {
 
       if (borrowerData) {
         setBorrower(borrowerData)
-        setCreditScore(borrowerData.borrower_scores?.[0] || generateMockScore())
 
-        // Generate mock score history for demonstration
-        const mockHistory = generateScoreHistory()
-        setScoreHistory(mockHistory)
+        // Get or calculate real credit score
+        let score = borrowerData.borrower_scores?.[0]
+        if (!score) {
+          // Calculate score if it doesn't exist
+          const { data: calculatedScore } = await supabase.rpc('calculate_borrower_score', {
+            p_borrower_id: borrowerData.id
+          })
+
+          // Fetch the newly calculated score
+          const { data: freshScore } = await supabase
+            .from('borrower_scores')
+            .select('*')
+            .eq('borrower_id', borrowerData.id)
+            .single()
+
+          score = freshScore || { score: 600, score_factors: {}, updated_at: new Date().toISOString() }
+        }
+        setCreditScore(score)
+
+        // Build real score history from repayment events
+        const history = await buildScoreHistory(borrowerData.id)
+        setScoreHistory(history)
 
         // Get payment history
         const { data: payments } = await supabase
@@ -130,6 +152,15 @@ export default function CreditScorePage() {
           .limit(12)
 
         setPaymentHistory(payments || [])
+
+        // Load risk flags for this borrower
+        const { data: flagsData } = await supabase
+          .from('risk_flags')
+          .select('*')
+          .eq('borrower_id', borrowerData.id)
+          .order('created_at', { ascending: false })
+
+        setRiskFlags(flagsData || [])
 
         // Calculate credit utilization
         const { data: loans } = await supabase
@@ -152,30 +183,62 @@ export default function CreditScorePage() {
     }
   }
 
-  const generateMockScore = () => ({
-    score: 650,
-    factors: {
-      payment_history: 35,
-      credit_utilization: 30,
-      credit_age: 15,
-      credit_mix: 10,
-      new_inquiries: 10
-    },
-    updated_at: new Date().toISOString()
-  })
+  const buildScoreHistory = async (borrowerId: string) => {
+    // Get all loans with their repayment data to build historical trend
+    const { data: loans } = await supabase
+      .from('loans')
+      .select(`
+        *,
+        repayment_events(*)
+      `)
+      .eq('borrower_id', borrowerId)
+      .order('created_at', { ascending: true })
 
-  const generateScoreHistory = () => {
+    if (!loans || loans.length === 0) {
+      // No loan history - return current score only
+      return [{
+        month: format(new Date(), 'MMM'),
+        score: creditScore?.score || 600,
+        change: 0
+      }]
+    }
+
     const history = []
-    let baseScore = 580
+    let currentScore = 700 // Base score
+
+    // Track score changes over last 12 months
     for (let i = 11; i >= 0; i--) {
-      const month = subMonths(new Date(), i)
-      baseScore += Math.floor(Math.random() * 15) + 5
+      const monthDate = subMonths(new Date(), i)
+      const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+      const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0)
+
+      // Count late payments in this month
+      let latePaymentsInMonth = 0
+      loans.forEach(loan => {
+        const events = loan.repayment_events || []
+        events.forEach((event: any) => {
+          const eventDate = new Date(event.created_at)
+          if (eventDate >= monthStart && eventDate <= monthEnd && event.days_late > 0) {
+            latePaymentsInMonth++
+            // Deduct points based on lateness
+            if (event.days_late <= 7) currentScore -= 10
+            else if (event.days_late <= 30) currentScore -= 35
+            else currentScore -= 70
+          }
+        })
+      })
+
+      // Apply floor
+      currentScore = Math.max(currentScore, 300)
+
+      const prevScore = history[history.length - 1]?.score || 700
       history.push({
-        month: format(month, 'MMM'),
-        score: Math.min(baseScore, 750),
-        change: i === 11 ? 0 : Math.floor(Math.random() * 20) - 5
+        month: format(monthDate, 'MMM'),
+        score: currentScore,
+        change: currentScore - prevScore
       })
     }
+
     return history
   }
 
@@ -469,6 +532,141 @@ export default function CreditScorePage() {
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Risk Flags Section */}
+          <Card className={riskFlags.length > 0 ? "border-2 border-red-200" : ""}>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Flag className="h-5 w-5" />
+                    Risk Flags & Reports
+                  </CardTitle>
+                  <CardDescription>
+                    Reports from lenders about payment issues or defaults
+                  </CardDescription>
+                </div>
+                <Badge
+                  variant={riskFlags.filter(f => !f.resolved_at).length > 0 ? "destructive" : "outline"}
+                  className="text-lg px-3 py-1"
+                >
+                  {riskFlags.filter(f => !f.resolved_at).length} Active
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {riskFlags.length === 0 ? (
+                <Alert className="bg-green-50 border-green-200">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <AlertDescription className="text-green-900">
+                    <strong>Great news!</strong> You have no risk flags. Keep up your good payment behavior!
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <div className="space-y-3">
+                  {riskFlags.map((flag) => {
+                    const isResolved = !!flag.resolved_at
+                    const isDefault = flag.type === 'DEFAULT'
+
+                    const getRiskBadge = (type: string) => {
+                      const badges: Record<string, { label: string; className: string }> = {
+                        'LATE_1_7': { label: 'Late 1-7 days', className: 'bg-yellow-100 text-yellow-800' },
+                        'LATE_8_30': { label: 'Late 8-30 days', className: 'bg-orange-100 text-orange-800' },
+                        'LATE_31_60': { label: 'Late 31-60 days', className: 'bg-red-100 text-red-800' },
+                        'DEFAULT': { label: 'Default', className: 'bg-red-600 text-white' },
+                        'CLEARED': { label: 'Cleared', className: 'bg-green-100 text-green-800' },
+                      }
+                      return badges[type] || { label: type, className: 'bg-gray-100 text-gray-800' }
+                    }
+
+                    const badge = getRiskBadge(flag.type)
+
+                    return (
+                      <div
+                        key={flag.id}
+                        className={`p-4 rounded-lg border-2 ${
+                          isResolved
+                            ? 'bg-gray-50 border-gray-200'
+                            : isDefault
+                            ? 'bg-red-50 border-red-300'
+                            : 'bg-orange-50 border-orange-200'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge className={badge.className}>
+                                {badge.label}
+                              </Badge>
+                              <Badge variant={flag.origin === 'LENDER_REPORTED' ? 'default' : 'secondary'}>
+                                {flag.origin === 'LENDER_REPORTED' ? (
+                                  <>
+                                    <Users className="h-3 w-3 mr-1" />
+                                    Lender Reported
+                                  </>
+                                ) : (
+                                  'System Auto'
+                                )}
+                              </Badge>
+                              {isResolved && (
+                                <Badge className="bg-green-100 text-green-800">
+                                  <CheckCircle className="h-3 w-3 mr-1" />
+                                  Resolved
+                                </Badge>
+                              )}
+                            </div>
+
+                            <p className="text-sm text-gray-900 font-medium mb-1">
+                              {flag.reason}
+                            </p>
+
+                            <div className="flex items-center gap-4 text-xs text-gray-600 mt-2">
+                              <span>
+                                Reported: {format(new Date(flag.created_at), 'MMM d, yyyy')}
+                              </span>
+                              {flag.amount_at_issue_minor && (
+                                <span>
+                                  Amount: ${(flag.amount_at_issue_minor / 100).toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+
+                            {flag.resolved_at && (
+                              <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs">
+                                <strong className="text-green-900">Resolved:</strong>{' '}
+                                <span className="text-green-700">
+                                  {format(new Date(flag.resolved_at), 'MMM d, yyyy')}
+                                  {flag.resolution_reason && ` - ${flag.resolution_reason}`}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {isDefault && !isResolved && (
+                            <div className="ml-4">
+                              <Badge variant="destructive" className="text-xs">
+                                HIGH RISK
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {riskFlags.filter(f => !f.resolved_at).length > 0 && (
+                    <Alert className="bg-yellow-50 border-yellow-200 mt-4">
+                      <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                      <AlertDescription className="text-yellow-900">
+                        <strong>Active flags affect your credit score.</strong> Work with lenders to resolve outstanding issues.
+                        When resolved, flags will remain in your history but marked as "Resolved".
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

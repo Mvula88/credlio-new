@@ -69,7 +69,18 @@ export default function LenderBorrowerProfilePage() {
   const [reportReason, setReportReason] = useState('')
   const [reportAmount, setReportAmount] = useState('')
   const [reportProof, setReportProof] = useState('')
+  const [reportProofFile, setReportProofFile] = useState<File | null>(null)
+  const [uploadingProof, setUploadingProof] = useState(false)
   const [submittingReport, setSubmittingReport] = useState(false)
+  const [showResolveDialog, setShowResolveDialog] = useState(false)
+  const [selectedFlagToResolve, setSelectedFlagToResolve] = useState<any>(null)
+  const [resolutionReason, setResolutionReason] = useState('')
+  const [resolvingFlag, setResolvingFlag] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false)
+  const [messageText, setMessageText] = useState('')
+  const [messageSubject, setMessageSubject] = useState('')
+  const [sendingMessage, setSendingMessage] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -85,7 +96,15 @@ export default function LenderBorrowerProfilePage() {
         return
       }
 
-      // Load borrower info directly (RLS policies will handle access control)
+      // Store current user ID for permission checks
+      setCurrentUserId(user.id)
+      const currentLenderId = user.id
+
+      // IMPORTANT: This page handles TWO types of borrowers:
+      // 1. Self-registered borrowers: Have user accounts, verification status, full profiles
+      // 2. Tracked borrowers: Added manually by lenders, no user account, basic info only
+      // We gracefully handle missing data for tracked borrowers
+
       console.log('Current user ID:', user.id)
       console.log('Attempting to load borrower:', borrowerId)
 
@@ -117,8 +136,7 @@ export default function LenderBorrowerProfilePage() {
           linkedin_url,
           facebook_url,
           has_social_media,
-          borrower_scores(score),
-          borrower_self_verification_status(verification_status)
+          borrower_scores(score)
         `)
         .eq('id', borrowerId)
         .maybeSingle()
@@ -136,9 +154,25 @@ export default function LenderBorrowerProfilePage() {
         return
       }
 
-      setBorrower(borrowerData)
+      // Try to load self-verification status (only exists for self-registered borrowers)
+      const { data: verificationStatus } = await supabase
+        .from('borrower_self_verification_status')
+        .select('verification_status')
+        .eq('borrower_id', borrowerId)
+        .maybeSingle()
 
-      // Get ALL loans for this borrower (complete history from all lenders)
+      // Merge verification status if it exists
+      const borrowerWithStatus = {
+        ...borrowerData,
+        borrower_self_verification_status: verificationStatus ? [verificationStatus] : []
+      }
+
+      setBorrower(borrowerWithStatus)
+
+      // Get loans for this borrower from THIS LENDER ONLY
+      // This ensures each lender sees only their own activity with the borrower
+      // Only show loans that are being actively tracked (active, completed, defaulted, written_off)
+      // Pending loans (pending_offer, pending_signatures) are shown in a separate section
       const { data: loansData, error: loansError } = await supabase
         .from('loans')
         .select(`
@@ -147,6 +181,7 @@ export default function LenderBorrowerProfilePage() {
           repayment_schedules(*, repayment_events(*))
         `)
         .eq('borrower_id', borrowerId)
+        .eq('lender_id', currentLenderId)
         .order('created_at', { ascending: false })
 
       if (loansError) {
@@ -157,20 +192,27 @@ export default function LenderBorrowerProfilePage() {
 
       console.log('Loans loaded successfully:', loansData?.length || 0, 'loans')
 
+      // Filter to only show active/tracked loans in the main view
+      // Tracked statuses: active, completed, defaulted, written_off
+      const trackedStatuses = ['active', 'completed', 'defaulted', 'written_off']
+      const trackedLoans = (loansData || []).filter((loan: any) => trackedStatuses.includes(loan.status))
+      const pendingLoans = (loansData || []).filter((loan: any) => !trackedStatuses.includes(loan.status))
+
+      // Store all loans but mark which are pending
       setLoans(loansData || [])
 
       // Load risk flags for this borrower
+      // Note: Some flags may not have lender info (system-generated or from deleted lenders)
       const { data: flagsData, error: flagsError } = await supabase
         .from('risk_flags')
-        .select(`
-          *,
-          lenders(business_name, email)
-        `)
+        .select('*')
         .eq('borrower_id', borrowerId)
         .order('created_at', { ascending: false })
 
       if (flagsError) {
         console.error('Error loading risk flags:', flagsError)
+        // Don't throw - just show empty flags if there's an error
+        setRiskFlags([])
       } else {
         setRiskFlags(flagsData || [])
       }
@@ -513,8 +555,14 @@ export default function LenderBorrowerProfilePage() {
       return
     }
 
+    if (!reportProofFile) {
+      alert('Please upload proof document (receipt, screenshot, etc.)')
+      return
+    }
+
     try {
       setSubmittingReport(true)
+      setUploadingProof(true)
 
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -522,28 +570,60 @@ export default function LenderBorrowerProfilePage() {
         return
       }
 
-      // Create risk flag (RLS policies will handle access control)
+      // Upload proof file to Supabase Storage
+      const fileExt = reportProofFile.name.split('.').pop()
+      const fileName = `${user.id}/${borrowerId}/${Date.now()}.${fileExt}`
+      const filePath = `risk-evidence/${fileName}`
+
+      const { error: uploadError, data: uploadData } = await supabase.storage
+        .from('evidence')
+        .upload(filePath, reportProofFile, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        throw new Error('Failed to upload proof document')
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('evidence')
+        .getPublicUrl(filePath)
+
+      setUploadingProof(false)
+
+      // Compute hash of file for tamper detection
+      const arrayBuffer = await reportProofFile.arrayBuffer()
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      const proofHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+      // Create risk flag with file URL and hash
       const { error } = await supabase
         .from('risk_flags')
         .insert({
           borrower_id: borrowerId,
-          country_code: 'GH', // TODO: Get from borrower or lender
+          country_code: borrower.country_code || 'GH',
           origin: 'LENDER_REPORTED',
           type: reportType,
           reason: reportReason,
           amount_at_issue_minor: reportAmount ? Math.round(parseFloat(reportAmount) * 100) : null,
-          proof_sha256: reportProof || null,
+          proof_url: publicUrl,
+          proof_sha256: proofHash,
           created_by: user.id,
         })
 
       if (error) throw error
 
-      alert('Risk report submitted successfully')
+      alert('Risk report submitted successfully with proof document')
       setReportDialogOpen(false)
       setReportType('')
       setReportReason('')
       setReportAmount('')
       setReportProof('')
+      setReportProofFile(null)
 
       // Reload data to show new flag
       loadBorrowerProfile()
@@ -552,6 +632,49 @@ export default function LenderBorrowerProfilePage() {
       alert('Failed to submit report. Please try again.')
     } finally {
       setSubmittingReport(false)
+      setUploadingProof(false)
+    }
+  }
+
+  const handleResolveFlag = async () => {
+    if (!resolutionReason.trim()) {
+      alert('Please provide a reason for resolving this flag')
+      return
+    }
+
+    try {
+      setResolvingFlag(true)
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('You must be logged in to resolve a flag')
+        return
+      }
+
+      // Update the risk flag to mark as resolved
+      const { error } = await supabase
+        .from('risk_flags')
+        .update({
+          resolved_at: new Date().toISOString(),
+          resolved_by: user.id,
+          resolution_reason: resolutionReason,
+        })
+        .eq('id', selectedFlagToResolve.id)
+
+      if (error) throw error
+
+      alert('Flag resolved successfully. It will remain in history but marked as resolved.')
+      setShowResolveDialog(false)
+      setSelectedFlagToResolve(null)
+      setResolutionReason('')
+
+      // Reload data to show updated flag
+      loadBorrowerProfile()
+    } catch (error) {
+      console.error('Error resolving flag:', error)
+      alert('Failed to resolve flag. Please try again.')
+    } finally {
+      setResolvingFlag(false)
     }
   }
 
@@ -587,12 +710,42 @@ export default function LenderBorrowerProfilePage() {
 
   const overallAnalytics = getOverallPaymentAnalytics()
   const creditScore = borrower.borrower_scores?.[0]?.score || 500
-  const totalDisbursed = loans.reduce((sum, l) => sum + (l.principal_minor || 0), 0)
+  const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']; const totalDisbursed = loans.filter(l => disbursedStatuses.includes(l.status)).reduce((sum, l) => sum + (l.principal_minor || 0), 0)
   const activeLoans = loans.filter(l => l.status === 'active').length
   const trustIndicators = getTrustIndicators()
   const paymentStreak = getPaymentStreak()
   const repaymentBehaviorData = getRepaymentBehaviorData()
   const creditTimeline = getCreditHistoryTimeline()
+
+  // Check if this is a lender-tracked borrower (no self-verification status)
+  const isTrackedBorrower = !borrower.borrower_self_verification_status || borrower.borrower_self_verification_status.length === 0
+
+  const handleSendMessage = async () => {
+    if (!messageText.trim()) {
+      return
+    }
+
+    try {
+      setSendingMessage(true)
+      const { data, error } = await supabase.rpc('send_direct_message', {
+        p_borrower_id: borrowerId,
+        p_message: messageText.trim(),
+        p_subject: messageSubject.trim() || null
+      })
+
+      if (error) throw error
+
+      setMessageDialogOpen(false)
+      setMessageText('')
+      setMessageSubject('')
+      router.push('/l/messages')
+    } catch (error: any) {
+      console.error('Error sending message:', JSON.stringify(error, null, 2))
+      alert(error?.message || error?.details || error?.hint || JSON.stringify(error) || 'Failed to send message')
+    } finally {
+      setSendingMessage(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -605,14 +758,43 @@ export default function LenderBorrowerProfilePage() {
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Borrowers
         </Button>
-        <Button
-          onClick={() => router.push(`/l/borrowers/${borrowerId}/verify`)}
-          className="bg-gradient-to-r from-primary to-secondary"
-        >
-          <FileCheck className="h-4 w-4 mr-2" />
-          Verify Documents
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setMessageDialogOpen(true)}
+          >
+            <MessageSquare className="h-4 w-4 mr-2" />
+            Message
+          </Button>
+          <Button
+            onClick={() => router.push(`/l/borrowers/${borrowerId}/verify`)}
+            className="bg-gradient-to-r from-primary to-secondary"
+          >
+            <FileCheck className="h-4 w-4 mr-2" />
+            Verify Documents
+          </Button>
+        </div>
       </div>
+
+      {/* Info: Only showing this lender's activity */}
+      <Alert className="bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/30">
+        <Shield className="h-4 w-4 text-primary" />
+        <AlertDescription className="text-primary">
+          <strong>Your Activity Only:</strong> This page shows only your lending activity with this borrower.
+          To see their complete credit history from all lenders, search by National ID in the Borrowers page.
+        </AlertDescription>
+      </Alert>
+
+      {/* Lender-Tracked Borrower Notice */}
+      {isTrackedBorrower && (
+        <Alert className="bg-blue-50 border-blue-200">
+          <Users className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-blue-900">
+            <strong>Lender-Tracked Borrower:</strong> This borrower was manually added to the system by a lender and has not self-registered.
+            Some profile information may be limited.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Header - Borrower Info Card */}
       <Card>
@@ -624,8 +806,18 @@ export default function LenderBorrowerProfilePage() {
                   <User className="h-8 w-8 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-bold text-gray-900">{borrower.full_name}</h1>
-                  <p className="text-gray-600">Complete Payment History & Profile</p>
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-3xl font-bold text-gray-900">{borrower.full_name}</h1>
+                    {isTrackedBorrower && (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+                        <Users className="h-3 w-3 mr-1" />
+                        Lender-Tracked
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-gray-600">
+                    {isTrackedBorrower ? 'Manually Added by Lender' : 'Complete Payment History & Profile'}
+                  </p>
                 </div>
               </div>
 
@@ -957,9 +1149,9 @@ export default function LenderBorrowerProfilePage() {
                               Amount: ${(flag.amount_at_issue_minor / 100).toFixed(2)}
                             </span>
                           )}
-                          {flag.lenders?.business_name && (
+                          {flag.origin === 'LENDER_REPORTED' && (
                             <span>
-                              By: {flag.lenders.business_name}
+                              By: {flag.lenders?.business_name || 'Unknown Lender'}
                             </span>
                           )}
                         </div>
@@ -968,6 +1160,41 @@ export default function LenderBorrowerProfilePage() {
                           <div className="mt-2 text-xs text-gray-500">
                             Resolved: {format(new Date(flag.resolved_at), 'MMM d, yyyy')}
                             {flag.resolution_reason && ` - ${flag.resolution_reason}`}
+                          </div>
+                        )}
+
+                        {/* Action buttons for unresolved flags */}
+                        {!isResolved && currentUserId && (
+                          <div className="flex gap-2 mt-3">
+                            {/* Only show "Mark as Resolved" if current lender created this flag */}
+                            {flag.created_by === currentUserId && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-green-700 border-green-300 hover:bg-green-50"
+                                onClick={() => {
+                                  setSelectedFlagToResolve(flag)
+                                  setShowResolveDialog(true)
+                                }}
+                              >
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Mark as Resolved
+                              </Button>
+                            )}
+                            {/* Show "Dispute" for flags created by other lenders */}
+                            {flag.created_by !== currentUserId && flag.origin === 'LENDER_REPORTED' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-orange-700 border-orange-300 hover:bg-orange-50"
+                                onClick={() => {
+                                  alert('Dispute feature coming soon. Contact support with flag ID: ' + flag.id)
+                                }}
+                              >
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Dispute This Flag
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1073,11 +1300,11 @@ export default function LenderBorrowerProfilePage() {
         </div>
       )}
 
-      {/* Stats Overview */}
+      {/* Stats Overview - This Lender Only */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Loans</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-600">Your Loans</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{loans.length}</div>
@@ -1087,7 +1314,7 @@ export default function LenderBorrowerProfilePage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Disbursed</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-600">Your Disbursement</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(totalDisbursed, borrower.country_code)}</div>
@@ -1125,15 +1352,15 @@ export default function LenderBorrowerProfilePage() {
         </Card>
       </div>
 
-      {/* Credit History Timeline */}
+      {/* Credit History Timeline - This Lender Only */}
       {creditTimeline.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-primary" />
-              <CardTitle>Credit History Timeline</CardTitle>
+              <CardTitle>Your Loan Activity Timeline</CardTitle>
             </div>
-            <CardDescription>Chronological view of all credit activities and milestones</CardDescription>
+            <CardDescription>Chronological view of your lending activities with this borrower</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="relative">
@@ -1189,16 +1416,16 @@ export default function LenderBorrowerProfilePage() {
         </Card>
       )}
 
-      {/* Repayment Behavior Graph */}
+      {/* Repayment Behavior Graph - This Lender Only */}
       {repaymentBehaviorData.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-primary" />
-              <CardTitle>Repayment Behavior Analysis</CardTitle>
+              <CardTitle>Repayment Behavior with You</CardTitle>
             </div>
             <CardDescription>
-              Payment timing patterns showing consistency and reliability over time
+              Payment timing patterns for loans you've provided to this borrower
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1263,16 +1490,16 @@ export default function LenderBorrowerProfilePage() {
         </Card>
       )}
 
-      {/* Overall Payment History Summary */}
+      {/* Overall Payment History Summary - This Lender Only */}
       {loans.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <History className="h-5 w-5 text-primary" />
-              <CardTitle>Complete Payment History</CardTitle>
+              <CardTitle>Payment History with You</CardTitle>
             </div>
             <CardDescription>
-              Permanent record across all loans - never deleted, used for credit assessment
+              Payment performance for loans you've provided to this borrower
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1383,20 +1610,60 @@ export default function LenderBorrowerProfilePage() {
         </Card>
       )}
 
-      {/* All Loans */}
+      {/* Pending Loans Section - Show loans waiting for action */}
+      {loans.filter(l => ['pending_offer', 'pending_signatures'].includes(l.status)).length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader>
+            <CardTitle className="text-amber-800 flex items-center gap-2">
+              <Clock className="h-5 w-5" />
+              Pending Loans ({loans.filter(l => ['pending_offer', 'pending_signatures'].includes(l.status)).length})
+            </CardTitle>
+            <CardDescription>Loans awaiting action (not yet tracked in repayment system)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {loans.filter(l => ['pending_offer', 'pending_signatures'].includes(l.status)).map((loan) => (
+                <div key={loan.id} className="flex items-center justify-between p-4 bg-white rounded-lg border">
+                  <div>
+                    <p className="font-medium">{formatCurrency(loan.principal_minor || 0, loan.country_code)}</p>
+                    <p className="text-sm text-gray-500">{loan.term_months} months @ {((loan.apr_bps || 0) / 100).toFixed(2)}% APR</p>
+                    <p className="text-xs text-gray-400 mt-1">Created {format(new Date(loan.created_at), 'MMM dd, yyyy')}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {getStatusBadge(loan.status)}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push(`/l/loans/${loan.id}`)}
+                    >
+                      View Details
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Your Active/Tracked Loans with this Borrower */}
       <Card>
         <CardHeader>
-          <CardTitle>All Loans ({loans.length})</CardTitle>
-          <CardDescription>Complete loan history including active, completed, and past loans</CardDescription>
+          <CardTitle>Your Loans with This Borrower ({loans.filter(l => ['active', 'completed', 'defaulted', 'written_off'].includes(l.status)).length})</CardTitle>
+          <CardDescription>Loan history between you and this borrower (tracked loans only)</CardDescription>
         </CardHeader>
         <CardContent>
-          {loans.length === 0 ? (
+          {loans.filter(l => ['active', 'completed', 'defaulted', 'written_off'].includes(l.status)).length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              No loans found for this borrower
+              <p className="mb-2">No active or completed loans with this borrower yet</p>
+              <Button onClick={() => router.push(`/l/loans/new?borrower=${borrowerId}`)}>
+                <CreditCard className="h-4 w-4 mr-2" />
+                Create New Loan
+              </Button>
             </div>
           ) : (
             <div className="space-y-6">
-              {loans.map((loan) => {
+              {loans.filter(l => ['active', 'completed', 'defaulted', 'written_off'].includes(l.status)).map((loan) => {
                 const analytics = getPaymentAnalytics(loan)
                 return (
                   <Card key={loan.id} className="border-2">
@@ -1608,22 +1875,40 @@ Examples:
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="proof">Proof Hash (Optional)</Label>
+              <Label htmlFor="proof-file">Proof Document * (Required)</Label>
               <Input
-                id="proof"
-                placeholder="SHA-256 hash of supporting evidence"
-                value={reportProof}
-                onChange={(e) => setReportProof(e.target.value)}
+                id="proof-file"
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    // Check file size (max 5MB)
+                    if (file.size > 5 * 1024 * 1024) {
+                      alert('File size must be less than 5MB')
+                      e.target.value = ''
+                      return
+                    }
+                    setReportProofFile(file)
+                  }
+                }}
+                className="cursor-pointer"
               />
               <p className="text-xs text-gray-500">
-                Provide a SHA-256 hash of your supporting documents for verification
+                Upload proof (receipt, screenshot, messages, etc.) - Max 5MB, images or PDF
               </p>
+              {reportProofFile && (
+                <div className="flex items-center gap-2 text-sm text-green-600">
+                  <FileText className="h-4 w-4" />
+                  <span>Selected: {reportProofFile.name}</span>
+                </div>
+              )}
             </div>
 
             <Alert>
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription className="text-xs">
-                False reporting may result in account suspension. Only report genuine payment issues.
+                <strong>Important:</strong> Proof document is required for verification. File will be stored securely and visible to admins for dispute resolution. False reporting may result in account suspension.
               </AlertDescription>
             </Alert>
           </div>
@@ -1643,10 +1928,142 @@ Examples:
             </Button>
             <Button
               onClick={handleSubmitReport}
-              disabled={submittingReport || !reportType || !reportReason.trim()}
+              disabled={submittingReport || !reportType || !reportReason.trim() || !reportProofFile}
               className="bg-red-600 hover:bg-red-700"
             >
-              {submittingReport ? 'Submitting...' : 'Submit Report'}
+              {uploadingProof ? 'Uploading Proof...' : submittingReport ? 'Submitting Report...' : 'Submit Report'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resolve Flag Dialog */}
+      <Dialog open={showResolveDialog} onOpenChange={setShowResolveDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-900">
+              <CheckCircle className="h-5 w-5" />
+              Mark Flag as Resolved
+            </DialogTitle>
+            <DialogDescription>
+              Mark this flag as resolved if the borrower has paid back what they owed. The flag will remain in history but marked as resolved.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {selectedFlagToResolve && (
+              <Alert className="bg-blue-50 border-blue-200">
+                <AlertDescription className="text-sm text-blue-900">
+                  <strong>Resolving:</strong> {selectedFlagToResolve.reason}
+                  <br />
+                  <strong>Type:</strong> {getRiskTypeBadge(selectedFlagToResolve.type).label}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="resolution-reason">Resolution Reason *</Label>
+              <Textarea
+                id="resolution-reason"
+                placeholder="Example: Borrower paid back full amount on [date]"
+                value={resolutionReason}
+                onChange={(e) => setResolutionReason(e.target.value)}
+                rows={4}
+              />
+              <p className="text-xs text-gray-500">
+                Explain why this flag is being resolved (e.g., payment received, issue resolved)
+              </p>
+            </div>
+
+            <Alert className="bg-yellow-50 border-yellow-200">
+              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+              <AlertDescription className="text-xs text-yellow-900">
+                <strong>Important:</strong> This flag will NOT be deleted. It will remain visible in the borrower's history but marked as "Resolved" with your explanation. This maintains transparency for other lenders.
+              </AlertDescription>
+            </Alert>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowResolveDialog(false)
+                setSelectedFlagToResolve(null)
+                setResolutionReason('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleResolveFlag}
+              disabled={resolvingFlag || !resolutionReason.trim()}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {resolvingFlag ? 'Resolving...' : 'Mark as Resolved'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Message Dialog */}
+      <Dialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              Send Message to {borrower.full_name}
+            </DialogTitle>
+            <DialogDescription>
+              Start a direct conversation with this borrower. They will be notified of your message.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="message-subject">Subject (optional)</Label>
+              <Input
+                id="message-subject"
+                placeholder="e.g., Question about your loan request"
+                value={messageSubject}
+                onChange={(e) => setMessageSubject(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="message-text">Message *</Label>
+              <Textarea
+                id="message-text"
+                placeholder="Type your message here..."
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                rows={5}
+              />
+            </div>
+
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Never share sensitive information like passwords, PINs, or bank account details. Messages are monitored for security.
+              </AlertDescription>
+            </Alert>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMessageDialogOpen(false)
+                setMessageText('')
+                setMessageSubject('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendMessage}
+              disabled={sendingMessage || !messageText.trim()}
+            >
+              {sendingMessage ? 'Sending...' : 'Send Message'}
             </Button>
           </DialogFooter>
         </DialogContent>

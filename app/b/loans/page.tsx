@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -36,10 +38,12 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  Loader2
 } from 'lucide-react'
 import { format, addMonths, differenceInDays, parseISO, isPast } from 'date-fns'
-import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
+import { getCurrencyByCountry, getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 import {
   LineChart,
   Line,
@@ -66,11 +70,15 @@ export default function BorrowerLoansPage() {
   const [borrower, setBorrower] = useState<any>(null)
   const [borrowerCurrency, setBorrowerCurrency] = useState<CurrencyInfo | null>(null)
   const [loans, setLoans] = useState<any[]>([])
+  const [pendingOffersCount, setPendingOffersCount] = useState(0)
   const [selectedLoan, setSelectedLoan] = useState<any>(null)
   const [repaymentSchedule, setRepaymentSchedule] = useState<any[]>([])
   const [paymentHistory, setPaymentHistory] = useState<any[]>([])
   const [loanStats, setLoanStats] = useState<any>(null)
   const [downloadingAgreement, setDownloadingAgreement] = useState(false)
+  const [signedAgreementFile, setSignedAgreementFile] = useState<File | null>(null)
+  const [uploadingSignedAgreement, setUploadingSignedAgreement] = useState(false)
+  const [agreementData, setAgreementData] = useState<any>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -101,11 +109,13 @@ export default function BorrowerLoansPage() {
       setProfile(profileData)
 
       // Get borrower link
-      const { data: linkData } = await supabase
+      const { data: linkData, error: linkError } = await supabase
         .from('borrower_user_links')
         .select('borrower_id')
         .eq('user_id', user.id)
         .single()
+
+      console.log('Borrower link:', { linkData, linkError, userId: user.id })
 
       if (linkData) {
         // Get borrower record
@@ -126,30 +136,43 @@ export default function BorrowerLoansPage() {
         }
 
         // Get ALL loans (including completed/past) for this borrower
-        const { data: loansData } = await supabase
+        // Note: repayment_events is linked through repayment_schedules, not directly to loans
+        const { data: loansData, error: loansError } = await supabase
           .from('loans')
           .select(`
             *,
             lenders(
               business_name,
-              contact_email
+              email
             ),
             repayment_schedules(
-              *
-            ),
-            repayment_events(
-              *
+              *,
+              repayment_events(*)
             )
           `)
           .eq('borrower_id', linkData.borrower_id)
           .order('created_at', { ascending: false })
 
+        console.log('Loans query result:', {
+          loansData,
+          loansError,
+          borrowerId: linkData.borrower_id,
+          loansCount: loansData?.length || 0,
+          statuses: loansData?.map(l => l.status) || []
+        })
+
         if (loansData && loansData.length > 0) {
-          setLoans(loansData)
-          setSelectedLoan(loansData.find(l => l.status === 'active') || loansData[0])
-          
-          // Calculate stats
-          calculateLoanStats(loansData)
+          // Count pending offers
+          const pendingOffers = loansData.filter(l => l.status === 'pending_offer')
+          setPendingOffersCount(pendingOffers.length)
+
+          // Filter out pending offers for the main loans view (show only active/completed)
+          const activeLoans = loansData.filter(l => l.status !== 'pending_offer' && l.status !== 'declined')
+          setLoans(activeLoans)
+          setSelectedLoan(activeLoans.find(l => l.status === 'active') || activeLoans[0])
+
+          // Calculate stats (exclude pending offers)
+          calculateLoanStats(activeLoans)
         }
       }
     } catch (error) {
@@ -174,16 +197,22 @@ export default function BorrowerLoansPage() {
       // Get the HTML content
       const htmlContent = await response.text()
 
-      // Create a blob and download
-      const blob = new Blob([htmlContent], { type: 'text/html' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `loan-agreement-${loanId}.html`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
+      // Open in new window for print to PDF
+      const pw = window.open('', '_blank')
+      if (pw) {
+        pw.document.write(`<!DOCTYPE html><html><head><title>Loan Agreement</title><style>@media print{.no-print{display:none!important}}.print-box{background:#f0f9ff;border:2px solid #0ea5e9;border-radius:8px;padding:16px;margin-bottom:20px;font-family:system-ui}.print-box h3{margin:0 0 8px;color:#0369a1}.print-box p{margin:4px 0;color:#475569}.print-box button{background:#0ea5e9;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;margin-top:12px}</style></head><body><div class="print-box no-print"><h3>Save as PDF</h3><p>1. Press Ctrl+P</p><p>2. Select "Save as PDF"</p><button onclick="window.print()">Print/Save as PDF</button></div>${htmlContent}</body></html>`)
+        pw.document.close()
+      } else {
+        const blob = new Blob([htmlContent], { type: 'text/html' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `loan-agreement-${loanId}.html`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+      }
     } catch (error: any) {
       console.error('Error downloading agreement:', error)
       alert(error.message || 'Failed to download loan agreement')
@@ -192,8 +221,75 @@ export default function BorrowerLoansPage() {
     }
   }
 
+  const handleUploadSignedAgreement = async () => {
+    if (!signedAgreementFile || !agreementData || !selectedLoan) {
+      alert('Please select a file to upload')
+      return
+    }
+
+    try {
+      setUploadingSignedAgreement(true)
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please sign in to continue')
+        return
+      }
+
+      // Upload file to Supabase Storage
+      const fileExt = signedAgreementFile.name.split('.').pop()
+      const fileName = `${user.id}/loan-${selectedLoan.id}/borrower-signed-${Date.now()}.${fileExt}`
+      const filePath = `signed-agreements/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('evidence')
+        .upload(filePath, signedAgreementFile, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('evidence')
+        .getPublicUrl(filePath)
+
+      // Compute hash for tamper detection
+      const arrayBuffer = await signedAgreementFile.arrayBuffer()
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      const signedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+      // Upload signed agreement using database function
+      const { error: dbError } = await supabase
+        .rpc('upload_borrower_signed_agreement', {
+          p_agreement_id: agreementData.id,
+          p_signed_url: publicUrl,
+          p_signed_hash: signedHash
+        })
+
+      if (dbError) throw dbError
+
+      alert('✅ Signed agreement uploaded successfully!')
+      setSignedAgreementFile(null)
+
+      // Reload agreement data
+      loadAgreementData(selectedLoan.id)
+    } catch (error: any) {
+      console.error('Error uploading signed agreement:', error)
+      alert(error.message || 'Failed to upload signed agreement')
+    } finally {
+      setUploadingSignedAgreement(false)
+    }
+  }
+
   const calculateLoanStats = (loansData: any[]) => {
-    const totalBorrowed = loansData.reduce((sum, loan) => sum + loan.principal_amount, 0)
+    // Only count actually disbursed loans (not pending_offer or pending_signatures)
+    const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
+    const disbursedLoans = loansData.filter(l => disbursedStatuses.includes(l.status))
+    const totalBorrowed = disbursedLoans.reduce((sum, loan) => sum + loan.principal_amount, 0)
     const totalRepaid = loansData.reduce((sum, loan) => sum + loan.total_repaid, 0)
     const activeLoans = loansData.filter(l => l.status === 'active').length
     const completedLoans = loansData.filter(l => l.status === 'completed').length
@@ -217,19 +313,41 @@ export default function BorrowerLoansPage() {
     if (selectedLoan) {
       setRepaymentSchedule(selectedLoan.repayment_schedules || [])
       setPaymentHistory(selectedLoan.repayment_events || [])
+      loadAgreementData(selectedLoan.id)
     }
   }, [selectedLoan])
 
-  const formatCurrency = (amountMinor: number) => {
-    if (!borrowerCurrency) {
-      // Fallback to USD if currency info not loaded yet
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 0,
-      }).format(amountMinor / 100)
+  const loadAgreementData = async (loanId: string) => {
+    const { data: agreement } = await supabase
+      .from('loan_agreements')
+      .select('*')
+      .eq('loan_id', loanId)
+      .maybeSingle()
+
+    setAgreementData(agreement)
+  }
+
+  // Format currency based on the loan's currency (not borrower's default)
+  const formatCurrency = (amountMinor: number, currencyCode?: string) => {
+    // Try to get currency from the loan's currency code first
+    if (currencyCode) {
+      const loanCurrency = getCurrencyInfo(currencyCode)
+      if (loanCurrency) {
+        return formatCurrencyUtil(amountMinor, loanCurrency)
+      }
     }
-    return formatCurrencyUtil(amountMinor, borrowerCurrency)
+
+    // Fall back to borrower's currency
+    if (borrowerCurrency) {
+      return formatCurrencyUtil(amountMinor, borrowerCurrency)
+    }
+
+    // Last resort fallback to USD
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+    }).format(amountMinor / 100)
   }
 
   const getStatusColor = (status: string) => {
@@ -432,6 +550,28 @@ export default function BorrowerLoansPage() {
         </Button>
       </div>
 
+      {/* Pending Offers Banner */}
+      {pendingOffersCount > 0 && (
+        <Alert className="border-2 border-yellow-400 bg-yellow-50">
+          <Clock className="h-5 w-5 text-yellow-600" />
+          <AlertTitle className="text-yellow-900 text-lg">
+            You have {pendingOffersCount} pending loan offer{pendingOffersCount > 1 ? 's' : ''}!
+          </AlertTitle>
+          <AlertDescription className="text-yellow-800">
+            <p className="mb-3">
+              A lender has offered you a loan. Review the terms and accept or decline.
+            </p>
+            <Button
+              onClick={() => router.push('/b/loans/offers')}
+              className="bg-yellow-600 hover:bg-yellow-700"
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              Review Loan Offer{pendingOffersCount > 1 ? 's' : ''}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Stats Overview */}
       {loanStats && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
@@ -440,7 +580,7 @@ export default function BorrowerLoansPage() {
               <CardTitle className="text-sm font-medium text-gray-600">Total Borrowed</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold">{formatCurrency(loanStats.totalBorrowed)}</p>
+              <p className="text-2xl font-bold">{formatCurrency(loanStats.totalBorrowed, selectedLoan?.currency)}</p>
             </CardContent>
           </Card>
 
@@ -449,7 +589,7 @@ export default function BorrowerLoansPage() {
               <CardTitle className="text-sm font-medium text-gray-600">Total Repaid</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-green-600">{formatCurrency(loanStats.totalRepaid)}</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(loanStats.totalRepaid, selectedLoan?.currency)}</p>
             </CardContent>
           </Card>
 
@@ -458,7 +598,7 @@ export default function BorrowerLoansPage() {
               <CardTitle className="text-sm font-medium text-gray-600">Interest Paid</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold">{formatCurrency(loanStats.totalInterestPaid)}</p>
+              <p className="text-2xl font-bold">{formatCurrency(loanStats.totalInterestPaid, selectedLoan?.currency)}</p>
             </CardContent>
           </Card>
 
@@ -685,40 +825,63 @@ export default function BorrowerLoansPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div>
-                        <p className="text-sm text-gray-600">Principal Amount</p>
-                        <p className="text-2xl font-bold">
-                          {formatCurrency(selectedLoan.principal_amount, selectedLoan.currency)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-600">Interest Rate</p>
-                        <p className="text-2xl font-bold">{selectedLoan.interest_rate}% APR</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-600">Term</p>
-                        <p className="text-2xl font-bold">{selectedLoan.term_months} months</p>
+                    {/* Loan Amount Breakdown - Clear Visual */}
+                    <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50/50">
+                      <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                        <Calculator className="h-4 w-4" />
+                        Loan Breakdown
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-sm text-gray-600">Principal (Borrowed)</p>
+                          <p className="text-xl font-bold">
+                            {formatCurrency(selectedLoan.principal_minor || selectedLoan.principal_amount, selectedLoan.currency)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600">Interest Rate</p>
+                          <p className="text-xl font-bold text-orange-600">
+                            {selectedLoan.total_interest_percent || selectedLoan.base_rate_percent || selectedLoan.interest_rate}%
+                          </p>
+                          {selectedLoan.payment_type === 'installments' && selectedLoan.extra_rate_per_installment > 0 && (
+                            <p className="text-xs text-gray-500">
+                              ({selectedLoan.base_rate_percent}% base + {selectedLoan.extra_rate_per_installment}% × {(selectedLoan.num_installments || 1) - 1})
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600">Interest Amount</p>
+                          <p className="text-xl font-bold text-orange-600">
+                            {formatCurrency(selectedLoan.interest_amount_minor || (selectedLoan.total_amount - selectedLoan.principal_amount), selectedLoan.currency)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600">Payment Type</p>
+                          <p className="text-xl font-bold">
+                            {selectedLoan.payment_type === 'once_off' ? 'Once-off' : `${selectedLoan.num_installments || selectedLoan.term_months} Installments`}
+                          </p>
+                        </div>
                       </div>
                     </div>
 
+                    {/* Total & Progress */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div>
-                        <p className="text-sm text-gray-600">Total Amount</p>
-                        <p className="text-xl font-semibold">
-                          {formatCurrency(selectedLoan.total_amount, selectedLoan.currency)}
+                      <div className="p-4 bg-blue-100 rounded-lg">
+                        <p className="text-sm text-blue-700">Total to Pay</p>
+                        <p className="text-2xl font-bold text-blue-900">
+                          {formatCurrency(selectedLoan.total_amount_minor || selectedLoan.total_amount, selectedLoan.currency)}
                         </p>
                       </div>
-                      <div>
-                        <p className="text-sm text-gray-600">Total Repaid</p>
-                        <p className="text-xl font-semibold text-green-600">
+                      <div className="p-4 bg-green-100 rounded-lg">
+                        <p className="text-sm text-green-700">Total Repaid</p>
+                        <p className="text-2xl font-bold text-green-900">
                           {formatCurrency(selectedLoan.total_repaid, selectedLoan.currency)}
                         </p>
                       </div>
-                      <div>
-                        <p className="text-sm text-gray-600">Remaining</p>
-                        <p className="text-xl font-semibold">
-                          {formatCurrency(selectedLoan.total_amount - selectedLoan.total_repaid, selectedLoan.currency)}
+                      <div className="p-4 bg-gray-100 rounded-lg">
+                        <p className="text-sm text-gray-700">Remaining</p>
+                        <p className="text-2xl font-bold text-gray-900">
+                          {formatCurrency((selectedLoan.total_amount_minor || selectedLoan.total_amount) - selectedLoan.total_repaid, selectedLoan.currency)}
                         </p>
                       </div>
                     </div>
@@ -749,6 +912,170 @@ export default function BorrowerLoansPage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Signed Agreement Section */}
+                {agreementData && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="h-5 w-5" />
+                        Loan Agreement Signatures
+                      </CardTitle>
+                      <CardDescription>
+                        Both parties must upload their signed copy for legal validity
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Borrower Signature Status */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-semibold">Your Signature (Borrower)</h3>
+                            {agreementData.borrower_signed_at ? (
+                              <Badge className="bg-green-600">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Signed
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary">
+                                <Clock className="h-3 w-3 mr-1" />
+                                Pending
+                              </Badge>
+                            )}
+                          </div>
+
+                          {agreementData.borrower_signed_at ? (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                              <p className="text-sm text-green-900">
+                                <strong>Signed on:</strong> {format(new Date(agreementData.borrower_signed_at), 'MMM d, yyyy HH:mm')}
+                              </p>
+                              {agreementData.borrower_signed_url && (
+                                <a
+                                  href={agreementData.borrower_signed_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-blue-600 hover:underline flex items-center gap-1 mt-2"
+                                >
+                                  <Download className="h-3 w-3" />
+                                  View Signed Copy
+                                </a>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              <Alert>
+                                <AlertDescription className="text-sm">
+                                  Download the agreement, sign it, and upload a photo/PDF of the signed document
+                                </AlertDescription>
+                              </Alert>
+
+                              <div className="space-y-2">
+                                <Label htmlFor="borrower-signed-file">Upload Signed Agreement</Label>
+                                <Input
+                                  id="borrower-signed-file"
+                                  type="file"
+                                  accept="image/*,.pdf"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0]
+                                    if (file) {
+                                      if (file.size > 5 * 1024 * 1024) {
+                                        alert('File size must be less than 5MB')
+                                        e.target.value = ''
+                                        return
+                                      }
+                                      setSignedAgreementFile(file)
+                                    }
+                                  }}
+                                  className="cursor-pointer"
+                                />
+                                {signedAgreementFile && (
+                                  <div className="flex items-center gap-2 text-sm text-green-600">
+                                    <FileText className="h-4 w-4" />
+                                    <span>Selected: {signedAgreementFile.name}</span>
+                                  </div>
+                                )}
+                                <Button
+                                  onClick={handleUploadSignedAgreement}
+                                  disabled={!signedAgreementFile || uploadingSignedAgreement}
+                                  className="w-full"
+                                >
+                                  {uploadingSignedAgreement ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                      Uploading...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Upload className="h-4 w-4 mr-2" />
+                                      Upload My Signed Copy
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Lender Signature Status */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-semibold">Lender's Signature</h3>
+                            {agreementData.lender_signed_at ? (
+                              <Badge className="bg-green-600">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Signed
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary">
+                                <Clock className="h-3 w-3 mr-1" />
+                                Pending
+                              </Badge>
+                            )}
+                          </div>
+
+                          {agreementData.lender_signed_at ? (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                              <p className="text-sm text-green-900">
+                                <strong>Signed on:</strong> {format(new Date(agreementData.lender_signed_at), 'MMM d, yyyy HH:mm')}
+                              </p>
+                              {agreementData.lender_signed_url && (
+                                <a
+                                  href={agreementData.lender_signed_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-blue-600 hover:underline flex items-center gap-1 mt-2"
+                                >
+                                  <Download className="h-3 w-3" />
+                                  View Signed Copy
+                                </a>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                              <p className="text-sm text-gray-600">
+                                Waiting for lender to sign and upload their copy...
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Fully Signed Status */}
+                      {agreementData.fully_signed && (
+                        <div className="mt-4 bg-green-50 border-2 border-green-200 rounded-lg p-4">
+                          <div className="flex items-center gap-2 text-green-900">
+                            <CheckCircle className="h-5 w-5" />
+                            <strong>Agreement Fully Executed</strong>
+                          </div>
+                          <p className="text-sm text-green-700 mt-1">
+                            Both parties have signed on {format(new Date(agreementData.fully_signed_at), 'MMM d, yyyy HH:mm')}.
+                            The agreement is now legally binding.
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Next Payment Alert */}
                 {nextPayment && selectedLoan.status === 'active' && (

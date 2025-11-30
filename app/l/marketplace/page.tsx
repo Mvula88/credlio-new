@@ -12,6 +12,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Slider } from '@/components/ui/slider'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   ShoppingBag,
   Search,
@@ -55,8 +57,10 @@ export default function MarketplacePage() {
   const [myOffers, setMyOffers] = useState<any[]>([])
   const [selectedRequest, setSelectedRequest] = useState<any>(null)
   const [offerAmount, setOfferAmount] = useState('')
-  const [offerRate, setOfferRate] = useState('')
-  const [offerTerms, setOfferTerms] = useState('')
+  const [offerBaseRate, setOfferBaseRate] = useState('')
+  const [offerExtraRate, setOfferExtraRate] = useState('2')
+  const [offerPaymentType, setOfferPaymentType] = useState<'once_off' | 'installments'>('once_off')
+  const [offerInstallments, setOfferInstallments] = useState('1')
   const [submittingOffer, setSubmittingOffer] = useState(false)
   const [lenderCurrency, setLenderCurrency] = useState<CurrencyInfo | null>(null)
   const [filters, setFilters] = useState({
@@ -311,7 +315,7 @@ export default function MarketplacePage() {
   }
 
   const submitOffer = async () => {
-    if (!selectedRequest || !offerAmount || !offerRate || !offerTerms) return
+    if (!selectedRequest || !offerAmount || !offerBaseRate) return
 
     try {
       setSubmittingOffer(true)
@@ -327,15 +331,33 @@ export default function MarketplacePage() {
 
       if (!lender) return
 
-      // Create loan offer
+      // Calculate values
+      const baseRate = parseFloat(offerBaseRate)
+      const extraRate = parseFloat(offerExtraRate) || 0
+      const numInstallments = offerPaymentType === 'once_off' ? 1 : parseInt(offerInstallments)
+      const principalMinor = Math.round(parseFloat(offerAmount) * 100)
+
+      // Calculate total interest rate
+      const totalInterestRate = offerPaymentType === 'once_off'
+        ? baseRate
+        : baseRate + (extraRate * (numInstallments - 1))
+
+      // For backward compatibility, also set apr_bps
+      const aprBps = Math.round(totalInterestRate * 100)
+
+      // Create loan offer with new fields
       const { data: offerData, error } = await supabase
         .from('loan_offers')
         .insert({
           request_id: selectedRequest.id,
           lender_id: lender.user_id,
-          amount_minor: Math.round(parseFloat(offerAmount) * 100), // Convert to cents
-          apr_bps: Math.round(parseFloat(offerRate) * 100), // Convert to basis points
-          term_months: parseInt(offerTerms),
+          amount_minor: principalMinor,
+          apr_bps: aprBps, // Keep for backward compatibility
+          base_rate_percent: baseRate,
+          extra_rate_per_installment: extraRate,
+          payment_type: offerPaymentType,
+          num_installments: numInstallments,
+          term_months: numInstallments, // term_months = num_installments for this model
           status: 'pending',
         })
         .select()
@@ -369,8 +391,10 @@ export default function MarketplacePage() {
       // Reset form
       setSelectedRequest(null)
       setOfferAmount('')
-      setOfferRate('')
-      setOfferTerms('')
+      setOfferBaseRate('')
+      setOfferExtraRate('2')
+      setOfferPaymentType('once_off')
+      setOfferInstallments('1')
     } catch (error) {
       console.error('Error:', error)
     } finally {
@@ -412,9 +436,9 @@ export default function MarketplacePage() {
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-gradient-to-r from-green-500 to-blue-500 flex items-center justify-center">
               <Lock className="h-6 w-6 text-white" />
             </div>
-            <CardTitle className="text-2xl">Loan Requests Access Required</CardTitle>
+            <CardTitle className="text-2xl">No Loan Requests Yet</CardTitle>
             <CardDescription>
-              Upgrade to Pro+ to access loan requests from borrowers
+              Borrowers haven't posted any loan requests yet. Check back soon!
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -428,7 +452,7 @@ export default function MarketplacePage() {
             </Alert>
 
             <div className="space-y-4">
-              <h3 className="font-semibold">Pro+ Benefits ($19.99/month)</h3>
+              <h3 className="font-semibold">Marketplace Benefits</h3>
               <ul className="space-y-2">
                 <li className="flex items-start space-x-2">
                   <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
@@ -453,15 +477,6 @@ export default function MarketplacePage() {
               </ul>
             </div>
 
-            <div className="flex justify-center">
-              <Button 
-                size="lg"
-                className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-                onClick={() => router.push('/l/billing')}
-              >
-                Upgrade to Pro+ →
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </div>
@@ -883,38 +898,174 @@ export default function MarketplacePage() {
                                       </Alert>
                                     </div>
 
-                                    {/* Offer Form */}
-                                    <div className="grid grid-cols-3 gap-3">
+                                    {/* Offer Form - New Interest System */}
+                                    <div className="space-y-4 border-2 border-green-200 rounded-lg p-4 bg-green-50/30">
+                                      <h4 className="font-semibold text-sm text-green-900 flex items-center gap-2">
+                                        <DollarSign className="h-4 w-4" />
+                                        Your Loan Offer
+                                      </h4>
+
+                                      {/* Amount */}
                                       <div className="space-y-2">
-                                        <Label htmlFor="offer-amount">Amount</Label>
+                                        <Label htmlFor="offer-amount">Loan Amount</Label>
                                         <Input
                                           id="offer-amount"
                                           type="number"
+                                          placeholder="e.g., 1000"
                                           value={offerAmount}
                                           onChange={(e) => setOfferAmount(e.target.value)}
                                         />
                                       </div>
 
-                                      <div className="space-y-2">
-                                        <Label htmlFor="offer-rate">Rate (%)</Label>
-                                        <Input
-                                          id="offer-rate"
-                                          type="number"
-                                          step="0.1"
-                                          value={offerRate}
-                                          onChange={(e) => setOfferRate(e.target.value)}
-                                        />
+                                      {/* Interest Rate */}
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="offer-base-rate">
+                                            Base Interest Rate (%)
+                                            <span className="text-xs text-gray-500 block">For 1-month / once-off payment</span>
+                                          </Label>
+                                          <Input
+                                            id="offer-base-rate"
+                                            type="number"
+                                            step="0.5"
+                                            placeholder="e.g., 30"
+                                            value={offerBaseRate}
+                                            onChange={(e) => setOfferBaseRate(e.target.value)}
+                                          />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                          <Label htmlFor="offer-extra-rate">
+                                            Extra Rate Per Installment (%)
+                                            <span className="text-xs text-gray-500 block">Added for each extra month</span>
+                                          </Label>
+                                          <Input
+                                            id="offer-extra-rate"
+                                            type="number"
+                                            step="0.5"
+                                            placeholder="e.g., 2"
+                                            value={offerExtraRate}
+                                            onChange={(e) => setOfferExtraRate(e.target.value)}
+                                          />
+                                        </div>
                                       </div>
 
+                                      {/* Payment Type */}
                                       <div className="space-y-2">
-                                        <Label htmlFor="offer-terms">Months</Label>
-                                        <Input
-                                          id="offer-terms"
-                                          type="number"
-                                          value={offerTerms}
-                                          onChange={(e) => setOfferTerms(e.target.value)}
-                                        />
+                                        <Label>Payment Type</Label>
+                                        <RadioGroup
+                                          value={offerPaymentType}
+                                          onValueChange={(value: 'once_off' | 'installments') => {
+                                            setOfferPaymentType(value)
+                                            if (value === 'once_off') {
+                                              setOfferInstallments('1')
+                                            } else {
+                                              setOfferInstallments('2')
+                                            }
+                                          }}
+                                          className="flex gap-4"
+                                        >
+                                          <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="once_off" id="once_off" />
+                                            <Label htmlFor="once_off" className="font-normal cursor-pointer">
+                                              Once-off (Single payment)
+                                            </Label>
+                                          </div>
+                                          <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="installments" id="installments" />
+                                            <Label htmlFor="installments" className="font-normal cursor-pointer">
+                                              Installments (Multiple payments)
+                                            </Label>
+                                          </div>
+                                        </RadioGroup>
                                       </div>
+
+                                      {/* Number of Installments - only show if installments selected */}
+                                      {offerPaymentType === 'installments' && (
+                                        <div className="space-y-2">
+                                          <Label htmlFor="offer-installments">Number of Installments</Label>
+                                          <Select
+                                            value={offerInstallments}
+                                            onValueChange={setOfferInstallments}
+                                          >
+                                            <SelectTrigger>
+                                              <SelectValue placeholder="Select installments" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="2">2 months</SelectItem>
+                                              <SelectItem value="3">3 months</SelectItem>
+                                              <SelectItem value="4">4 months</SelectItem>
+                                              <SelectItem value="5">5 months</SelectItem>
+                                              <SelectItem value="6">6 months</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                      )}
+
+                                      {/* Live Calculation Preview */}
+                                      {offerAmount && offerBaseRate && (
+                                        <div className="border-2 border-blue-300 rounded-lg p-4 bg-blue-50">
+                                          <h5 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                                            <TrendingUp className="h-4 w-4" />
+                                            What Borrower Will Pay
+                                          </h5>
+                                          {(() => {
+                                            const principal = parseFloat(offerAmount) || 0
+                                            const baseRate = parseFloat(offerBaseRate) || 0
+                                            const extraRate = parseFloat(offerExtraRate) || 0
+                                            const installments = offerPaymentType === 'once_off' ? 1 : parseInt(offerInstallments)
+
+                                            // Calculate total rate
+                                            const totalRate = offerPaymentType === 'once_off'
+                                              ? baseRate
+                                              : baseRate + (extraRate * (installments - 1))
+
+                                            const interestAmount = principal * (totalRate / 100)
+                                            const totalAmount = principal + interestAmount
+                                            const perInstallment = totalAmount / installments
+
+                                            return (
+                                              <div className="space-y-2 text-sm">
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-600">Principal:</span>
+                                                  <span className="font-medium">{formatCurrency(principal * 100)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-600">
+                                                    Interest Rate:
+                                                    {offerPaymentType === 'installments' && (
+                                                      <span className="text-xs ml-1">
+                                                        ({baseRate}% + {extraRate}% x {installments - 1})
+                                                      </span>
+                                                    )}
+                                                  </span>
+                                                  <span className="font-medium text-orange-600">{totalRate.toFixed(1)}%</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-600">Interest Amount:</span>
+                                                  <span className="font-medium text-orange-600">{formatCurrency(interestAmount * 100)}</span>
+                                                </div>
+                                                <div className="border-t pt-2 mt-2">
+                                                  <div className="flex justify-between text-lg">
+                                                    <span className="font-semibold text-blue-900">Total to Pay:</span>
+                                                    <span className="font-bold text-blue-900">{formatCurrency(totalAmount * 100)}</span>
+                                                  </div>
+                                                </div>
+                                                {offerPaymentType === 'installments' && (
+                                                  <div className="bg-white rounded p-2 mt-2">
+                                                    <div className="flex justify-between">
+                                                      <span className="text-gray-600">Per Installment:</span>
+                                                      <span className="font-bold text-green-700">
+                                                        {formatCurrency(perInstallment * 100)} x {installments}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )
+                                          })()}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                   <DialogFooter>
@@ -975,18 +1126,34 @@ export default function MarketplacePage() {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                           <div>
                             <p className="text-gray-600">Offered Amount</p>
                             <p className="font-medium">{formatCurrency(offer.amount_minor)}</p>
                           </div>
                           <div>
-                            <p className="text-gray-600">Interest Rate</p>
-                            <p className="font-medium">{offer.interest_rate}%</p>
+                            <p className="text-gray-600">Base Rate</p>
+                            <p className="font-medium">{offer.base_rate_percent || offer.interest_rate}%</p>
                           </div>
                           <div>
-                            <p className="text-gray-600">Term</p>
-                            <p className="font-medium">{offer.term_months} months</p>
+                            <p className="text-gray-600">Payment Type</p>
+                            <p className="font-medium capitalize">
+                              {offer.payment_type === 'once_off' ? 'Once-off' : `${offer.num_installments || offer.term_months} Installments`}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Total Interest</p>
+                            <p className="font-medium text-orange-600">
+                              {(() => {
+                                const baseRate = offer.base_rate_percent || offer.interest_rate || 0
+                                const extraRate = offer.extra_rate_per_installment || 0
+                                const installments = offer.num_installments || offer.term_months || 1
+                                const totalRate = offer.payment_type === 'once_off' || installments <= 1
+                                  ? baseRate
+                                  : baseRate + (extraRate * (installments - 1))
+                                return `${totalRate}%`
+                              })()}
+                            </p>
                           </div>
                           <div>
                             <p className="text-gray-600">Submitted</p>
@@ -994,6 +1161,23 @@ export default function MarketplacePage() {
                               {format(new Date(offer.created_at), 'MMM dd, yyyy')}
                             </p>
                           </div>
+                        </div>
+                        {/* Total to pay preview */}
+                        <div className="mt-3 pt-3 border-t flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Borrower will pay:</span>
+                          <span className="font-bold text-green-700">
+                            {(() => {
+                              const principal = offer.amount_minor / 100
+                              const baseRate = offer.base_rate_percent || offer.interest_rate || 0
+                              const extraRate = offer.extra_rate_per_installment || 0
+                              const installments = offer.num_installments || offer.term_months || 1
+                              const totalRate = offer.payment_type === 'once_off' || installments <= 1
+                                ? baseRate
+                                : baseRate + (extraRate * (installments - 1))
+                              const total = principal * (1 + totalRate / 100)
+                              return formatCurrency(total * 100)
+                            })()}
+                          </span>
                         </div>
                       </CardContent>
                     </Card>
@@ -1039,7 +1223,7 @@ export default function MarketplacePage() {
                           {search.max_amount_minor && (
                             <div className="flex justify-between">
                               <span className="text-gray-600">Max Amount:</span>
-                              <span className="font-medium">{formatCurrency(search.max_amount_minor / 100)}</span>
+                              <span className="font-medium">{formatCurrency(search.max_amount_minor)}</span>
                             </div>
                           )}
                           {search.max_term_months && (

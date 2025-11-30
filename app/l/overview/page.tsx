@@ -3,23 +3,56 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { format } from 'date-fns'
+import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Progress } from '@/components/ui/progress'
 import { VerificationStatusBanner } from '@/components/verification-status-banner'
 import { getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
-import { 
-  Users, 
-  CreditCard, 
-  TrendingUp, 
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  RadialBarChart,
+  RadialBar,
+  AreaChart,
+  Area
+} from 'recharts'
+import {
+  Users,
+  CreditCard,
+  TrendingUp,
   DollarSign,
   AlertCircle,
   CheckCircle,
   Clock,
   XCircle,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Target,
+  Award,
+  BarChart3,
+  PieChart as PieChartIcon,
+  Activity,
+  Shield,
+  FileText,
+  Calendar,
+  Wallet,
+  TrendingDown,
+  AlertTriangle,
+  Building2
 } from 'lucide-react'
 
 export default function LenderOverviewPage() {
@@ -41,9 +74,18 @@ export default function LenderOverviewPage() {
     defaultRate: 0,
     collectionsThisMonth: 0,
     averageLoanSize: 0,
+    pendingLoans: 0,
+    totalLoans: 0,
+    onTimePayments: 0,
+    latePayments: 0,
+    totalPayments: 0,
   })
   const [recentActivity, setRecentActivity] = useState<any[]>([])
   const [subscription, setSubscription] = useState<any>(null)
+  const [loansByStatus, setLoansByStatus] = useState<any[]>([])
+  const [monthlyData, setMonthlyData] = useState<any[]>([])
+  const [borrowerScoreDistribution, setBorrowerScoreDistribution] = useState<any[]>([])
+  const [recentLoans, setRecentLoans] = useState<any[]>([])
   const router = useRouter()
   const supabase = createClient()
 
@@ -112,8 +154,6 @@ export default function LenderOverviewPage() {
       const profileResponse = await fetch('/api/check-profile')
       const profileApiData = await profileResponse.json()
 
-      console.log('Profile API response:', profileApiData)
-
       const profileData = profileApiData.profile
       const currencyData = profileApiData.currency
 
@@ -130,9 +170,6 @@ export default function LenderOverviewPage() {
           minorUnits: currencyData.minor_units,
           countryCode: profileData?.country_code
         })
-        console.log('Currency set:', currencyData)
-      } else {
-        console.warn('No currency data found!')
       }
 
       // Get subscription
@@ -141,63 +178,143 @@ export default function LenderOverviewPage() {
         .select('*')
         .eq('user_id', user.id)
         .single()
-      
+
       setSubscription(sub)
 
-      // Get stats
-      const [
-        { count: borrowerCount },
-        { data: allLoans },
-        { data: repaymentEvents },
-        { data: borrowerScores },
-        { data: overdueSchedules },
-      ] = await Promise.all([
-        // Total borrowers registered by this lender
-        supabase
-          .from('borrowers')
-          .select('*', { count: 'exact', head: true })
-          .eq('created_by_lender', finalLender.user_id),
+      // Get all loans for this lender with more details
+      const { data: allLoans } = await supabase
+        .from('loans')
+        .select(`
+          id,
+          status,
+          principal_minor,
+          total_amount_minor,
+          created_at,
+          borrower_id,
+          borrowers(full_name, country_code)
+        `)
+        .eq('lender_id', finalLender.user_id)
 
-        // All loans
-        supabase
-          .from('loans')
-          .select('id, status, principal_minor, total_minor, created_at, next_payment_date')
-          .eq('lender_id', finalLender.user_id),
+      // Set recent loans for table
+      const sortedLoans = [...(allLoans || [])].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+      setRecentLoans(sortedLoans.slice(0, 5))
 
-        // All repayment events
-        supabase
-          .from('repayment_events')
-          .select('id, amount_minor, payment_date, created_at')
-          .eq('loan_id', 'in.(select id from loans where lender_id = ' + finalLender.user_id + ')')
-          .order('created_at', { ascending: false }),
+      // Get borrower count
+      const { count: borrowerCount } = await supabase
+        .from('borrowers')
+        .select('*', { count: 'exact', head: true })
+        .eq('created_by_lender', finalLender.user_id)
 
-        // Average borrower score
-        supabase
-          .from('borrower_scores')
-          .select('score, borrower_id, borrowers!inner(created_by_lender)')
-          .eq('borrowers.created_by_lender', finalLender.user_id),
+      // Get loan IDs for related queries
+      const loanIds = allLoans?.map(l => l.id) || []
 
-        // Overdue schedules
-        supabase
+      // Get repayment data if there are loans
+      let repaymentEvents: any[] = []
+      let overdueSchedules: any[] = []
+      let allSchedules: any[] = []
+
+      if (loanIds.length > 0) {
+        // Get repayment schedules for these loans
+        const { data: schedules } = await supabase
           .from('repayment_schedules')
-          .select('id, amount_due_minor, due_date, status, loan_id, loans!inner(lender_id)')
-          .eq('loans.lender_id', finalLender.user_id)
-          .eq('status', 'pending')
-          .lt('due_date', new Date().toISOString()),
-      ])
+          .select('id, loan_id, amount_due_minor, due_date, installment_no, status, paid_at')
+          .in('loan_id', loanIds)
+
+        allSchedules = schedules || []
+
+        // Get repayment events for these schedules
+        const scheduleIds = schedules?.map(s => s.id) || []
+        if (scheduleIds.length > 0) {
+          const { data: events } = await supabase
+            .from('repayment_events')
+            .select('id, schedule_id, amount_paid_minor, paid_at, created_at')
+            .in('schedule_id', scheduleIds)
+            .order('created_at', { ascending: false })
+
+          repaymentEvents = events || []
+        }
+
+        // Calculate overdue schedules
+        const paidScheduleIds = new Set(repaymentEvents.map(e => e.schedule_id))
+        overdueSchedules = (schedules || []).filter(s =>
+          !paidScheduleIds.has(s.id) && new Date(s.due_date) < new Date()
+        )
+      }
+
+      // Get borrower scores
+      let borrowerScores: any[] = []
+      const { data: borrowerData } = await supabase
+        .from('borrowers')
+        .select('id')
+        .eq('created_by_lender', finalLender.user_id)
+
+      if (borrowerData && borrowerData.length > 0) {
+        const borrowerIds = borrowerData.map(b => b.id)
+        const { data: scores } = await supabase
+          .from('borrower_scores')
+          .select('score, borrower_id')
+          .in('borrower_id', borrowerIds)
+
+        borrowerScores = scores || []
+
+        // Calculate score distribution for chart
+        const distribution = [
+          { name: 'Excellent (750+)', value: 0, color: '#22c55e' },
+          { name: 'Good (700-749)', value: 0, color: '#3b82f6' },
+          { name: 'Fair (650-699)', value: 0, color: '#eab308' },
+          { name: 'Poor (<650)', value: 0, color: '#ef4444' },
+        ]
+
+        borrowerScores.forEach(s => {
+          if (s.score >= 750) distribution[0].value++
+          else if (s.score >= 700) distribution[1].value++
+          else if (s.score >= 650) distribution[2].value++
+          else distribution[3].value++
+        })
+
+        setBorrowerScoreDistribution(distribution.filter(d => d.value > 0))
+      }
 
       // Calculate metrics
       const activeLoans = allLoans?.filter(l => l.status === 'active') || []
       const completedLoans = allLoans?.filter(l => l.status === 'completed') || []
       const defaultedLoans = allLoans?.filter(l => l.status === 'defaulted') || []
+      const pendingLoans = allLoans?.filter(l => l.status === 'pending' || l.status === 'offered') || []
 
-      const totalDisbursed = (allLoans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0) / 100
-      const totalDue = (allLoans?.reduce((sum, loan) => sum + (loan.total_minor || 0), 0) || 0) / 100
-      const totalRepaid = (repaymentEvents?.reduce((sum, event) => sum + (event.amount_minor || 0), 0) || 0) / 100
+      // Loans by status for pie chart
+      const statusData = [
+        { name: 'Active', value: activeLoans.length, color: '#3b82f6' },
+        { name: 'Completed', value: completedLoans.length, color: '#22c55e' },
+        { name: 'Pending', value: pendingLoans.length, color: '#eab308' },
+        { name: 'Defaulted', value: defaultedLoans.length, color: '#ef4444' },
+      ].filter(d => d.value > 0)
+      setLoansByStatus(statusData)
+
+      // Keep values in MINOR units - only count actually disbursed loans
+      const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
+      const disbursedLoans = allLoans?.filter(loan => disbursedStatuses.includes(loan.status)) || []
+      const totalDisbursed = disbursedLoans.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0)
+      const totalDue = disbursedLoans.reduce((sum, loan) => sum + (loan.total_amount_minor || loan.principal_minor || 0), 0)
+      const totalRepaid = repaymentEvents?.reduce((sum, event) => sum + (event.amount_paid_minor || 0), 0) || 0
       const outstanding = totalDue - totalRepaid
+      const overdueAmount = overdueSchedules?.reduce((sum, sched) => sum + (sched.amount_due_minor || 0), 0) || 0
 
-      // Calculate overdue amount
-      const overdueAmount = (overdueSchedules?.reduce((sum, sched) => sum + (sched.amount_due_minor || 0), 0) || 0) / 100
+      // Calculate payment metrics
+      let onTimePayments = 0
+      let latePayments = 0
+      allSchedules.forEach((schedule: any) => {
+        if (schedule.status === 'paid' && schedule.paid_at) {
+          const dueDate = new Date(schedule.due_date)
+          const paidDate = new Date(schedule.paid_at)
+          if (paidDate <= dueDate) {
+            onTimePayments++
+          } else {
+            latePayments++
+          }
+        }
+      })
 
       // Average score
       const averageScore = borrowerScores && borrowerScores.length > 0
@@ -205,36 +322,81 @@ export default function LenderOverviewPage() {
         : 0
 
       // Collections this month
-      const startOfMonth = new Date()
-      startOfMonth.setDate(1)
-      startOfMonth.setHours(0, 0, 0, 0)
+      const startOfCurrentMonth = new Date()
+      startOfCurrentMonth.setDate(1)
+      startOfCurrentMonth.setHours(0, 0, 0, 0)
 
-      const collectionsThisMonth = (repaymentEvents
-        ?.filter(e => new Date(e.payment_date) >= startOfMonth)
-        ?.reduce((sum, e) => sum + (e.amount_minor || 0), 0) || 0) / 100
+      const collectionsThisMonth = repaymentEvents
+        ?.filter(e => new Date(e.paid_at) >= startOfCurrentMonth)
+        ?.reduce((sum, e) => sum + (e.amount_paid_minor || 0), 0) || 0
 
       // Calculate rates
       const repaymentRate = totalDue > 0 ? (totalRepaid / totalDue) * 100 : 0
-      const totalLoans = allLoans?.length || 0
-      const defaultRate = totalLoans > 0 ? (defaultedLoans.length / totalLoans) * 100 : 0
-      const averageLoanSize = totalLoans > 0 ? totalDisbursed / totalLoans : 0
+      const totalLoansCount = allLoans?.length || 0
+      const defaultRate = totalLoansCount > 0 ? (defaultedLoans.length / totalLoansCount) * 100 : 0
+      const averageLoanSize = totalLoansCount > 0 ? Math.round(totalDisbursed / totalLoansCount) : 0
+
+      // Generate monthly data for charts (last 6 months)
+      const monthlyStats: any[] = []
+      for (let i = 5; i >= 0; i--) {
+        const monthDate = subMonths(new Date(), i)
+        const monthStart = startOfMonth(monthDate)
+        const monthEnd = endOfMonth(monthDate)
+
+        const monthLoans = allLoans?.filter(l => {
+          const created = new Date(l.created_at)
+          return created >= monthStart && created <= monthEnd
+        }) || []
+
+        const monthDisbursed = monthLoans.reduce((sum, l) => sum + (l.principal_minor || 0), 0)
+
+        const monthRepayments = repaymentEvents?.filter(e => {
+          const paid = new Date(e.paid_at)
+          return paid >= monthStart && paid <= monthEnd
+        }) || []
+
+        const monthCollected = monthRepayments.reduce((sum, e) => sum + (e.amount_paid_minor || 0), 0)
+
+        monthlyStats.push({
+          month: format(monthDate, 'MMM'),
+          disbursed: monthDisbursed / 100,
+          collected: monthCollected / 100,
+          loans: monthLoans.length,
+        })
+      }
+      setMonthlyData(monthlyStats)
 
       // Get recent repayments with borrower info
-      const recentPaymentIds = repaymentEvents?.slice(0, 5).map(e => e.id) || []
-      const { data: recentRepayments } = await supabase
-        .from('repayment_events')
-        .select(`
-          *,
-          loans!inner(
-            lender_id,
-            borrower_id,
-            borrowers(
-              full_name
-            )
-          )
-        `)
-        .in('id', recentPaymentIds.length > 0 ? recentPaymentIds : ['00000000-0000-0000-0000-000000000000'])
-        .order('created_at', { ascending: false })
+      let recentRepayments: any[] = []
+      if (repaymentEvents.length > 0) {
+        const recentScheduleIds = repaymentEvents.slice(0, 5).map(e => e.schedule_id)
+
+        const { data: schedulesWithLoans } = await supabase
+          .from('repayment_schedules')
+          .select('id, loan_id')
+          .in('id', recentScheduleIds)
+
+        const recentLoanIds = [...new Set(schedulesWithLoans?.map(s => s.loan_id) || [])]
+
+        const { data: loansWithBorrowers } = await supabase
+          .from('loans')
+          .select('id, borrower_id, borrowers(full_name)')
+          .in('id', recentLoanIds)
+
+        const loanMap = new Map(loansWithBorrowers?.map(l => [l.id, l]) || [])
+        const scheduleToLoanMap = new Map(schedulesWithLoans?.map(s => [s.id, s.loan_id]) || [])
+
+        recentRepayments = repaymentEvents.slice(0, 5).map(event => {
+          const loanId = scheduleToLoanMap.get(event.schedule_id)
+          const loan = loanId ? loanMap.get(loanId) : null
+          return {
+            ...event,
+            amount_minor: event.amount_paid_minor,
+            payment_date: event.paid_at,
+            loans: loan ? { borrowers: loan.borrowers } : null
+          }
+        })
+      }
 
       setStats({
         totalBorrowers: borrowerCount || 0,
@@ -251,6 +413,11 @@ export default function LenderOverviewPage() {
         defaultRate,
         collectionsThisMonth,
         averageLoanSize,
+        pendingLoans: pendingLoans.length,
+        totalLoans: totalLoansCount,
+        onTimePayments,
+        latePayments,
+        totalPayments: onTimePayments + latePayments,
       })
 
       setRecentActivity(recentRepayments || [])
@@ -263,7 +430,6 @@ export default function LenderOverviewPage() {
 
   const formatCurrency = (amountMinor: number) => {
     if (!lenderCurrency) {
-      // Fallback to USD if currency info not loaded yet
       return new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: 'USD',
@@ -271,6 +437,32 @@ export default function LenderOverviewPage() {
       }).format(amountMinor / 100)
     }
     return formatCurrencyUtil(amountMinor, lenderCurrency)
+  }
+
+  const getPortfolioHealthScore = () => {
+    // Calculate a portfolio health score based on various factors
+    let score = 100
+
+    // Deduct for default rate
+    score -= stats.defaultRate * 2
+
+    // Deduct for overdue loans
+    if (stats.totalLoans > 0) {
+      const overdueRate = (stats.overdueLoans / stats.totalLoans) * 100
+      score -= overdueRate
+    }
+
+    // Bonus for high repayment rate
+    if (stats.repaymentRate >= 90) score += 5
+    else if (stats.repaymentRate >= 80) score += 2
+
+    return Math.max(0, Math.min(100, Math.round(score)))
+  }
+
+  const getHealthColor = (score: number) => {
+    if (score >= 80) return '#22c55e'
+    if (score >= 60) return '#eab308'
+    return '#ef4444'
   }
 
   if (loading) {
@@ -284,6 +476,8 @@ export default function LenderOverviewPage() {
     )
   }
 
+  const portfolioHealth = getPortfolioHealthScore()
+
   return (
     <div className="p-6 space-y-6">
       {/* Modern Tech Header */}
@@ -295,14 +489,12 @@ export default function LenderOverviewPage() {
               {lenderProfile?.business_name || lenderProfile?.profiles?.full_name || 'Lender'} • Overview • {format(new Date(), 'MMMM dd, yyyy')}
             </p>
           </div>
-          <Button className="btn-tech shadow-lg" onClick={() => router.push('/l/borrowers')}>
-            <Users className="mr-2 h-4 w-4" />
-            Register Borrower
+          <Button className="btn-tech shadow-lg" onClick={() => router.push('/l/loans/new')}>
+            <CreditCard className="mr-2 h-4 w-4" />
+            Create New Loan
           </Button>
         </div>
       </div>
-
-      {/* Subscription information removed - all features are free */}
 
       {/* Verification Status Banner */}
       {lenderProfile && (
@@ -314,7 +506,7 @@ export default function LenderOverviewPage() {
         />
       )}
 
-      {/* Stats Grid */}
+      {/* Key Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="tech-card hover-lift border-none">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
@@ -375,7 +567,212 @@ export default function LenderOverviewPage() {
             </p>
           </CardContent>
         </Card>
+      </div>
 
+      {/* Portfolio Health & Loan Status */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Portfolio Health Score */}
+        <Card className="tech-card border-none">
+          <CardHeader className="border-b border-border/50 pb-4">
+            <div className="flex items-center gap-2">
+              <Target className="h-5 w-5 text-primary" />
+              <CardTitle className="text-foreground font-bold text-lg">Portfolio Health</CardTitle>
+            </div>
+            <CardDescription className="text-muted-foreground mt-1">Overall lending portfolio performance</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-8">
+              <div className="relative w-48 h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadialBarChart
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="60%"
+                    outerRadius="90%"
+                    barSize={20}
+                    data={[{ name: 'Health', value: portfolioHealth, fill: getHealthColor(portfolioHealth) }]}
+                    startAngle={90}
+                    endAngle={-270}
+                  >
+                    <RadialBar
+                      background
+                      dataKey="value"
+                      cornerRadius={10}
+                    />
+                  </RadialBarChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <div className="text-4xl font-bold" style={{ color: getHealthColor(portfolioHealth) }}>
+                    {portfolioHealth}%
+                  </div>
+                  <div className="text-sm text-muted-foreground">Health Score</div>
+                </div>
+              </div>
+
+              <div className="flex-1 space-y-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-green-50 border border-green-200">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-sm font-medium">Repayment Rate</span>
+                    </div>
+                    <span className="text-lg font-bold text-green-600">{stats.repaymentRate.toFixed(1)}%</span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-200">
+                    <div className="flex items-center gap-2">
+                      <XCircle className="h-4 w-4 text-red-600" />
+                      <span className="text-sm font-medium">Default Rate</span>
+                    </div>
+                    <span className="text-lg font-bold text-red-600">{stats.defaultRate.toFixed(1)}%</span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-blue-50 border border-blue-200">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium">On-Time Payments</span>
+                    </div>
+                    <span className="text-lg font-bold text-blue-600">
+                      {stats.totalPayments > 0 ? Math.round((stats.onTimePayments / stats.totalPayments) * 100) : 0}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Loan Status Distribution */}
+        <Card className="tech-card border-none">
+          <CardHeader className="border-b border-border/50 pb-4">
+            <div className="flex items-center gap-2">
+              <PieChartIcon className="h-5 w-5 text-primary" />
+              <CardTitle className="text-foreground font-bold text-lg">Loan Distribution</CardTitle>
+            </div>
+            <CardDescription className="text-muted-foreground mt-1">Current loan status breakdown</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6">
+            {loansByStatus.length > 0 ? (
+              <div className="flex items-center gap-8">
+                <div className="w-48 h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={loansByStatus}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {loansByStatus.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 space-y-3">
+                  {loansByStatus.map((status, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: status.color }} />
+                        <span className="text-sm font-medium">{status.name}</span>
+                      </div>
+                      <span className="text-lg font-bold">{status.value}</span>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-muted-foreground">Total Loans</span>
+                      <span className="text-lg font-bold text-primary">{stats.totalLoans}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="h-48 flex items-center justify-center text-muted-foreground">
+                <div className="text-center">
+                  <CreditCard className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No loans yet</p>
+                  <Button variant="link" onClick={() => router.push('/l/loans/new')}>
+                    Create your first loan
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Monthly Performance Chart */}
+      <Card className="tech-card border-none">
+        <CardHeader className="border-b border-border/50 pb-4">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            <CardTitle className="text-foreground font-bold text-lg">Monthly Performance</CardTitle>
+          </div>
+          <CardDescription className="text-muted-foreground mt-1">Disbursements vs Collections over the last 6 months</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-6">
+          {monthlyData.some(d => d.disbursed > 0 || d.collected > 0) ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={monthlyData}>
+                <defs>
+                  <linearGradient id="colorDisbursed" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                  </linearGradient>
+                  <linearGradient id="colorCollected" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.1}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#fff',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                  }}
+                  formatter={(value: number) => formatCurrency(value * 100)}
+                />
+                <Legend />
+                <Area
+                  type="monotone"
+                  dataKey="disbursed"
+                  name="Disbursed"
+                  stroke="#3b82f6"
+                  fill="url(#colorDisbursed)"
+                  strokeWidth={2}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="collected"
+                  name="Collected"
+                  stroke="#22c55e"
+                  fill="url(#colorCollected)"
+                  strokeWidth={2}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+              <div className="text-center">
+                <Activity className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No activity data yet</p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Additional Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card className="tech-card hover-lift border-none">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Collections This Month</CardTitle>
@@ -401,59 +798,44 @@ export default function LenderOverviewPage() {
           <CardContent>
             <div className="text-3xl font-bold text-primary">{formatCurrency(stats.totalRepaid)}</div>
             <p className="text-sm text-muted-foreground mt-1.5 font-medium">
-              Total collected
+              Lifetime collections
             </p>
           </CardContent>
         </Card>
 
         <Card className="tech-card hover-lift border-none">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Repayment Rate</CardTitle>
-            <div className="p-2.5 bg-gradient-to-br from-blue-500/10 to-blue-500/5 rounded-xl">
-              <TrendingUp className="h-5 w-5 text-blue-500" />
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Pending Loans</CardTitle>
+            <div className="p-2.5 bg-gradient-to-br from-yellow-500/10 to-yellow-500/5 rounded-xl">
+              <Clock className="h-5 w-5 text-yellow-500" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-blue-600">{stats.repaymentRate.toFixed(1)}%</div>
-            <div className="flex items-center text-sm mt-1.5 font-medium">
-              {stats.repaymentRate >= 90 ? (
-                <span className="text-green-600 flex items-center">
-                  <ArrowUpRight className="h-4 w-4 mr-1" />
-                  Excellent
-                </span>
-              ) : stats.repaymentRate >= 70 ? (
-                <span className="text-yellow-600 flex items-center">
-                  <Clock className="h-4 w-4 mr-1" />
-                  Good
-                </span>
-              ) : (
-                <span className="text-destructive flex items-center">
-                  <ArrowDownRight className="h-4 w-4 mr-1" />
-                  Needs attention
-                </span>
-              )}
-            </div>
+            <div className="text-3xl font-bold text-yellow-600">{stats.pendingLoans}</div>
+            <p className="text-sm text-muted-foreground mt-1.5 font-medium">
+              Awaiting action
+            </p>
           </CardContent>
         </Card>
 
         <Card className="tech-card hover-lift border-none">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Default Rate</CardTitle>
-            <div className="p-2.5 bg-gradient-to-br from-destructive/10 to-destructive/5 rounded-xl">
-              <XCircle className="h-5 w-5 text-destructive" />
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Defaulted Loans</CardTitle>
+            <div className="p-2.5 bg-gradient-to-br from-red-500/10 to-red-500/5 rounded-xl">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-destructive">{stats.defaultRate.toFixed(1)}%</div>
+            <div className="text-3xl font-bold text-red-600">{stats.defaultedLoans}</div>
             <p className="text-sm text-muted-foreground mt-1.5 font-medium">
-              {stats.defaultedLoans} defaulted
+              {stats.defaultRate.toFixed(1)}% default rate
             </p>
           </CardContent>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Activity */}
+        {/* Recent Repayments */}
         <Card className="tech-card border-none">
           <CardHeader className="border-b border-border/50 pb-4">
             <CardTitle className="text-foreground font-bold text-lg">Recent Repayments</CardTitle>
@@ -518,7 +900,7 @@ export default function LenderOverviewPage() {
             <Button
               variant="outline"
               className="w-full justify-start h-auto py-4 border-2 border-secondary/20 hover:bg-gradient-to-r hover:from-secondary hover:to-primary hover:text-white hover:border-secondary transition-all duration-300 font-semibold group shadow-sm hover:shadow-md"
-              onClick={() => router.push('/l/loans')}
+              onClick={() => router.push('/l/loans/new')}
             >
               <div className="p-2 bg-gradient-to-br from-secondary/10 to-secondary/5 group-hover:bg-white/20 rounded-xl mr-3 transition-colors">
                 <CreditCard className="h-5 w-5 text-secondary group-hover:text-white transition-colors" />
@@ -548,6 +930,120 @@ export default function LenderOverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Recent Loans Table */}
+      {recentLoans.length > 0 && (
+        <Card className="tech-card border-none">
+          <CardHeader className="border-b border-border/50 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-foreground font-bold text-lg flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  Recent Loans
+                </CardTitle>
+                <CardDescription className="text-muted-foreground mt-1">Your latest loan activity</CardDescription>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => router.push('/l/loans')}>
+                View All
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-4 text-xs uppercase tracking-wide text-muted-foreground font-semibold">Borrower</th>
+                    <th className="text-left py-3 px-4 text-xs uppercase tracking-wide text-muted-foreground font-semibold">Amount</th>
+                    <th className="text-left py-3 px-4 text-xs uppercase tracking-wide text-muted-foreground font-semibold">Status</th>
+                    <th className="text-right py-3 px-4 text-xs uppercase tracking-wide text-muted-foreground font-semibold">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentLoans.map((loan) => (
+                    <tr key={loan.id} className="border-b border-border last:border-0 hover:bg-primary/5 transition-colors cursor-pointer" onClick={() => router.push(`/l/loans/${loan.id}`)}>
+                      <td className="py-3 px-4 text-sm font-medium text-foreground">
+                        {loan.borrowers?.full_name || 'Unknown'}
+                      </td>
+                      <td className="py-3 px-4 text-sm font-bold text-primary">
+                        {formatCurrency(loan.principal_minor || 0)}
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge
+                          className={`text-xs font-medium ${
+                            loan.status === 'active'
+                              ? 'bg-blue-100 text-blue-800 border-blue-300'
+                              : loan.status === 'completed'
+                              ? 'bg-green-100 text-green-800 border-green-300'
+                              : loan.status === 'pending' || loan.status === 'offered'
+                              ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
+                              : 'bg-red-100 text-red-800 border-red-300'
+                          }`}
+                        >
+                          {loan.status}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-right text-muted-foreground">
+                        {format(new Date(loan.created_at), 'MMM dd, yyyy')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Lending Tips */}
+      <Card className="tech-card bg-gradient-to-br from-primary/5 via-secondary/5 to-accent/5 border-none">
+        <CardHeader className="tech-accent">
+          <CardTitle className="text-primary font-bold flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Best Practices for Lenders
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="flex gap-3">
+              <CheckCircle className="h-5 w-5 text-accent mt-1 flex-shrink-0" />
+              <div>
+                <p className="font-bold text-foreground mb-1">Verify Borrower Identity</p>
+                <p className="text-sm text-muted-foreground">
+                  Always verify borrower documents before approving loans to minimize fraud risk.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <CheckCircle className="h-5 w-5 text-accent mt-1 flex-shrink-0" />
+              <div>
+                <p className="font-bold text-foreground mb-1">Set Appropriate Interest Rates</p>
+                <p className="text-sm text-muted-foreground">
+                  Use the platform's interest rate calculator to set competitive yet sustainable rates.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <CheckCircle className="h-5 w-5 text-accent mt-1 flex-shrink-0" />
+              <div>
+                <p className="font-bold text-foreground mb-1">Monitor Repayment Schedules</p>
+                <p className="text-sm text-muted-foreground">
+                  Regularly check your repayment dashboard and follow up on overdue payments promptly.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <CheckCircle className="h-5 w-5 text-accent mt-1 flex-shrink-0" />
+              <div>
+                <p className="font-bold text-foreground mb-1">Diversify Your Portfolio</p>
+                <p className="text-sm text-muted-foreground">
+                  Spread your lending across multiple borrowers to reduce concentration risk.
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

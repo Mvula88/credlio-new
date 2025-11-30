@@ -65,14 +65,13 @@ export default function AdminBorrowersPage() {
               repayment_events(paid_at)
             )
           ),
-          borrower_self_verification_status(
+          borrower_self_verification_status!borrower_self_verification_status_borrower_id_fkey(
             verification_status,
             admin_override,
             auto_approved,
             auto_rejected,
             rejection_reason,
-            verified_at,
-            rejected_at
+            verified_at
           )
         `)
         .order('created_at', { ascending: false })
@@ -93,8 +92,12 @@ export default function AdminBorrowersPage() {
         let totalDisbursed = 0
         let activeLoans = 0
 
+        const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
         borrower.loans?.forEach((loan: any) => {
-          totalDisbursed += (loan.principal_minor || 0)
+          // Only count as disbursed if loan has actually started (not pending_offer or pending_signatures)
+          if (disbursedStatuses.includes(loan.status)) {
+            totalDisbursed += (loan.principal_minor || 0)
+          }
           if (loan.status === 'active') activeLoans++
 
           loan.repayment_schedules?.forEach((schedule: any) => {

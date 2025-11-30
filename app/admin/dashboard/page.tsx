@@ -234,14 +234,16 @@ export default function AdminDashboard() {
       .from('loans')
       .select('principal_minor, status, apr_bps, term_months')
 
-    const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor / 100), 0) || 0
+    // Keep in MINOR units for consistent formatting
+    const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0
     const activeLoans = loans?.filter(l => l.status === 'active').length || 0
     const completedLoans = loans?.filter(l => l.status === 'completed').length || 0
     const defaultedLoans = loans?.filter(l => l.status === 'defaulted').length || 0
     const totalLoans = loans?.length || 0
     const defaultRate = totalLoans > 0 ? (defaultedLoans / totalLoans) * 100 : 0
 
-    const avgLoanSize = totalLoans > 0 ? totalLoanVolume / totalLoans : 0
+    // avgLoanSize in minor units
+    const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
     const avgAPR = loans && loans.length > 0
       ? Math.round(loans.reduce((sum, l) => sum + l.apr_bps, 0) / loans.length / 100)
       : 0
@@ -480,7 +482,8 @@ export default function AdminDashboard() {
 
         const totalLoans = loans?.length || 0
         const activeLoans = loans?.filter(l => l.status === 'active').length || 0
-        const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor / 100), 0) || 0
+        // Keep in MINOR units for consistent formatting
+        const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0
 
         // Get risk flags by country
         const { count: openRiskFlags } = await supabase
@@ -919,9 +922,15 @@ export default function AdminDashboard() {
                 </div>
               </CardHeader>
               <CardContent>
-                <span className="text-3xl font-bold text-accent">{formatCurrency(stats.totalLoanVolume * 100, adminProfile?.country_code)}</span>
+                <span className="text-3xl font-bold text-accent">{stats.totalLoans} loans</span>
                 <div className="mt-1.5 text-sm text-muted-foreground font-medium">
-                  Avg: {formatCurrency(stats.avgLoanSize * 100, adminProfile?.country_code)} • {stats.avgAPR}% APR
+                  {stats.avgAPR}% avg APR •{' '}
+                  <button
+                    onClick={() => document.getElementById('country-dashboard')?.scrollIntoView({ behavior: 'smooth' })}
+                    className="text-primary hover:underline cursor-pointer"
+                  >
+                    View by country ↓
+                  </button>
                 </div>
               </CardContent>
             </Card>
@@ -1237,7 +1246,7 @@ export default function AdminDashboard() {
           </Card>
 
           {/* Country Dashboard */}
-          <Card className="tech-card border-none">
+          <Card id="country-dashboard" className="tech-card border-none">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -1312,7 +1321,7 @@ export default function AdminDashboard() {
                             Volume
                           </span>
                           <span className="text-sm font-semibold text-amber-600">
-                            {formatCurrency(country.totalLoanVolume * 100, country.code)}
+                            {formatCurrency(country.totalLoanVolume, country.code)}
                           </span>
                         </div>
 
@@ -1599,8 +1608,8 @@ export default function AdminDashboard() {
                         <span className="text-sm font-medium">{stats?.activeLoans || 0}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm">Total Volume</span>
-                        <span className="text-sm font-medium">{formatCurrency((stats?.totalLoanVolume || 0) * 100, adminProfile?.country_code)}</span>
+                        <span className="text-sm">Total Loans</span>
+                        <span className="text-sm font-medium">{stats?.totalLoans || 0}</span>
                       </div>
                     </div>
                   </CardContent>

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
+import NotificationBell from '@/components/NotificationBell'
 
 const navigationGroups = [
   {
@@ -52,15 +53,13 @@ const navigationGroups = [
     title: 'Lending Activity',
     items: [
       { name: 'Loans', href: '/l/loans', icon: CreditCard, badge: null },
-      { name: 'Repayments', href: '/l/repayments', icon: FileText, badge: null },
-      { name: 'Messages', href: '/l/messages', icon: MessageSquare, badge: null },
     ]
   },
   {
     title: 'Insights',
     items: [
       { name: 'Credit Intelligence', href: '/l/reports', icon: Flag, badge: null },
-      { name: 'Loan Requests', href: '/l/marketplace', icon: ShoppingBag, badge: 'Pro+', proPlusOnly: true },
+      { name: 'Loan Requests', href: '/l/marketplace', icon: ShoppingBag, badge: null, proPlusOnly: false },
     ]
   },
   {
@@ -248,11 +247,8 @@ export default function LenderLayout({
             </button>
 
             <div className="flex items-center space-x-2 ml-auto">
-              {/* Notifications */}
-              <Button variant="ghost" size="icon" className="relative hover:bg-accent/50 transition-all duration-300 hover:scale-105">
-                <Bell className="h-5 w-5" />
-                <span className="absolute top-2 right-2 h-2 w-2 bg-destructive rounded-full animate-pulse"></span>
-              </Button>
+              {/* Notifications & Messages */}
+              <NotificationBell userRole="lender" />
 
               {/* Role Switcher - shows when user has multiple roles */}
               <RoleSwitcher />

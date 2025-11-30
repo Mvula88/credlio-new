@@ -683,7 +683,7 @@ export default function BorrowerOverviewPage() {
                         fontFamily: 'Merriweather, Georgia, serif',
                         boxShadow: '0 4px 12px rgba(15, 52, 96, 0.1)'
                       }}
-                      formatter={(value: number) => `$${value.toFixed(2)}`}
+                      formatter={(value: number) => formatCurrency(value)}
                     />
                     <Line
                       type="monotone"

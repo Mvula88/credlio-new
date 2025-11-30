@@ -262,16 +262,9 @@ export default function LenderRegisterPage() {
 
               {detectedCountry && (
                 <Alert className="border-green-200 bg-green-50">
-                  <Globe className="h-4 w-4 text-green-600" />
+                  <CheckCircle className="h-4 w-4 text-green-600" />
                   <AlertDescription className="text-green-800">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="font-semibold">Country detected:</span> {detectedCountry.name}
-                        <br />
-                        <span className="text-xs text-green-700">IP Address: {detectedCountry.ip}</span>
-                      </div>
-                      <CheckCircle className="h-6 w-6 text-green-600" />
-                    </div>
+                    <span className="font-semibold">✅ {detectedCountry.name}</span> ({detectedCountry.code === 'NA' ? 'N$' : detectedCountry.code === 'ZA' ? 'R' : detectedCountry.code === 'NG' ? '₦' : 'ZK'})
                   </AlertDescription>
                 </Alert>
               )}
@@ -283,17 +276,6 @@ export default function LenderRegisterPage() {
                   <AlertDescription className="text-red-800">
                     We couldn't automatically detect your country. This is required for registration.
                     Please check your internet connection and refresh the page.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* Country Verification Info */}
-              {detectedCountry && (
-                <Alert className="border-blue-200 bg-blue-50">
-                  <Info className="h-4 w-4 text-blue-600" />
-                  <AlertDescription className="text-blue-800 text-sm">
-                    <strong>Note:</strong> Your country is automatically detected from your IP address for security purposes.
-                    All transactions will be in {detectedCountry.name}'s currency and you'll only be able to lend within {detectedCountry.name}.
                   </AlertDescription>
                 </Alert>
               )}
@@ -430,17 +412,6 @@ export default function LenderRegisterPage() {
           </form>
         </Card>
 
-        <div className="mt-6 text-center">
-          <Card className="bg-green-50 border-green-200">
-            <CardContent className="pt-6">
-              <p className="text-sm text-green-800">
-                Start with our <strong>Free Plan</strong> to register your own borrowers.
-                Upgrade to <strong>Pro ($19.99/month)</strong> for advanced analytics or
-                <strong>Pro+ ($49.99/month)</strong> for marketplace access.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
       </div>
     </div>
   )

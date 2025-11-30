@@ -584,8 +584,8 @@ export default function LoanRequestsPage() {
                             <div className="flex justify-between">
                               <span className="text-gray-600">Amount Range:</span>
                               <span className="font-medium">
-                                {formatCurrency(template.suggested_min_amount_minor / 100)} -{' '}
-                                {formatCurrency(template.suggested_max_amount_minor / 100)}
+                                {formatCurrency(template.suggested_min_amount_minor)} -{' '}
+                                {formatCurrency(template.suggested_max_amount_minor)}
                               </span>
                             </div>
                             <div className="flex justify-between">
@@ -771,7 +771,19 @@ export default function LoanRequestsPage() {
                         <CreditCard className="mr-2 h-4 w-4" />
                         Offers Received ({request.loan_offers.length})
                       </h4>
-                      {request.loan_offers.map((offer: any) => (
+                      {request.loan_offers.map((offer: any) => {
+                        // Calculate new interest system values
+                        const baseRate = offer.base_rate_percent || offer.interest_rate || 0
+                        const extraRate = offer.extra_rate_per_installment || 0
+                        const numInstallments = offer.num_installments || offer.term_months || 1
+                        const paymentType = offer.payment_type || (numInstallments <= 1 ? 'once_off' : 'installments')
+                        const totalRate = paymentType === 'once_off' ? baseRate : baseRate + (extraRate * (numInstallments - 1))
+                        const principal = offer.amount_minor / 100
+                        const interestAmount = principal * (totalRate / 100)
+                        const totalAmount = principal + interestAmount
+                        const perInstallment = totalAmount / numInstallments
+
+                        return (
                         <div key={offer.id} className="border rounded-lg p-3 space-y-2">
                           <div className="flex justify-between items-start">
                             <div>
@@ -779,12 +791,12 @@ export default function LoanRequestsPage() {
                                 {offer.lenders?.business_name || 'Lender'}
                               </p>
                               <p className="text-sm text-gray-600">
-                                {formatCurrency(offer.amount_minor)} at {offer.interest_rate}% for {offer.term_months} months
+                                {formatCurrency(offer.amount_minor)} • {totalRate}% interest • {paymentType === 'once_off' ? 'Once-off' : `${numInstallments} installments`}
                               </p>
                             </div>
-                            <Badge 
+                            <Badge
                               className={
-                                offer.status === 'accepted' 
+                                offer.status === 'accepted'
                                   ? 'bg-green-100 text-green-800'
                                   : offer.status === 'rejected'
                                   ? 'bg-red-100 text-red-800'
@@ -794,16 +806,17 @@ export default function LoanRequestsPage() {
                               {offer.status}
                             </Badge>
                           </div>
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-gray-600">
+                              {paymentType === 'once_off'
+                                ? 'Single payment:'
+                                : `Per installment (${numInstallments}x):`}
+                            </span>
+                            <span className="font-bold text-green-700">
+                              {formatCurrency(perInstallment * 100)}
+                            </span>
+                          </div>
                           <div className="flex justify-between items-center">
-                            <p className="text-sm">
-                              Monthly: {formatCurrency(
-                                calculateMonthlyPayment(
-                                  offer.amount_minor,
-                                  offer.interest_rate,
-                                  offer.term_months
-                                )
-                              )}
-                            </p>
                             {offer.status === 'pending' && request.status === 'open' && (
                               <div className="flex space-x-2">
                                 <Dialog>
@@ -815,61 +828,82 @@ export default function LoanRequestsPage() {
                                       Review
                                     </Button>
                                   </DialogTrigger>
-                                  <DialogContent>
+                                  <DialogContent className="max-w-md">
                                     <DialogHeader>
                                       <DialogTitle>Review Loan Offer</DialogTitle>
                                       <DialogDescription>
-                                        Carefully review the terms before accepting
+                                        Carefully review what you will pay before accepting
                                       </DialogDescription>
                                     </DialogHeader>
                                     <div className="space-y-4 py-4">
-                                      <div className="space-y-3">
-                                        <div className="flex justify-between">
-                                          <span className="text-gray-600">Loan Amount:</span>
-                                          <span className="font-medium">
-                                            {formatCurrency(offer.amount_minor)}
-                                          </span>
+                                      {/* Clear Breakdown Card */}
+                                      <div className="border-2 border-blue-300 rounded-lg p-4 bg-blue-50">
+                                        <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                                          <Calculator className="h-4 w-4" />
+                                          What You Will Pay
+                                        </h4>
+                                        <div className="space-y-2 text-sm">
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-600">Loan Amount (Principal):</span>
+                                            <span className="font-medium">{formatCurrency(offer.amount_minor)}</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-600">Interest Rate:</span>
+                                            <span className="font-medium text-orange-600">{totalRate}%</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-600">Interest Amount:</span>
+                                            <span className="font-medium text-orange-600">{formatCurrency(interestAmount * 100)}</span>
+                                          </div>
+                                          <div className="border-t pt-2 mt-2">
+                                            <div className="flex justify-between text-lg">
+                                              <span className="font-bold text-blue-900">TOTAL TO PAY:</span>
+                                              <span className="font-bold text-blue-900">{formatCurrency(totalAmount * 100)}</span>
+                                            </div>
+                                          </div>
                                         </div>
-                                        <div className="flex justify-between">
-                                          <span className="text-gray-600">Interest Rate:</span>
-                                          <span className="font-medium">{offer.interest_rate}%</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                          <span className="text-gray-600">Term:</span>
-                                          <span className="font-medium">{offer.term_months} months</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                          <span className="text-gray-600">Monthly Payment:</span>
-                                          <span className="font-medium">
-                                            {formatCurrency(
-                                              calculateMonthlyPayment(
-                                                offer.amount_minor,
-                                                offer.interest_rate,
-                                                offer.term_months
-                                              )
-                                            )}
-                                          </span>
-                                        </div>
-                                        <div className="flex justify-between text-lg font-bold">
-                                          <span>Total Repayment:</span>
-                                          <span>
-                                            {formatCurrency(
-                                              calculateMonthlyPayment(
-                                                offer.amount_minor,
-                                                offer.interest_rate,
-                                                offer.term_months
-                                              ) * offer.term_months
-                                            )}
-                                          </span>
+                                      </div>
+
+                                      {/* Payment Schedule */}
+                                      <div className="border rounded-lg p-4 bg-gray-50">
+                                        <h4 className="font-semibold mb-3 flex items-center gap-2">
+                                          <Calendar className="h-4 w-4" />
+                                          How You Will Pay
+                                        </h4>
+                                        <div className="space-y-2 text-sm">
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-600">Payment Type:</span>
+                                            <span className="font-medium">
+                                              {paymentType === 'once_off' ? 'Single Payment' : `${numInstallments} Installments`}
+                                            </span>
+                                          </div>
+                                          {paymentType === 'once_off' ? (
+                                            <div className="bg-green-100 rounded p-2 mt-2">
+                                              <div className="flex justify-between">
+                                                <span className="text-green-800">Pay once after 1 month:</span>
+                                                <span className="font-bold text-green-900">{formatCurrency(totalAmount * 100)}</span>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div className="bg-green-100 rounded p-2 mt-2 space-y-1">
+                                              <div className="flex justify-between">
+                                                <span className="text-green-800">Pay each month:</span>
+                                                <span className="font-bold text-green-900">{formatCurrency(perInstallment * 100)}</span>
+                                              </div>
+                                              <div className="flex justify-between text-xs">
+                                                <span className="text-green-700">For {numInstallments} months</span>
+                                                <span className="text-green-700">= {formatCurrency(totalAmount * 100)} total</span>
+                                              </div>
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
 
                                       <Alert>
                                         <AlertCircle className="h-4 w-4" />
                                         <AlertDescription>
-                                          By accepting this offer, you agree to the loan terms. 
-                                          The loan will be disbursed immediately and you'll need to 
-                                          start repayments as scheduled.
+                                          By accepting, you agree to pay {formatCurrency(totalAmount * 100)} in total.
+                                          The lender will disburse {formatCurrency(offer.amount_minor)} to you.
                                         </AlertDescription>
                                       </Alert>
                                     </div>
@@ -893,7 +927,7 @@ export default function LoanRequestsPage() {
                             )}
                           </div>
                         </div>
-                      ))}
+                      )})}
                     </div>
                   )}
 

@@ -70,6 +70,7 @@ export default function RepaymentsPage() {
   const [paymentMethod, setPaymentMethod] = useState('cash')
   const [crossLenderHistory, setCrossLenderHistory] = useState<any[]>([])
   const [lenderCurrency, setLenderCurrency] = useState<CurrencyInfo | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const [stats, setStats] = useState({
     totalCollected: 0,
     pendingAmount: 0,
@@ -328,6 +329,12 @@ export default function RepaymentsPage() {
     return acc
   }, {})
 
+  // Filter borrowers by search query (borrower ID only to avoid confusion with duplicate names)
+  const filteredBorrowers = Object.values(schedulesByBorrower).filter((borrowerData: any) => {
+    if (!searchQuery.trim()) return true
+    return borrowerData.borrower.id.toLowerCase().includes(searchQuery.toLowerCase())
+  })
+
   // Prepare payment trend data for chart
   const paymentTrendData = repayments.slice(0, 10).reverse().map(r => ({
     date: format(new Date(r.created_at), 'MMM dd'),
@@ -503,6 +510,33 @@ export default function RepaymentsPage() {
             </AlertDescription>
           </Alert>
 
+          {/* Search Bar */}
+          {Object.values(schedulesByBorrower).length > 0 && (
+            <div className="mb-4">
+              <Label htmlFor="search" className="text-sm font-medium mb-2 block">
+                Search by Borrower ID
+              </Label>
+              <div className="relative">
+                <Input
+                  id="search"
+                  type="text"
+                  placeholder="Enter borrower ID to filter..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  <User className="h-4 w-4" />
+                </div>
+              </div>
+              {searchQuery && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Showing {filteredBorrowers.length} of {Object.values(schedulesByBorrower).length} borrowers
+                </p>
+              )}
+            </div>
+          )}
+
           {Object.values(schedulesByBorrower).length === 0 ? (
             <div className="text-center py-12">
               <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -511,9 +545,17 @@ export default function RepaymentsPage() {
                 Repayment schedules will appear here once you have active loans
               </p>
             </div>
+          ) : filteredBorrowers.length === 0 ? (
+            <div className="text-center py-12">
+              <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">No borrowers found</p>
+              <p className="text-sm text-gray-500 mt-2">
+                No borrowers match your search. Try a different ID.
+              </p>
+            </div>
           ) : (
             <div className="space-y-6">
-              {Object.values(schedulesByBorrower).map((borrowerData: any) => {
+              {filteredBorrowers.map((borrowerData: any) => {
                 const progress = (borrowerData.paidAmount / borrowerData.totalAmount) * 100
                 const onTimeCount = borrowerData.schedules.filter((s: any) => {
                   if (s.status !== 'paid') return false

@@ -193,11 +193,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create lender record
+    // Create lender record with country
     const { error: lenderError } = await supabase
       .from('lenders')
       .insert({
         user_id: authData.user.id,
+        country: country, // CRITICAL: Set lender's country for isolation
       })
 
     if (lenderError) {

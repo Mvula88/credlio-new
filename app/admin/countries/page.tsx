@@ -74,7 +74,8 @@ export default function CountriesPage() {
 
           const totalLoans = loans?.length || 0
           const activeLoans = loans?.filter(l => l.status === 'active').length || 0
-          const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor / 100), 0) || 0
+          // Keep in MINOR units for consistent formatting
+          const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0
 
           // Get risk flags by country
           const { count: openRiskFlags } = await supabase

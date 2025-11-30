@@ -66,16 +66,18 @@ export async function GET(request: NextRequest) {
 
     // If not exists, generate it
     if (!existingAgreement) {
+      console.log('No existing agreement, generating new one for loan:', loanId)
       const { data: agreementId, error: generateError } = await supabase
         .rpc('generate_loan_agreement', { p_loan_id: loanId })
 
       if (generateError) {
-        console.error('Error generating agreement:', generateError)
+        console.error('Error generating agreement:', JSON.stringify(generateError, null, 2))
         return NextResponse.json(
-          { error: 'Failed to generate loan agreement', details: generateError.message },
+          { error: 'Failed to generate loan agreement', details: generateError.message, code: generateError.code, hint: generateError.hint },
           { status: 500 }
         )
       }
+      console.log('Agreement generated with ID:', agreementId)
 
       // Fetch the newly generated agreement
       const { data: newAgreement, error: newFetchError } = await supabase

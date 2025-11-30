@@ -26,17 +26,16 @@ import {
   Bell,
   ChevronDown,
   ShoppingBag,
-  Flag,
-  MessageSquare
+  Flag
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
+import NotificationBell from '@/components/NotificationBell'
 
 const navigation = [
   { name: 'Overview', href: '/b/overview', icon: Home },
   { name: 'My Loans', href: '/b/loans', icon: CreditCard },
   { name: 'Loan Requests', href: '/b/requests', icon: ShoppingBag },
-  { name: 'Messages', href: '/b/messages', icon: MessageSquare },
   { name: 'Repayments', href: '/b/repayments', icon: FileText },
   { name: 'Reports', href: '/b/reports', icon: Flag },
   { name: 'Credit Score', href: '/b/credit', icon: TrendingUp },
@@ -169,11 +168,8 @@ export default function BorrowerLayout({
             </button>
 
             <div className="flex items-center space-x-2 ml-auto">
-              {/* Notifications */}
-              <Button variant="ghost" size="icon" className="relative hover:bg-accent/50 transition-all duration-300 hover:scale-105">
-                <Bell className="h-5 w-5" />
-                <span className="absolute top-2 right-2 h-2 w-2 bg-destructive rounded-full animate-pulse"></span>
-              </Button>
+              {/* Notifications & Messages */}
+              <NotificationBell userRole="borrower" />
 
               {/* Role Switcher - shows when user has multiple roles */}
               <RoleSwitcher />

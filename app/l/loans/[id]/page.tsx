@@ -34,7 +34,8 @@ import {
   X,
   Target,
   Award,
-  Download
+  Download,
+  Upload
 } from 'lucide-react'
 import { format, isPast, differenceInDays } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
@@ -53,6 +54,9 @@ export default function LoanDetailPage() {
   })
   const [processingPayment, setProcessingPayment] = useState(false)
   const [downloadingAgreement, setDownloadingAgreement] = useState(false)
+  const [signedAgreementFile, setSignedAgreementFile] = useState<File | null>(null)
+  const [uploadingSignedAgreement, setUploadingSignedAgreement] = useState(false)
+  const [agreementData, setAgreementData] = useState<any>(null)
 
   const router = useRouter()
   const params = useParams()
@@ -85,24 +89,24 @@ export default function LoanDetailPage() {
             installment_no,
             due_date,
             amount_due_minor,
-            principal_portion_minor,
-            interest_portion_minor,
-            status,
-            paid_at,
-            paid_amount_minor
-          ),
-          repayment_events(
-            id,
-            amount_minor,
-            payment_date,
-            notes,
-            created_at
+            principal_minor,
+            interest_minor,
+            repayment_events(
+              id,
+              amount_paid_minor,
+              method,
+              paid_at,
+              created_at
+            )
           )
         `)
         .eq('id', loanId)
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('Loan query error:', JSON.stringify(error))
+        throw error
+      }
 
       // Sort schedules by installment number
       if (loanData.repayment_schedules) {
@@ -110,6 +114,15 @@ export default function LoanDetailPage() {
       }
 
       setLoan(loanData)
+
+      // Load agreement data
+      const { data: agreement } = await supabase
+        .from('loan_agreements')
+        .select('*')
+        .eq('loan_id', loanId)
+        .maybeSingle()
+
+      setAgreementData(agreement)
     } catch (error) {
       console.error('Error loading loan:', error)
       toast.error('Failed to load loan details')
@@ -143,23 +156,111 @@ export default function LoanDetailPage() {
       // Get the HTML content
       const htmlContent = await response.text()
 
-      // Create a blob and download
-      const blob = new Blob([htmlContent], { type: 'text/html' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `loan-agreement-${loanId}.html`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
-
-      toast.success('Loan agreement downloaded successfully')
+      // Open in a new window with print-friendly styling for PDF
+      const printWindow = window.open('', '_blank')
+      if (printWindow) {
+        const printHTML = `<!DOCTYPE html><html><head><title>Loan Agreement</title>
+          <style>
+            @media print { body { margin: 0; padding: 20px; } .no-print { display: none !important; } }
+            .print-box { background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-family: system-ui, sans-serif; }
+            .print-box h3 { margin: 0 0 8px 0; color: #0369a1; }
+            .print-box p { margin: 4px 0; color: #475569; }
+            .print-box button { background: #0ea5e9; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; margin-top: 12px; }
+          </style></head><body>
+          <div class="print-box no-print">
+            <h3>Save as PDF Instructions</h3>
+            <p>1. Click button below or press <strong>Ctrl+P</strong> (Cmd+P on Mac)</p>
+            <p>2. Change Destination to <strong>"Save as PDF"</strong></p>
+            <p>3. Click Save</p>
+            <button onclick="window.print()">Print / Save as PDF</button>
+          </div>
+          ${htmlContent}
+        </body></html>`
+        printWindow.document.write(printHTML)
+        printWindow.document.close()
+        toast.success('Agreement opened - Use Print > Save as PDF')
+      } else {
+        // Fallback if popup blocked
+        const blob = new Blob([htmlContent], { type: 'text/html' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `loan-agreement-${loanId}.html`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+        toast.success('Downloaded HTML - Open and print to PDF')
+      }
     } catch (error: any) {
       console.error('Error downloading agreement:', error)
       toast.error(error.message || 'Failed to download loan agreement')
     } finally {
       setDownloadingAgreement(false)
+    }
+  }
+
+  const handleUploadSignedAgreement = async () => {
+    if (!signedAgreementFile || !agreementData) {
+      toast.error('Please select a file to upload')
+      return
+    }
+
+    try {
+      setUploadingSignedAgreement(true)
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('Please sign in to continue')
+        return
+      }
+
+      // Upload file to Supabase Storage
+      const fileExt = signedAgreementFile.name.split('.').pop()
+      const fileName = `${user.id}/loan-${loanId}/lender-signed-${Date.now()}.${fileExt}`
+      const filePath = `signed-agreements/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('evidence')
+        .upload(filePath, signedAgreementFile, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('evidence')
+        .getPublicUrl(filePath)
+
+      // Compute hash for tamper detection
+      const arrayBuffer = await signedAgreementFile.arrayBuffer()
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      const signedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+      // Upload signed agreement using database function
+      const { error: dbError } = await supabase
+        .rpc('upload_lender_signed_agreement', {
+          p_agreement_id: agreementData.id,
+          p_signed_url: publicUrl,
+          p_signed_hash: signedHash
+        })
+
+      if (dbError) throw dbError
+
+      toast.success('✅ Signed agreement uploaded successfully!')
+      setSignedAgreementFile(null)
+
+      // Reload loan details to get updated agreement status
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error uploading signed agreement:', error)
+      toast.error(error.message || 'Failed to upload signed agreement')
+    } finally {
+      setUploadingSignedAgreement(false)
     }
   }
 
@@ -199,10 +300,13 @@ export default function LoanDetailPage() {
       // Check if all schedules are paid to update loan status
       const { data: allSchedules } = await supabase
         .from('repayment_schedules')
-        .select('status')
+        .select('id, amount_due_minor, repayment_events(amount_paid_minor)')
         .eq('loan_id', loan.id)
 
-      const allPaid = allSchedules?.every(s => s.status === 'paid')
+      const allPaid = allSchedules?.every(s => {
+        const totalPaid = (s.repayment_events || []).reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
+        return totalPaid >= s.amount_due_minor
+      })
 
       if (allPaid) {
         await supabase
@@ -267,23 +371,65 @@ export default function LoanDetailPage() {
     }
   }
 
+  // Helper to check if a schedule is paid (has repayment events covering the full amount)
+  const isSchedulePaid = (schedule: any) => {
+    if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
+    const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
+    return totalPaid >= schedule.amount_due_minor
+  }
+
+  // Helper to check if schedule is partially paid
+  const isSchedulePartial = (schedule: any) => {
+    if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
+    const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
+    return totalPaid > 0 && totalPaid < schedule.amount_due_minor
+  }
+
+  // Get the paid_at date for a schedule (most recent event)
+  const getSchedulePaidAt = (schedule: any) => {
+    if (!schedule.repayment_events || schedule.repayment_events.length === 0) return null
+    const sorted = [...schedule.repayment_events].sort((a, b) =>
+      new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime()
+    )
+    return sorted[0]?.paid_at
+  }
+
   const getScheduleStatus = (schedule: any) => {
-    if (schedule.status === 'paid') return 'paid'
-    if (schedule.status === 'partial') return 'partial'
+    if (isSchedulePaid(schedule)) return 'paid'
+    if (isSchedulePartial(schedule)) return 'partial'
     if (isPast(new Date(schedule.due_date))) return 'overdue'
     return 'pending'
   }
 
   const calculateProgress = () => {
     if (!loan || !loan.repayment_schedules) return 0
-    const paid = loan.repayment_schedules.filter((s: any) => s.status === 'paid').length
+    const paid = loan.repayment_schedules.filter((s: any) => isSchedulePaid(s)).length
     const total = loan.repayment_schedules.length
     return total > 0 ? Math.round((paid / total) * 100) : 0
   }
 
+  // Helper to collect all repayment events from schedules
+  const getAllRepaymentEvents = () => {
+    if (!loan || !loan.repayment_schedules) return []
+    const events: any[] = []
+    loan.repayment_schedules.forEach((schedule: any) => {
+      if (schedule.repayment_events) {
+        schedule.repayment_events.forEach((event: any) => {
+          events.push({
+            ...event,
+            schedule_id: schedule.id,
+            installment_no: schedule.installment_no
+          })
+        })
+      }
+    })
+    // Sort by date, most recent first
+    return events.sort((a, b) => new Date(b.paid_at || b.created_at).getTime() - new Date(a.paid_at || a.created_at).getTime())
+  }
+
   const calculateTotalPaid = () => {
-    if (!loan || !loan.repayment_events) return 0
-    return loan.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_minor || 0), 0)
+    const events = getAllRepaymentEvents()
+    return events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
   }
 
   const calculateOutstanding = () => {
@@ -309,26 +455,29 @@ export default function LoanDetailPage() {
 
     const schedules = loan.repayment_schedules
     const totalPayments = schedules.length
-    const paidPayments = schedules.filter((s: any) => s.status === 'paid').length
+    const paidPayments = schedules.filter((s: any) => isSchedulePaid(s)).length
 
     let onTimePayments = 0
     let latePayments = 0
 
     schedules.forEach((s: any) => {
-      if (s.status === 'paid' && s.paid_at) {
-        const dueDate = new Date(s.due_date)
-        const paidDate = new Date(s.paid_at)
-        if (paidDate <= dueDate) {
-          onTimePayments++
-        } else {
-          latePayments++
+      if (isSchedulePaid(s)) {
+        const paidAt = getSchedulePaidAt(s)
+        if (paidAt) {
+          const dueDate = new Date(s.due_date)
+          const paidDate = new Date(paidAt)
+          if (paidDate <= dueDate) {
+            onTimePayments++
+          } else {
+            latePayments++
+          }
         }
       }
     })
 
-    const pendingPayments = schedules.filter((s: any) => s.status === 'pending').length
+    const pendingPayments = schedules.filter((s: any) => !isSchedulePaid(s) && !isPast(new Date(s.due_date))).length
     const overduePayments = schedules.filter((s: any) => {
-      if (s.status === 'paid') return false
+      if (isSchedulePaid(s)) return false
       return isPast(new Date(s.due_date))
     }).length
 
@@ -427,6 +576,53 @@ export default function LoanDetailPage() {
         </div>
       </div>
 
+      {/* Loan Breakdown - Clear Interest Calculation */}
+      <Card className="border-2 border-blue-200 bg-blue-50/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5 text-blue-600" />
+            Loan Terms & Interest
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div>
+              <p className="text-sm text-gray-600">Principal</p>
+              <p className="text-xl font-bold">{formatCurrency(loan.principal_minor || 0, loan.country_code)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Interest Rate</p>
+              <p className="text-xl font-bold text-orange-600">
+                {loan.total_interest_percent || loan.base_rate_percent || (loan.apr_bps / 100)}%
+              </p>
+              {loan.payment_type === 'installments' && loan.extra_rate_per_installment > 0 && (
+                <p className="text-xs text-gray-500">
+                  ({loan.base_rate_percent}% base + {loan.extra_rate_per_installment}% × {(loan.num_installments || 1) - 1})
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Interest Amount</p>
+              <p className="text-xl font-bold text-orange-600">
+                {formatCurrency(loan.interest_amount_minor || ((loan.total_minor || 0) - (loan.principal_minor || 0)), loan.country_code)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Payment Type</p>
+              <p className="text-xl font-bold">
+                {loan.payment_type === 'once_off' ? 'Once-off' : `${loan.num_installments || loan.term_months} Installments`}
+              </p>
+            </div>
+            <div className="bg-blue-100 rounded-lg p-3">
+              <p className="text-sm text-blue-700">Total to Receive</p>
+              <p className="text-xl font-bold text-blue-900">
+                {formatCurrency(loan.total_amount_minor || loan.total_minor || 0, loan.country_code)}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -446,7 +642,7 @@ export default function LoanDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(loan.total_minor || 0, loan.country_code)}
+              {formatCurrency(loan.total_amount_minor || loan.total_minor || 0, loan.country_code)}
             </div>
           </CardContent>
         </Card>
@@ -473,6 +669,170 @@ export default function LoanDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Signed Agreement Section */}
+      {agreementData && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Loan Agreement Signatures
+            </CardTitle>
+            <CardDescription>
+              Both parties must upload their signed copy of the agreement for legal validity
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Lender Signature Status */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">Your Signature (Lender)</h3>
+                  {agreementData.lender_signed_at ? (
+                    <Badge variant="default" className="bg-green-600">
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Signed
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">
+                      <Clock className="h-3 w-3 mr-1" />
+                      Pending
+                    </Badge>
+                  )}
+                </div>
+
+                {agreementData.lender_signed_at ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-sm text-green-900">
+                      <strong>Signed on:</strong> {format(new Date(agreementData.lender_signed_at), 'MMM d, yyyy HH:mm')}
+                    </p>
+                    {agreementData.lender_signed_url && (
+                      <a
+                        href={agreementData.lender_signed_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:underline flex items-center gap-1 mt-2"
+                      >
+                        <Download className="h-3 w-3" />
+                        View Signed Copy
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <Alert>
+                      <AlertDescription className="text-sm">
+                        Download the agreement, sign it, and upload a photo/PDF of the signed document
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="lender-signed-file">Upload Signed Agreement</Label>
+                      <Input
+                        id="lender-signed-file"
+                        type="file"
+                        accept="image/*,.pdf"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            if (file.size > 5 * 1024 * 1024) {
+                              toast.error('File size must be less than 5MB')
+                              e.target.value = ''
+                              return
+                            }
+                            setSignedAgreementFile(file)
+                          }
+                        }}
+                        className="cursor-pointer"
+                      />
+                      {signedAgreementFile && (
+                        <div className="flex items-center gap-2 text-sm text-green-600">
+                          <FileText className="h-4 w-4" />
+                          <span>Selected: {signedAgreementFile.name}</span>
+                        </div>
+                      )}
+                      <Button
+                        onClick={handleUploadSignedAgreement}
+                        disabled={!signedAgreementFile || uploadingSignedAgreement}
+                        className="w-full"
+                      >
+                        {uploadingSignedAgreement ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 mr-2" />
+                            Upload My Signed Copy
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Borrower Signature Status */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">Borrower's Signature</h3>
+                  {agreementData.borrower_signed_at ? (
+                    <Badge variant="default" className="bg-green-600">
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Signed
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">
+                      <Clock className="h-3 w-3 mr-1" />
+                      Pending
+                    </Badge>
+                  )}
+                </div>
+
+                {agreementData.borrower_signed_at ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-sm text-green-900">
+                      <strong>Signed on:</strong> {format(new Date(agreementData.borrower_signed_at), 'MMM d, yyyy HH:mm')}
+                    </p>
+                    {agreementData.borrower_signed_url && (
+                      <a
+                        href={agreementData.borrower_signed_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:underline flex items-center gap-1 mt-2"
+                      >
+                        <Download className="h-3 w-3" />
+                        View Signed Copy
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <p className="text-sm text-gray-600">
+                      Waiting for borrower to sign and upload their copy...
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Fully Signed Status */}
+            {agreementData.fully_signed && (
+              <div className="mt-4 bg-green-50 border-2 border-green-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-green-900">
+                  <CheckCircle className="h-5 w-5" />
+                  <strong>Agreement Fully Executed</strong>
+                </div>
+                <p className="text-sm text-green-700 mt-1">
+                  Both parties have signed on {format(new Date(agreementData.fully_signed_at), 'MMM d, yyyy HH:mm')}.
+                  The agreement is now legally binding.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Repayment Progress Visualization */}
       <Card>
@@ -711,7 +1071,7 @@ export default function LoanDetailPage() {
                         {getStatusBadge(status)}
                       </TableCell>
                       <TableCell>
-                        {schedule.status !== 'paid' && (
+                        {status !== 'paid' && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -721,9 +1081,9 @@ export default function LoanDetailPage() {
                             Mark as Paid
                           </Button>
                         )}
-                        {schedule.status === 'paid' && schedule.paid_at && (
+                        {status === 'paid' && getSchedulePaidAt(schedule) && (
                           <span className="text-sm text-muted-foreground">
-                            Paid {format(new Date(schedule.paid_at), 'MMM dd')}
+                            Paid {format(new Date(getSchedulePaidAt(schedule)), 'MMM dd')}
                           </span>
                         )}
                       </TableCell>
@@ -737,7 +1097,7 @@ export default function LoanDetailPage() {
       </Card>
 
       {/* Payment History */}
-      {loan.repayment_events && loan.repayment_events.length > 0 && (
+      {getAllRepaymentEvents().length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Payment History</CardTitle>
@@ -745,7 +1105,7 @@ export default function LoanDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {loan.repayment_events.map((event: any) => (
+              {getAllRepaymentEvents().map((event: any) => (
                 <div key={event.id} className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="flex items-center gap-4">
                     <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
@@ -753,13 +1113,16 @@ export default function LoanDetailPage() {
                     </div>
                     <div>
                       <p className="font-medium">
-                        {formatCurrency(event.amount_minor || 0, loan.country_code)}
+                        {formatCurrency(event.amount_paid_minor || 0, loan.country_code)}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {format(new Date(event.payment_date), 'MMM dd, yyyy')}
+                        {format(new Date(event.paid_at || event.created_at), 'MMM dd, yyyy')}
+                        {event.installment_no && ` • Installment #${event.installment_no}`}
                       </p>
-                      {event.notes && (
-                        <p className="text-sm text-muted-foreground mt-1">{event.notes}</p>
+                      {event.method && (
+                        <p className="text-xs text-muted-foreground mt-1 capitalize">
+                          via {event.method.replace('_', ' ')}
+                        </p>
                       )}
                     </div>
                   </div>

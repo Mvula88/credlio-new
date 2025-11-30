@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FileSignature, Search, Loader2, Download, Eye, Calendar, DollarSign, User, Building2 } from 'lucide-react'
+import { FileSignature, Search, Loader2, Download, Eye, Calendar, DollarSign, User, Building2, CheckCircle, Clock, ExternalLink } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
@@ -168,7 +168,7 @@ export default function AdminAgreementsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Agreements</CardTitle>
@@ -180,10 +180,24 @@ export default function AdminAgreementsPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Loans</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Fully Signed</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
+              {agreements.filter(a => a.fully_signed).length}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {agreements.length > 0 ? Math.round((agreements.filter(a => a.fully_signed).length / agreements.length) * 100) : 0}% complete
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Loans</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">
               {agreements.filter(a => a.loans?.status === 'active').length}
             </div>
           </CardContent>
@@ -194,7 +208,7 @@ export default function AdminAgreementsPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Completed Loans</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
+            <div className="text-2xl font-bold text-purple-600">
               {agreements.filter(a => a.loans?.status === 'completed').length}
             </div>
           </CardContent>
@@ -257,13 +271,14 @@ export default function AdminAgreementsPage() {
                   <TableHead>Status</TableHead>
                   <TableHead>Country</TableHead>
                   <TableHead>Downloads</TableHead>
+                  <TableHead>Signatures</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredAgreements.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                       {searchTerm ? 'No agreements found matching your search' : 'No loan agreements yet'}
                     </TableCell>
                   </TableRow>
@@ -320,6 +335,71 @@ export default function AdminAgreementsPage() {
                           )}
                           {!agreement.lender_downloaded_at && !agreement.borrower_downloaded_at && (
                             <div className="text-yellow-600">Not downloaded</div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          {/* Fully Signed Badge */}
+                          {agreement.fully_signed ? (
+                            <Badge className="bg-green-600 text-white text-xs">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Fully Signed
+                            </Badge>
+                          ) : (
+                            <div className="space-y-1">
+                              {/* Lender Signature Status */}
+                              <div className="flex items-center gap-1 text-xs">
+                                {agreement.lender_signed_at ? (
+                                  <>
+                                    <CheckCircle className="h-3 w-3 text-green-600" />
+                                    <span className="text-green-600">L: Signed</span>
+                                    {agreement.lender_signed_url && (
+                                      <a
+                                        href={agreement.lender_signed_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline"
+                                        title="View lender's signed copy"
+                                      >
+                                        <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Clock className="h-3 w-3 text-gray-400" />
+                                    <span className="text-gray-500">L: Pending</span>
+                                  </>
+                                )}
+                              </div>
+
+                              {/* Borrower Signature Status */}
+                              <div className="flex items-center gap-1 text-xs">
+                                {agreement.borrower_signed_at ? (
+                                  <>
+                                    <CheckCircle className="h-3 w-3 text-green-600" />
+                                    <span className="text-green-600">B: Signed</span>
+                                    {agreement.borrower_signed_url && (
+                                      <a
+                                        href={agreement.borrower_signed_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline"
+                                        title="View borrower's signed copy"
+                                      >
+                                        <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Clock className="h-3 w-3 text-gray-400" />
+                                    <span className="text-gray-500">B: Pending</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
                           )}
                         </div>
                       </TableCell>

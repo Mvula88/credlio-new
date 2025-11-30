@@ -161,9 +161,10 @@ export default function RiskManagementPage() {
   }
 
   const filteredFlags = riskFlags.filter(flag => {
+    const search = searchTerm.replace(/\s/g, '')
     const matchesSearch = !searchTerm ||
-      flag.borrowers?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      flag.borrowers?.phone_e164?.includes(searchTerm)
+      flag.borrowers?.phone_e164?.includes(search) ||
+      flag.borrowers?.id?.toLowerCase().includes(search.toLowerCase())
 
     const matchesOrigin = originFilter === 'all' ||
       (originFilter === 'lender' && flag.origin === 'LENDER_REPORTED') ||
@@ -250,7 +251,7 @@ export default function RiskManagementPage() {
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <Input
-                  placeholder="Search by name or phone..."
+                  placeholder="Search by phone or ID..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"

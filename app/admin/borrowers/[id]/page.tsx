@@ -34,6 +34,7 @@ export default function AdminBorrowerProfilePage() {
   const [borrower, setBorrower] = useState<any>(null)
   const [loans, setLoans] = useState<any[]>([])
   const [riskFlags, setRiskFlags] = useState<any[]>([])
+  const [verificationStatus, setVerificationStatus] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
@@ -72,7 +73,7 @@ export default function AdminBorrowerProfilePage() {
         .from('loans')
         .select(`
           *,
-          lenders(business_name, contact_email),
+          lenders(business_name, email),
           repayment_schedules(
             *,
             repayment_events(*)
@@ -101,6 +102,19 @@ export default function AdminBorrowerProfilePage() {
       }
 
       setRiskFlags(flagsData || [])
+
+      // Get verification status
+      const { data: verificationData, error: verificationError } = await supabase
+        .from('borrower_self_verification_status')
+        .select('*')
+        .eq('borrower_id', borrowerId)
+        .single()
+
+      if (verificationError && verificationError.code !== 'PGRST116') {
+        console.error('Error fetching verification status:', verificationError)
+      }
+
+      setVerificationStatus(verificationData || null)
     } catch (error) {
       console.error('Error loading borrower profile:', error)
       console.error('Error details:', JSON.stringify(error, null, 2))
@@ -284,7 +298,11 @@ export default function AdminBorrowerProfilePage() {
 
   const overallAnalytics = getOverallPaymentAnalytics()
   const creditScore = borrower.borrower_scores?.[0]?.score || 500
-  const totalDisbursed = loans.reduce((sum, l) => sum + (l.principal_minor || 0), 0)
+  // Only count loans that have actually been disbursed (active, completed, defaulted, written_off)
+  const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
+  const totalDisbursed = loans
+    .filter(l => disbursedStatuses.includes(l.status))
+    .reduce((sum, l) => sum + (l.principal_minor || 0), 0)
   const activeLoans = loans.filter(l => l.status === 'active').length
   const activeRiskFlags = riskFlags.filter(f => !f.resolved_at).length
 
@@ -361,6 +379,117 @@ export default function AdminBorrowerProfilePage() {
               </Badge>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Verification Status Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            <CardTitle>Verification Status</CardTitle>
+          </div>
+          <CardDescription>Identity verification and KYC status</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {verificationStatus ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Status</span>
+                <Badge className={
+                  verificationStatus.verification_status === 'approved' ? 'bg-green-100 text-green-800' :
+                  verificationStatus.verification_status === 'pending' ? 'bg-blue-100 text-blue-800' :
+                  verificationStatus.verification_status === 'rejected' ? 'bg-red-100 text-red-800' :
+                  'bg-gray-100 text-gray-800'
+                }>
+                  {verificationStatus.verification_status === 'approved' && <CheckCircle className="h-3 w-3 mr-1" />}
+                  {verificationStatus.verification_status === 'pending' && <AlertTriangle className="h-3 w-3 mr-1" />}
+                  {verificationStatus.verification_status?.charAt(0).toUpperCase() + verificationStatus.verification_status?.slice(1) || 'Unknown'}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Selfie Uploaded</p>
+                  <p className="font-semibold">{verificationStatus.selfie_uploaded ? 'Yes' : 'No'}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Documents</p>
+                  <p className="font-semibold">{verificationStatus.documents_uploaded || 0} / {verificationStatus.documents_required || 1}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Risk Level</p>
+                  <p className={`font-semibold ${
+                    verificationStatus.overall_risk_level === 'low' ? 'text-green-600' :
+                    verificationStatus.overall_risk_level === 'medium' ? 'text-yellow-600' : 'text-red-600'
+                  }`}>
+                    {verificationStatus.overall_risk_level?.charAt(0).toUpperCase() + verificationStatus.overall_risk_level?.slice(1) || 'Unknown'}
+                  </p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Risk Score</p>
+                  <p className="font-semibold">{verificationStatus.overall_risk_score || 0}</p>
+                </div>
+              </div>
+
+              {verificationStatus.duplicate_detected && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Duplicate Detected!</strong> This borrower may have another account in the system.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {verificationStatus.rejection_reason && verificationStatus.verification_status === 'rejected' && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Rejection Reason:</strong> {verificationStatus.rejection_reason}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {verificationStatus.rejection_reason && verificationStatus.verification_status === 'pending' && (
+                <Alert className="bg-blue-50 border-blue-200">
+                  <AlertTriangle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription>
+                    <strong>Review Note:</strong> {verificationStatus.rejection_reason}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {verificationStatus.admin_override && (
+                <Alert>
+                  <Shield className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Admin Override:</strong> Verification was manually overridden by an admin
+                    {verificationStatus.admin_notes && <><br />Notes: {verificationStatus.admin_notes}</>}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                {verificationStatus.started_at && (
+                  <div>
+                    <span className="text-gray-500">Started:</span>{' '}
+                    {format(new Date(verificationStatus.started_at), 'MMM dd, yyyy HH:mm')}
+                  </div>
+                )}
+                {verificationStatus.verified_at && (
+                  <div>
+                    <span className="text-gray-500">Verified:</span>{' '}
+                    {format(new Date(verificationStatus.verified_at), 'MMM dd, yyyy HH:mm')}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-4 text-gray-500">
+              <Shield className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+              <p>No verification record found for this borrower</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

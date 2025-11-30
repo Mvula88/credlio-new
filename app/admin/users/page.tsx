@@ -36,10 +36,12 @@ export default function UserManagementPage() {
     }
   }
 
-  const filteredUsers = users.filter(user =>
-    user.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email?.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredUsers = users.filter(user => {
+    const search = searchQuery.toLowerCase().replace(/\s/g, '')
+    return !searchQuery ||
+      user.user_id?.toLowerCase().includes(search) ||
+      user.email?.toLowerCase().includes(search)
+  })
 
   if (loading) {
     return (
@@ -114,7 +116,7 @@ export default function UserManagementPage() {
             <CardTitle>All Users</CardTitle>
             <div className="flex space-x-2">
               <Input
-                placeholder="Search users..."
+                placeholder="Search by email or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-64"

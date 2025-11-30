@@ -10,19 +10,14 @@ export async function GET() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
-  // Get profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('user_id', user.id)
-    .single()
+  // Run profile and lender queries in parallel
+  const [profileResult, lenderResult] = await Promise.all([
+    supabase.from('profiles').select('*').eq('user_id', user.id).single(),
+    supabase.from('lenders').select('*').eq('user_id', user.id).single()
+  ])
 
-  // Get lender
-  const { data: lender } = await supabase
-    .from('lenders')
-    .select('*')
-    .eq('user_id', user.id)
-    .single()
+  const profile = profileResult.data
+  const lender = lenderResult.data
 
   // Get currency if country_code exists
   let currency = null

@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { 
+import {
   CreditCard,
   User,
   Calendar,
@@ -33,9 +33,10 @@ const loanSchema = z.object({
   borrowerId: z.string().optional(),
   nationalId: z.string().optional(),
   principalAmount: z.number().min(100, 'Minimum loan amount is 100'),
-  interestRate: z.number().min(0).max(100),
-  termMonths: z.number().min(1).max(60),
-  repaymentFrequency: z.enum(['weekly', 'biweekly', 'monthly']),
+  baseRatePercent: z.number().min(0).max(100, 'Interest rate must be between 0-100%'),
+  extraRatePerInstallment: z.number().min(0).max(50, 'Extra rate must be between 0-50%'),
+  paymentType: z.enum(['once_off', 'installments']),
+  numInstallments: z.number().min(1).max(12),
   purpose: z.string().min(10, 'Please describe the loan purpose'),
 })
 
@@ -61,8 +62,20 @@ export default function NewLoanPage() {
   const [searchLoading, setSearchLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [borrower, setBorrower] = useState<any>(null)
+  const [borrowerHasAccount, setBorrowerHasAccount] = useState<boolean>(false)
   const [currency, setCurrency] = useState<any>(null)
+  const [lenderCountryCode, setLenderCountryCode] = useState<string | null>(null)
   const [calculation, setCalculation] = useState<any>(null)
+
+  // Separate state for form fields to ensure reactivity
+  const [principalAmount, setPrincipalAmount] = useState<number>(0)
+  const [baseRatePercent, setBaseRatePercent] = useState<number>(30)
+  const [extraRatePerInstallment, setExtraRatePerInstallment] = useState<number>(2)
+  const [paymentType, setPaymentType] = useState<'once_off' | 'installments'>('once_off')
+  const [numInstallments, setNumInstallments] = useState<number>(1)
+  const [purpose, setPurpose] = useState<string>('')
+  const [nationalIdInput, setNationalIdInput] = useState<string>('')
+
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -76,16 +89,13 @@ export default function NewLoanPage() {
   } = useForm<LoanInput>({
     resolver: zodResolver(loanSchema),
     defaultValues: {
-      repaymentFrequency: 'monthly',
-      termMonths: 6,
-      interestRate: 10,
+      paymentType: 'once_off',
+      numInstallments: 1,
+      baseRatePercent: 30,
+      extraRatePerInstallment: 2,
     },
   })
 
-  const principalAmount = watch('principalAmount')
-  const interestRate = watch('interestRate')
-  const termMonths = watch('termMonths')
-  const repaymentFrequency = watch('repaymentFrequency')
   const nationalId = watch('nationalId')
 
   useEffect(() => {
@@ -99,10 +109,8 @@ export default function NewLoanPage() {
 
   useEffect(() => {
     // Calculate loan details whenever inputs change
-    if (principalAmount && interestRate !== undefined && termMonths) {
-      calculateLoan()
-    }
-  }, [principalAmount, interestRate, termMonths, repaymentFrequency])
+    calculateLoan()
+  }, [principalAmount, baseRatePercent, extraRatePerInstallment, paymentType, numInstallments])
 
   const loadLenderProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -112,28 +120,41 @@ export default function NewLoanPage() {
         .select('country_code')
         .eq('user_id', user.id)
         .single()
-      
-      if (profile && CURRENCIES[profile.country_code]) {
-        setCurrency(CURRENCIES[profile.country_code])
+
+      if (profile) {
+        setLenderCountryCode(profile.country_code)
+        if (CURRENCIES[profile.country_code]) {
+          setCurrency(CURRENCIES[profile.country_code])
+        }
       }
     }
   }
 
   const loadBorrower = async (borrowerId: string) => {
+    // Use left join (no !inner) so borrowers without loans are still returned
     const { data } = await supabase
       .from('borrowers')
       .select(`
         *,
         borrower_scores(score),
-        loans!inner(status)
+        loans(status)
       `)
       .eq('id', borrowerId)
       .single()
-    
+
     if (data) {
       setBorrower(data)
       setValue('borrowerId', borrowerId)
-      
+
+      // Check if borrower has a user account
+      const { data: borrowerLink } = await supabase
+        .from('borrower_user_links')
+        .select('user_id')
+        .eq('borrower_id', borrowerId)
+        .maybeSingle()
+
+      setBorrowerHasAccount(!!borrowerLink?.user_id)
+
       // Check for active loan
       const hasActiveLoan = data.loans?.some((l: any) => l.status === 'active')
       if (hasActiveLoan) {
@@ -177,6 +198,15 @@ export default function NewLoanPage() {
       setBorrower(data)
       setValue('borrowerId', data.id)
 
+      // Check if borrower has a user account
+      const { data: borrowerLink } = await supabase
+        .from('borrower_user_links')
+        .select('user_id')
+        .eq('borrower_id', data.id)
+        .maybeSingle()
+
+      setBorrowerHasAccount(!!borrowerLink?.user_id)
+
       // Check for active loan
       const hasActiveLoan = data.loans?.some((l: any) => l.status === 'active')
       if (hasActiveLoan) {
@@ -192,52 +222,59 @@ export default function NewLoanPage() {
 
   const calculateLoan = () => {
     const principal = principalAmount || 0
-    const rate = (interestRate || 0) / 100
-    const months = termMonths || 1
+    const baseRate = baseRatePercent || 30
+    const extraRate = extraRatePerInstallment || 2
+    const installments = paymentType === 'once_off' ? 1 : (numInstallments || 1)
 
-    // Simple interest calculation
-    const totalInterest = principal * rate * (months / 12)
-    const totalAmount = principal + totalInterest
+    // Don't calculate if no principal
+    if (principal <= 0) {
+      setCalculation(null)
+      return
+    }
 
-    // Calculate payment frequency
-    let paymentsPerMonth = 1
-    if (repaymentFrequency === 'weekly') paymentsPerMonth = 4
-    if (repaymentFrequency === 'biweekly') paymentsPerMonth = 2
-    
-    const totalPayments = months * paymentsPerMonth
-    const paymentAmount = totalAmount / totalPayments
+    // Calculate total interest rate based on payment type
+    // Once-off: just base rate
+    // Installments: base rate + (extra rate × (installments - 1))
+    const totalInterestRate = paymentType === 'once_off'
+      ? baseRate
+      : baseRate + (extraRate * (installments - 1))
+
+    // Calculate interest amount
+    const interestAmount = principal * (totalInterestRate / 100)
+    const totalAmount = principal + interestAmount
+
+    // Calculate per-installment payment
+    const paymentAmountCalc = installments > 0 ? totalAmount / installments : totalAmount
 
     setCalculation({
-      totalInterest,
+      totalInterestRate,
+      interestAmount,
       totalAmount,
-      paymentAmount,
-      totalPayments,
-      firstPaymentDate: getFirstPaymentDate(),
-      lastPaymentDate: addMonths(new Date(), months),
+      paymentAmount: paymentAmountCalc,
+      totalPayments: installments,
+      firstPaymentDate: addMonths(new Date(), 1),
+      lastPaymentDate: addMonths(new Date(), installments),
     })
   }
 
-  const getFirstPaymentDate = () => {
-    const today = new Date()
-    switch (repaymentFrequency) {
-      case 'weekly':
-        return new Date(today.setDate(today.getDate() + 7))
-      case 'biweekly':
-        return new Date(today.setDate(today.getDate() + 14))
-      case 'monthly':
-        return new Date(today.setMonth(today.getMonth() + 1))
-      default:
-        return new Date(today.setMonth(today.getMonth() + 1))
-    }
-  }
-
-  const onSubmit = async (data: LoanInput) => {
+  const onSubmit = async () => {
     try {
       setLoading(true)
       setError(null)
 
+      // Validate
       if (!borrower) {
         setError('Please select a borrower first')
+        return
+      }
+
+      if (principalAmount < 100) {
+        setError('Minimum loan amount is 100')
+        return
+      }
+
+      if (purpose.length < 10) {
+        setError('Please describe the loan purpose (at least 10 characters)')
         return
       }
 
@@ -259,80 +296,136 @@ export default function NewLoanPage() {
         return
       }
 
-      // Create the loan
+      // Calculate values for database using state values
+      const installments = paymentType === 'once_off' ? 1 : numInstallments
+      const totalInterestRate = paymentType === 'once_off'
+        ? baseRatePercent
+        : baseRatePercent + (extraRatePerInstallment * (installments - 1))
+      const interestAmountMinor = Math.round(principalAmount * 100 * totalInterestRate / 100)
+      const totalAmountMinor = Math.round(principalAmount * 100) + interestAmountMinor
+
+      // Check if borrower has a user account (requires confirmation)
+      const { data: borrowerLink } = await supabase
+        .from('borrower_user_links')
+        .select('user_id')
+        .eq('borrower_id', borrower.id)
+        .maybeSingle()
+
+      const borrowerHasAccount = !!borrowerLink?.user_id
+      const loanStatus = borrowerHasAccount ? 'pending_offer' : 'active'
+
+      // Debug: Log what we're sending
+      console.log('Creating loan with:', {
+        lender_id: lender.user_id,
+        lenderCountryCode,
+        borrowerCountryCode: borrower.country_code,
+        finalCountryCode: lenderCountryCode || borrower.country_code,
+        currency: currency?.code,
+        user_id: user.id
+      })
+
+      // Create the loan with new interest rate system
       const { data: loan, error: loanError } = await supabase
         .from('loans')
         .insert({
           borrower_id: borrower.id,
           lender_id: lender.user_id,
-          principal_amount: data.principalAmount,
-          interest_rate: data.interestRate,
-          term_months: data.termMonths,
-          repayment_frequency: data.repaymentFrequency,
+          principal_minor: Math.round(principalAmount * 100),
+          // New interest rate fields
+          base_rate_percent: baseRatePercent,
+          extra_rate_per_installment: extraRatePerInstallment,
+          payment_type: paymentType,
+          num_installments: installments,
+          total_interest_percent: totalInterestRate,
+          interest_amount_minor: interestAmountMinor,
+          total_amount_minor: totalAmountMinor,
+          // Legacy fields for backwards compatibility
+          apr_bps: Math.round(totalInterestRate * 100),
+          term_months: installments,
           currency: currency?.code || 'USD',
-          total_amount: calculation.totalAmount,
-          purpose: data.purpose,
-          status: 'active',
-          disbursement_date: new Date().toISOString(),
-          next_payment_date: calculation.firstPaymentDate.toISOString(),
+          country_code: lenderCountryCode || borrower.country_code,
+          purpose: purpose,
+          // If borrower has account, set to pending_offer for them to accept
+          // Otherwise, set to active for tracked borrowers
+          status: loanStatus,
+          requires_borrower_acceptance: borrowerHasAccount,
+          start_date: new Date().toISOString(),
+          end_date: addMonths(new Date(), installments).toISOString(),
         })
         .select()
         .single()
 
       if (loanError) {
-        if (loanError.message.includes('already have an active loan')) {
+        // Try multiple ways to extract error info
+        const errorStr = JSON.stringify(loanError)
+        const errorKeys = Object.keys(loanError)
+        console.error('Loan error RAW:', loanError)
+        console.error('Loan error STRING:', errorStr)
+        console.error('Loan error KEYS:', errorKeys)
+        console.error('Loan error entries:', Object.entries(loanError))
+
+        const errorMessage = loanError.message || loanError.error || errorStr || 'Unknown error'
+
+        if (errorMessage.includes('already have an active loan')) {
           setError('This borrower already has an active loan. They must repay it before taking a new one.')
         } else {
-          setError('Failed to create loan. Please try again.')
+          setError(`Failed to create loan: ${errorMessage}`)
         }
-        console.error('Loan error:', loanError)
         return
       }
 
-      // Create repayment schedule
+      // Create repayment schedule using new system
       const schedules = []
-      let currentDate = calculation.firstPaymentDate
-      
-      for (let i = 0; i < calculation.totalPayments; i++) {
+      const principalMinor = Math.round(principalAmount * 100)
+      const installmentAmountMinor = Math.ceil(totalAmountMinor / installments)
+      const principalPerInstallment = Math.ceil(principalMinor / installments)
+      const interestPerInstallment = Math.ceil(interestAmountMinor / installments)
+
+      for (let i = 0; i < installments; i++) {
+        const dueDate = addMonths(new Date(), i + 1)
+        const isLast = i === installments - 1
+
+        // Last installment gets the remainder to ensure exact total
+        const thisAmount = isLast
+          ? totalAmountMinor - (installmentAmountMinor * (installments - 1))
+          : installmentAmountMinor
+        const thisPrincipal = isLast
+          ? principalMinor - (principalPerInstallment * (installments - 1))
+          : principalPerInstallment
+        const thisInterest = isLast
+          ? interestAmountMinor - (interestPerInstallment * (installments - 1))
+          : interestPerInstallment
+
         schedules.push({
           loan_id: loan.id,
-          due_date: new Date(currentDate).toISOString(),
-          amount: calculation.paymentAmount,
-          principal_portion: data.principalAmount / calculation.totalPayments,
-          interest_portion: calculation.totalInterest / calculation.totalPayments,
+          installment_no: i + 1,
+          due_date: dueDate.toISOString(),
+          amount_due_minor: thisAmount,
+          principal_minor: thisPrincipal,
+          interest_minor: thisInterest,
           status: 'pending',
         })
+      }
 
-        // Move to next payment date
-        switch (data.repaymentFrequency) {
-          case 'weekly':
-            currentDate.setDate(currentDate.getDate() + 7)
-            break
-          case 'biweekly':
-            currentDate.setDate(currentDate.getDate() + 14)
-            break
-          case 'monthly':
-            currentDate.setMonth(currentDate.getMonth() + 1)
-            break
+      // Only create repayment schedule if loan is active (tracked borrowers)
+      // For pending_offer loans, schedule will be created when borrower accepts
+      if (!borrowerHasAccount) {
+        const { error: scheduleError } = await supabase
+          .from('repayment_schedules')
+          .insert(schedules)
+
+        if (scheduleError) {
+          console.error('Schedule error:', scheduleError)
         }
       }
 
-      const { error: scheduleError } = await supabase
-        .from('repayment_schedules')
-        .insert(schedules)
-
-      if (scheduleError) {
-        console.error('Schedule error:', scheduleError)
+      // Show appropriate message based on whether borrower needs to confirm
+      if (borrowerHasAccount) {
+        // Redirect with success message about pending confirmation
+        router.push(`/l/loans/${loan.id}?status=pending_offer`)
+      } else {
+        router.push(`/l/loans/${loan.id}`)
       }
-
-      // Update borrower's credit utilization
-      await supabase.rpc('update_credit_score', {
-        p_borrower_id: borrower.id,
-        p_event_type: 'loan_taken',
-        p_amount: data.principalAmount,
-      })
-
-      router.push(`/l/loans/${loan.id}`)
     } catch (err) {
       console.error('Submit error:', err)
       setError('An unexpected error occurred')
@@ -357,7 +450,7 @@ export default function NewLoanPage() {
         </Alert>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="space-y-6">
         {/* Borrower Selection */}
         <Card>
           <CardHeader>
@@ -394,34 +487,38 @@ export default function NewLoanPage() {
                 </p>
               </div>
             ) : (
-              <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <User className="h-5 w-5 text-gray-400" />
-                      <span className="font-medium">{borrower.full_name}</span>
+              <div className="space-y-3">
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-2">
+                        <User className="h-5 w-5 text-gray-400" />
+                        <span className="font-medium">{borrower.full_name}</span>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        <p>Phone: {borrower.phone_e164}</p>
+                        <p>DOB: {format(new Date(borrower.date_of_birth), 'MMM dd, yyyy')}</p>
+                        {borrower.borrower_scores?.[0] && (
+                          <p>Credit Score: <span className="font-medium">{borrower.borrower_scores[0].score}</span></p>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-600">
-                      <p>Phone: {borrower.phone_e164}</p>
-                      <p>DOB: {format(new Date(borrower.date_of_birth), 'MMM dd, yyyy')}</p>
-                      {borrower.borrower_scores?.[0] && (
-                        <p>Credit Score: <span className="font-medium">{borrower.borrower_scores[0].score}</span></p>
-                      )}
-                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setBorrower(null)
+                        setBorrowerHasAccount(false)
+                        setValue('borrowerId', '')
+                        setValue('nationalId', '')
+                      }}
+                    >
+                      Change
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setBorrower(null)
-                      setValue('borrowerId', '')
-                      setValue('nationalId', '')
-                    }}
-                  >
-                    Change
-                  </Button>
                 </div>
+
               </div>
             )}
           </CardContent>
@@ -433,151 +530,311 @@ export default function NewLoanPage() {
             <CardHeader>
               <CardTitle>Loan Details</CardTitle>
               <CardDescription>
-                Configure the loan terms and conditions
+                Configure the loan terms and interest rates
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="principal">Principal Amount ({currency?.symbol || '$'})</Label>
-                  <Input
-                    id="principal"
-                    type="number"
-                    step="100"
-                    min="100"
-                    {...register('principalAmount', { valueAsNumber: true })}
-                  />
-                  {errors.principalAmount && (
-                    <p className="text-sm text-red-500">{errors.principalAmount.message}</p>
-                  )}
+            <CardContent className="space-y-6">
+              {/* Principal Amount */}
+              <div className="space-y-2">
+                <Label htmlFor="principal">Loan Amount ({currency?.symbol || '$'})</Label>
+                <Input
+                  id="principal"
+                  type="number"
+                  step="100"
+                  min="100"
+                  placeholder="e.g., 1000"
+                  value={principalAmount || ''}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 0
+                    setPrincipalAmount(val)
+                    setValue('principalAmount', val)
+                  }}
+                />
+                {principalAmount < 100 && principalAmount > 0 && (
+                  <p className="text-sm text-red-500">Minimum loan amount is 100</p>
+                )}
+              </div>
+
+              {/* Interest Rate Section */}
+              <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50/30">
+                <h4 className="font-semibold text-sm text-green-900 mb-4 flex items-center gap-2">
+                  <Percent className="h-4 w-4" />
+                  Interest Rate Settings
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="baseRate">
+                      Base Interest Rate (%)
+                      <span className="text-xs text-gray-500 block">For 1-month / once-off payment</span>
+                    </Label>
+                    <Input
+                      id="baseRate"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max="100"
+                      placeholder="e.g., 30"
+                      value={baseRatePercent}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0
+                        setBaseRatePercent(val)
+                        setValue('baseRatePercent', val)
+                      }}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="extraRate" className={paymentType === 'once_off' ? 'text-gray-400' : ''}>
+                      Extra Rate Per Installment (%)
+                      <span className="text-xs text-gray-500 block">
+                        {paymentType === 'once_off'
+                          ? 'Not applicable for once-off payments'
+                          : 'Added for each extra month'}
+                      </span>
+                    </Label>
+                    <Input
+                      id="extraRate"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max="50"
+                      placeholder="e.g., 2"
+                      value={extraRatePerInstallment}
+                      disabled={paymentType === 'once_off'}
+                      className={paymentType === 'once_off' ? 'bg-gray-100 cursor-not-allowed opacity-50' : ''}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0
+                        setExtraRatePerInstallment(val)
+                        setValue('extraRatePerInstallment', val)
+                      }}
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="interest">Interest Rate (%)</Label>
-                  <Input
-                    id="interest"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    {...register('interestRate', { valueAsNumber: true })}
-                  />
-                  {errors.interestRate && (
-                    <p className="text-sm text-red-500">{errors.interestRate.message}</p>
-                  )}
-                </div>
+                {/* Interest Rate Explanation */}
+                <Alert className="mt-4 bg-blue-50 border-blue-200">
+                  <Calculator className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-xs text-blue-800">
+                    <strong>How it works:</strong> If borrower pays once (single payment), they pay Base Rate.
+                    For installments, add Extra Rate for each month beyond the first.
+                    <br />
+                    Example: 30% base + 2% extra = 30% for 1 month, 32% for 2 months, 34% for 3 months, etc.
+                  </AlertDescription>
+                </Alert>
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="term">Term (Months)</Label>
-                  <Input
-                    id="term"
-                    type="number"
-                    min="1"
-                    max="60"
-                    {...register('termMonths', { valueAsNumber: true })}
-                  />
-                  {errors.termMonths && (
-                    <p className="text-sm text-red-500">{errors.termMonths.message}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Repayment Frequency</Label>
-                  <RadioGroup
-                    value={repaymentFrequency}
-                    onValueChange={(value) => setValue('repaymentFrequency', value as any)}
+              {/* Payment Type Selection */}
+              <div className="space-y-4">
+                <Label>Payment Type</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentType('once_off')
+                      setNumInstallments(1)
+                      setValue('paymentType', 'once_off')
+                      setValue('numInstallments', 1)
+                    }}
+                    className={`flex items-center space-x-3 border-2 rounded-lg p-4 cursor-pointer transition-colors text-left ${paymentType === 'once_off' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'}`}
                   >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="weekly" id="weekly" />
-                      <Label htmlFor="weekly">Weekly</Label>
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${paymentType === 'once_off' ? 'border-green-500' : 'border-gray-300'}`}>
+                      {paymentType === 'once_off' && <div className="w-2 h-2 rounded-full bg-green-500" />}
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="biweekly" id="biweekly" />
-                      <Label htmlFor="biweekly">Bi-weekly</Label>
+                    <div>
+                      <span className="font-medium">Once-off</span>
+                      <p className="text-xs text-gray-500">Single payment at end of term</p>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="monthly" id="monthly" />
-                      <Label htmlFor="monthly">Monthly</Label>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentType('installments')
+                      setNumInstallments(2)
+                      setValue('paymentType', 'installments')
+                      setValue('numInstallments', 2)
+                    }}
+                    className={`flex items-center space-x-3 border-2 rounded-lg p-4 cursor-pointer transition-colors text-left ${paymentType === 'installments' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'}`}
+                  >
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${paymentType === 'installments' ? 'border-green-500' : 'border-gray-300'}`}>
+                      {paymentType === 'installments' && <div className="w-2 h-2 rounded-full bg-green-500" />}
                     </div>
-                  </RadioGroup>
+                    <div>
+                      <span className="font-medium">Installments</span>
+                      <p className="text-xs text-gray-500">Multiple monthly payments</p>
+                    </div>
+                  </button>
                 </div>
               </div>
 
+              {/* Number of Installments - only show if installments selected */}
+              {paymentType === 'installments' && (
+                <div className="space-y-2">
+                  <Label htmlFor="numInstallments">Number of Installments</Label>
+                  <Select
+                    value={String(numInstallments)}
+                    onValueChange={(value) => {
+                      const num = parseInt(value)
+                      setNumInstallments(num)
+                      setValue('numInstallments', num)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select number of installments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2">2 months</SelectItem>
+                      <SelectItem value="3">3 months</SelectItem>
+                      <SelectItem value="4">4 months</SelectItem>
+                      <SelectItem value="5">5 months</SelectItem>
+                      <SelectItem value="6">6 months</SelectItem>
+                      <SelectItem value="7">7 months</SelectItem>
+                      <SelectItem value="8">8 months</SelectItem>
+                      <SelectItem value="9">9 months</SelectItem>
+                      <SelectItem value="10">10 months</SelectItem>
+                      <SelectItem value="11">11 months</SelectItem>
+                      <SelectItem value="12">12 months</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Loan Purpose */}
               <div className="space-y-2">
                 <Label htmlFor="purpose">Loan Purpose</Label>
                 <Textarea
                   id="purpose"
                   placeholder="Describe what the loan will be used for..."
                   rows={3}
-                  {...register('purpose')}
+                  value={purpose}
+                  onChange={(e) => {
+                    setPurpose(e.target.value)
+                    setValue('purpose', e.target.value)
+                  }}
                 />
-                {errors.purpose && (
-                  <p className="text-sm text-red-500">{errors.purpose.message}</p>
+                {purpose.length > 0 && purpose.length < 10 && (
+                  <p className="text-sm text-red-500">Please describe the loan purpose (at least 10 characters)</p>
                 )}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Loan Calculation */}
+        {/* Loan Calculation - Live Preview */}
         {calculation && borrower && !error && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Loan Summary</CardTitle>
+          <Card className="border-2 border-blue-300">
+            <CardHeader className="bg-blue-50">
+              <CardTitle className="flex items-center gap-2 text-blue-900">
+                <TrendingUp className="h-5 w-5" />
+                Loan Summary - What Borrower Will Pay
+              </CardTitle>
               <CardDescription>
-                Review the calculated loan details
+                Review the calculated loan details before creating
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-3">
+            <CardContent className="pt-6">
+              {/* Main Breakdown */}
+              <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50/30 mb-4">
+                <h4 className="font-semibold text-green-900 mb-3">Amount Breakdown</h4>
+                <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Principal Amount:</span>
+                    <span className="text-gray-600">Principal (Amount Borrowed):</span>
                     <span className="font-medium">
-                      {currency?.symbol}{principalAmount?.toLocaleString()}
+                      {currency?.symbol || ''}{principalAmount?.toLocaleString()} {currency?.code || ''}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Total Interest:</span>
-                    <span className="font-medium">
-                      {currency?.symbol}{calculation.totalInterest.toLocaleString()}
+                    <span className="text-gray-600">
+                      Interest Rate:
+                      {paymentType === 'installments' && numInstallments > 1 && (
+                        <span className="text-xs ml-1">
+                          ({baseRatePercent}% + {extraRatePerInstallment}% × {numInstallments - 1})
+                        </span>
+                      )}
                     </span>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold">
-                    <span>Total Amount:</span>
-                    <span>
-                      {currency?.symbol}{calculation.totalAmount.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Payment Amount:</span>
-                    <span className="font-medium">
-                      {currency?.symbol}{calculation.paymentAmount.toFixed(2)}
+                    <span className="font-medium text-orange-600">
+                      {calculation.totalInterestRate?.toFixed(1)}%
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Total Payments:</span>
-                    <span className="font-medium">{calculation.totalPayments}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">First Payment:</span>
-                    <span className="font-medium">
-                      {format(calculation.firstPaymentDate, 'MMM dd, yyyy')}
+                    <span className="text-gray-600">Interest Amount:</span>
+                    <span className="font-medium text-orange-600">
+                      {currency?.symbol || ''}{calculation.interestAmount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency?.code || ''}
                     </span>
+                  </div>
+                  <div className="border-t pt-2 mt-2">
+                    <div className="flex justify-between text-lg font-bold text-green-900">
+                      <span>TOTAL TO REPAY:</span>
+                      <span>
+                        {currency?.symbol || ''}{calculation.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency?.code || ''}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <Alert className="mt-4">
-                <Calculator className="h-4 w-4" />
-                <AlertDescription>
-                  The borrower will pay {currency?.symbol}{calculation.paymentAmount.toFixed(2)} {repaymentFrequency} for {termMonths} months,
-                  totaling {currency?.symbol}{calculation.totalAmount.toLocaleString()}
-                </AlertDescription>
-              </Alert>
+              {/* Payment Schedule */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="border rounded-lg p-3 bg-gray-50">
+                  <p className="text-sm text-gray-600">Payment Type</p>
+                  <p className="font-bold text-lg">
+                    {paymentType === 'once_off' ? 'Single Payment' : `${calculation.totalPayments} Installments`}
+                  </p>
+                </div>
+
+                <div className="border rounded-lg p-3 bg-gray-50">
+                  <p className="text-sm text-gray-600">
+                    {paymentType === 'once_off' ? 'Full Amount Due' : 'Per Installment'}
+                  </p>
+                  <p className="font-bold text-lg text-green-700">
+                    {currency?.symbol || ''}{calculation.paymentAmount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {paymentType === 'installments' && (
+                      <span className="text-sm font-normal text-gray-500"> × {calculation.totalPayments}</span>
+                    )}
+                    <span className="text-sm font-normal text-gray-500"> {currency?.code || ''}</span>
+                  </p>
+                </div>
+
+                <div className="border rounded-lg p-3 bg-gray-50">
+                  <p className="text-sm text-gray-600">First Payment Due</p>
+                  <p className="font-medium">
+                    {format(calculation.firstPaymentDate, 'MMM dd, yyyy')}
+                  </p>
+                </div>
+
+                <div className="border rounded-lg p-3 bg-gray-50">
+                  <p className="text-sm text-gray-600">Last Payment Due</p>
+                  <p className="font-medium">
+                    {format(calculation.lastPaymentDate, 'MMM dd, yyyy')}
+                  </p>
+                </div>
+              </div>
+
+              {borrowerHasAccount ? (
+                <Alert className="mt-4 bg-blue-50 border-blue-200">
+                  <User className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-blue-800">
+                    <strong>Borrower has an account:</strong> This borrower will receive a notification to review and confirm this loan offer.
+                    The loan will only become active after they accept it. Total amount:{' '}
+                    <strong>{currency?.symbol || ''}{calculation.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency?.code || ''}</strong>
+                    {paymentType === 'installments' && (
+                      <> in {calculation.totalPayments} monthly installments</>
+                    )}.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert className="mt-4 bg-yellow-50 border-yellow-200">
+                  <AlertCircle className="h-4 w-4 text-yellow-600" />
+                  <AlertDescription className="text-yellow-800">
+                    <strong>Tracked borrower only:</strong> This borrower does not have an account. Please confirm the loan details with them directly before creating.
+                    Total to repay:{' '}
+                    <strong>{currency?.symbol || ''}{calculation.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency?.code || ''}</strong>
+                    {paymentType === 'installments' && (
+                      <> in {calculation.totalPayments} monthly installments of <strong>{currency?.symbol || ''}{calculation.paymentAmount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency?.code || ''}</strong></>
+                    )}.
+                  </AlertDescription>
+                </Alert>
+              )}
             </CardContent>
           </Card>
         )}
@@ -592,16 +849,16 @@ export default function NewLoanPage() {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading} className={borrowerHasAccount ? 'bg-blue-600 hover:bg-blue-700' : ''}>
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating Loan...
+                  {borrowerHasAccount ? 'Sending Offer...' : 'Creating Loan...'}
                 </>
               ) : (
                 <>
                   <CheckCircle className="mr-2 h-4 w-4" />
-                  Create Loan
+                  {borrowerHasAccount ? 'Send Loan Offer' : 'Create Loan'}
                 </>
               )}
             </Button>
