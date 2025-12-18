@@ -746,9 +746,11 @@ export default function BorrowerSettingsPage() {
                       </p>
                     </div>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => router.push('/b/onboarding')}>
-                    {verificationStatus.onboardingComplete ? 'View' : 'Complete'}
-                  </Button>
+                  {!verificationStatus.onboardingComplete && (
+                    <Button size="sm" variant="outline" onClick={() => router.push('/b/onboarding')}>
+                      Complete
+                    </Button>
+                  )}
                 </div>
 
                 {/* Step 2: ID Verification */}
