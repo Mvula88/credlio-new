@@ -20,14 +20,19 @@ import {
   TrendingUp,
   TrendingDown,
   CheckCircle,
-  UserCheck
+  UserCheck,
+  Rocket,
+  Crown,
+  Clock,
+  Loader2
 } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, formatDistanceToNow, differenceInDays } from 'date-fns'
 
 export default function CountriesPage() {
   const [loading, setLoading] = useState(true)
   const [countries, setCountries] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [launchingCountry, setLaunchingCountry] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -37,10 +42,10 @@ export default function CountriesPage() {
 
   const loadCountries = async () => {
     try {
-      // Get all countries
+      // Get all countries with launch status
       const { data: countriesData } = await supabase
         .from('countries')
-        .select('code, name, phone_prefix')
+        .select('code, name, phone_prefix, is_launched, launch_period_ends_at')
         .order('name')
 
       if (!countriesData) return
@@ -92,6 +97,39 @@ export default function CountriesPage() {
             .eq('is_default', true)
             .single()
 
+          // Get subscription counts for lenders in this country
+          // First get all lender user_ids for this country
+          const { data: lenderUsers } = await supabase
+            .from('lenders')
+            .select('user_id')
+            .eq('country', country.code)
+
+          let proSubscribers = 0
+          let proPlusSubscribers = 0
+          let freemiumUsers = 0
+
+          if (lenderUsers && lenderUsers.length > 0) {
+            const userIds = lenderUsers.map(l => l.user_id)
+
+            // Get active subscriptions for these users
+            const { data: subscriptions } = await supabase
+              .from('subscriptions')
+              .select('user_id, tier')
+              .in('user_id', userIds)
+              .eq('status', 'active')
+
+            proSubscribers = subscriptions?.filter(s => s.tier === 'pro').length || 0
+            proPlusSubscribers = subscriptions?.filter(s => s.tier === 'pro_plus').length || 0
+            freemiumUsers = (totalLenders || 0) - proSubscribers - proPlusSubscribers
+          }
+
+          // Calculate launch period status
+          const launchEndsAt = country.launch_period_ends_at ? new Date(country.launch_period_ends_at) : null
+          const isInLaunchPeriod = launchEndsAt && launchEndsAt > new Date()
+          const launchDaysRemaining = launchEndsAt && isInLaunchPeriod
+            ? differenceInDays(launchEndsAt, new Date())
+            : 0
+
           return {
             code: country.code,
             name: country.name,
@@ -105,7 +143,16 @@ export default function CountriesPage() {
             activeLoans,
             totalLoanVolume,
             openRiskFlags: openRiskFlags || 0,
-            isActive: (totalUsers || 0) > 0
+            isActive: (totalUsers || 0) > 0,
+            // Launch info
+            isLaunched: country.is_launched || false,
+            launchPeriodEndsAt: country.launch_period_ends_at,
+            isInLaunchPeriod,
+            launchDaysRemaining,
+            // Subscription info
+            proSubscribers,
+            proPlusSubscribers,
+            freemiumUsers: freemiumUsers > 0 ? freemiumUsers : (totalLenders || 0)
           }
         })
       )
@@ -115,6 +162,34 @@ export default function CountriesPage() {
       console.error('Error loading countries:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Launch a country with 14 days free Pro access
+  const launchCountry = async (countryCode: string) => {
+    try {
+      setLaunchingCountry(countryCode)
+
+      // Call the database function to set launch period
+      const { data, error } = await supabase.rpc('set_country_launch_period', {
+        p_country_code: countryCode,
+        p_days: 14
+      })
+
+      if (error) {
+        console.error('Error launching country:', error)
+        alert(`Failed to launch country: ${error.message}`)
+        return
+      }
+
+      // Reload countries to get updated launch status
+      await loadCountries()
+      alert(`Country launched successfully! All lenders get free Pro access for 14 days.`)
+    } catch (error) {
+      console.error('Error launching country:', error)
+      alert('Failed to launch country. Please try again.')
+    } finally {
+      setLaunchingCountry(null)
     }
   }
 
@@ -174,34 +249,34 @@ export default function CountriesPage() {
 
         <Card className="tech-card hover-lift border-none">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Total Users</CardTitle>
-            <div className="p-2.5 bg-gradient-to-br from-green-500/10 to-green-500/5 rounded-xl">
-              <Users className="h-5 w-5 text-green-600" />
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Launched</CardTitle>
+            <div className="p-2.5 bg-gradient-to-br from-orange-500/10 to-orange-500/5 rounded-xl">
+              <Rocket className="h-5 w-5 text-orange-600" />
             </div>
           </CardHeader>
           <CardContent>
-            <span className="text-3xl font-bold text-green-600">
-              {countries.reduce((sum, c) => sum + c.totalUsers, 0)}
+            <span className="text-3xl font-bold text-orange-600">
+              {countries.filter(c => c.isLaunched).length}
             </span>
             <div className="mt-1.5 text-sm text-muted-foreground font-medium">
-              Across all countries
+              {countries.filter(c => c.isInLaunchPeriod).length} in launch period
             </div>
           </CardContent>
         </Card>
 
         <Card className="tech-card hover-lift border-none">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Total Loans</CardTitle>
-            <div className="p-2.5 bg-gradient-to-br from-purple-500/10 to-purple-500/5 rounded-xl">
-              <FileText className="h-5 w-5 text-purple-600" />
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Pro Subscribers</CardTitle>
+            <div className="p-2.5 bg-gradient-to-br from-amber-500/10 to-amber-500/5 rounded-xl">
+              <Crown className="h-5 w-5 text-amber-600" />
             </div>
           </CardHeader>
           <CardContent>
-            <span className="text-3xl font-bold text-purple-600">
-              {countries.reduce((sum, c) => sum + c.totalLoans, 0)}
+            <span className="text-3xl font-bold text-amber-600">
+              {countries.reduce((sum, c) => sum + c.proSubscribers + c.proPlusSubscribers, 0)}
             </span>
             <div className="mt-1.5 text-sm text-muted-foreground font-medium">
-              {countries.reduce((sum, c) => sum + c.activeLoans, 0)} active
+              {countries.reduce((sum, c) => sum + c.freemiumUsers, 0)} freemium
             </div>
           </CardContent>
         </Card>
@@ -252,10 +327,20 @@ export default function CountriesPage() {
                 <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-2">
                     <CardTitle className="text-2xl">{country.name}</CardTitle>
-                    {country.isActive && (
-                      <div className="p-1 bg-green-100 rounded-full">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      </div>
+                    {country.isInLaunchPeriod ? (
+                      <Badge className="bg-orange-500 text-white">
+                        <Rocket className="h-3 w-3 mr-1" />
+                        Launch Period
+                      </Badge>
+                    ) : country.isLaunched ? (
+                      <Badge variant="secondary" className="bg-green-100 text-green-700">
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        Launched
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-gray-500">
+                        Not Launched
+                      </Badge>
                     )}
                   </div>
                   <CardDescription className="flex items-center space-x-2">
@@ -322,6 +407,43 @@ export default function CountriesPage() {
                 </div>
               </div>
 
+              {/* Launch Period Info */}
+              {country.isInLaunchPeriod && (
+                <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Clock className="h-4 w-4 text-orange-600" />
+                      <span className="text-xs text-orange-600 font-medium">Free Pro Access</span>
+                    </div>
+                    <div className="text-lg font-bold text-orange-600">{country.launchDaysRemaining} days left</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Subscription Breakdown */}
+              {country.totalLenders > 0 && (
+                <div className="p-3 bg-gradient-to-r from-amber-50 to-purple-50 rounded-lg border border-amber-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Crown className="h-4 w-4 text-amber-600" />
+                    <span className="text-xs text-amber-700 font-medium">Subscription Status</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <div className="text-lg font-bold text-purple-600">{country.proPlusSubscribers}</div>
+                      <div className="text-xs text-gray-500">Pro Plus</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold text-amber-600">{country.proSubscribers}</div>
+                      <div className="text-xs text-gray-500">Pro</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold text-gray-600">{country.freemiumUsers}</div>
+                      <div className="text-xs text-gray-500">Free</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Risk Flags Warning */}
               {country.openRiskFlags > 0 && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -335,16 +457,43 @@ export default function CountriesPage() {
                 </div>
               )}
 
-              <Button
-                className="w-full bg-gradient-to-r from-primary to-secondary text-white"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  router.push(`/admin/countries/${country.code}`)
-                }}
-              >
-                View Country Admin
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
+              {/* Launch Button or View Button */}
+              <div className="flex gap-2">
+                {!country.isLaunched && (
+                  <Button
+                    className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm(`Launch ${country.name}? This will give all lenders in this country FREE Pro access for 14 days.`)) {
+                        launchCountry(country.code)
+                      }
+                    }}
+                    disabled={launchingCountry === country.code}
+                  >
+                    {launchingCountry === country.code ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Launching...
+                      </>
+                    ) : (
+                      <>
+                        <Rocket className="mr-2 h-4 w-4" />
+                        Launch Country
+                      </>
+                    )}
+                  </Button>
+                )}
+                <Button
+                  className={`${country.isLaunched ? 'w-full' : 'flex-1'} bg-gradient-to-r from-primary to-secondary text-white`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    router.push(`/admin/countries/${country.code}`)
+                  }}
+                >
+                  View Admin
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
