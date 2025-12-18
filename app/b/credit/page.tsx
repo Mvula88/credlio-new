@@ -203,7 +203,7 @@ export default function CreditScorePage() {
       }]
     }
 
-    const history = []
+    const history: { month: string; score: number; change: number }[] = []
     let currentScore = 700 // Base score
 
     // Track score changes over last 12 months

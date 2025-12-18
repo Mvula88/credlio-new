@@ -43,7 +43,6 @@ import {
   Building
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { format, differenceInDays, isPast } from 'date-fns'
 import { getCurrencyInfo, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'

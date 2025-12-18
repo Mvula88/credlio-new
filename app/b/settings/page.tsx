@@ -18,7 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Separator } from '@/components/ui/separator'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { 
+import {
   User,
   Mail,
   Phone,
@@ -65,8 +65,12 @@ import {
   Building2,
   Briefcase,
   DollarSign,
-  Banknote
+  Banknote,
+  Clock,
+  UserCheck,
+  ExternalLink
 } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
 import { format } from 'date-fns'
 
 export default function BorrowerSettingsPage() {
@@ -74,7 +78,7 @@ export default function BorrowerSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [profile, setProfile] = useState<any>(null)
   const [borrower, setBorrower] = useState<any>(null)
-  const [formData, setFormData] = useState<any>({})
+  const [formData, setFormData] = useState<Record<string, any>>({})
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -113,6 +117,11 @@ export default function BorrowerSettingsPage() {
   })
   const [theme, setTheme] = useState('light')
   const [language, setLanguage] = useState('en')
+  const [verificationStatus, setVerificationStatus] = useState({
+    selfieUploaded: false,
+    verificationStatus: 'incomplete',
+    onboardingComplete: false
+  })
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
   const [show2FADialog, setShow2FADialog] = useState(false)
@@ -188,6 +197,21 @@ export default function BorrowerSettingsPage() {
           employer_name: borrowerData.employer_name || '',
           job_title: borrowerData.job_title || ''
         }))
+
+        // Get verification status
+        const { data: verificationData } = await supabase
+          .from('borrower_self_verification_status')
+          .select('selfie_uploaded, verification_status')
+          .eq('borrower_id', borrowerData.id)
+          .single()
+
+        if (verificationData) {
+          setVerificationStatus({
+            selfieUploaded: verificationData.selfie_uploaded || false,
+            verificationStatus: verificationData.verification_status || 'incomplete',
+            onboardingComplete: !!(profileData?.onboarding_completed || (borrowerData?.full_name && borrowerData?.id_number))
+          })
+        }
       }
 
       // Load saved preferences (mock data for now)
@@ -465,8 +489,9 @@ export default function BorrowerSettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="verification">Verification</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="privacy">Privacy</TabsTrigger>
@@ -491,7 +516,7 @@ export default function BorrowerSettingsPage() {
                     <AvatarImage src={avatarUrl} alt={formData.full_name || 'User'} />
                   ) : null}
                   <AvatarFallback className="text-2xl">
-                    {formData.full_name?.split(' ').map(n => n[0]).join('') || 'U'}
+                    {formData.full_name?.split(' ').map((n: string) => n[0]).join('') || 'U'}
                   </AvatarFallback>
                 </Avatar>
                 <div className="space-y-2">
@@ -674,6 +699,221 @@ export default function BorrowerSettingsPage() {
                     className="mt-2"
                   />
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Verification Tab */}
+        <TabsContent value="verification" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Verification Status</CardTitle>
+              <CardDescription>
+                Complete verification to access all platform features
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Profile Completion Overview */}
+              <div className="rounded-lg border bg-gradient-to-r from-gray-50 to-slate-50 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold">Profile Completion</h4>
+                  <span className="text-sm font-medium">
+                    {[verificationStatus.onboardingComplete, verificationStatus.selfieUploaded].filter(Boolean).length}/2 steps
+                  </span>
+                </div>
+                <Progress
+                  value={([verificationStatus.onboardingComplete, verificationStatus.selfieUploaded].filter(Boolean).length / 2) * 100}
+                  className="h-2"
+                />
+
+                {/* Step 1: Basic Profile */}
+                <div className={`flex items-center justify-between p-3 rounded-lg ${
+                  verificationStatus.onboardingComplete ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    {verificationStatus.onboardingComplete ? (
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    ) : (
+                      <UserCheck className="h-5 w-5 text-orange-600" />
+                    )}
+                    <div>
+                      <p className={`font-medium text-sm ${verificationStatus.onboardingComplete ? 'text-green-900' : 'text-orange-900'}`}>
+                        Step 1: Basic Profile
+                      </p>
+                      <p className={`text-xs ${verificationStatus.onboardingComplete ? 'text-green-700' : 'text-orange-700'}`}>
+                        {verificationStatus.onboardingComplete ? 'Your profile information is complete' : 'Complete your basic profile information'}
+                      </p>
+                    </div>
+                  </div>
+                  {!verificationStatus.onboardingComplete && (
+                    <Button size="sm" variant="outline" onClick={() => router.push('/b/onboarding')}>
+                      Complete
+                    </Button>
+                  )}
+                </div>
+
+                {/* Step 2: ID Verification */}
+                <div className={`flex items-center justify-between p-3 rounded-lg ${
+                  verificationStatus.selfieUploaded ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    {verificationStatus.selfieUploaded ? (
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    ) : (
+                      <Camera className="h-5 w-5 text-orange-600" />
+                    )}
+                    <div>
+                      <p className={`font-medium text-sm ${verificationStatus.selfieUploaded ? 'text-green-900' : 'text-orange-900'}`}>
+                        Step 2: ID Verification
+                      </p>
+                      <p className={`text-xs ${verificationStatus.selfieUploaded ? 'text-green-700' : 'text-orange-700'}`}>
+                        {verificationStatus.selfieUploaded
+                          ? 'Your verification photo has been submitted'
+                          : 'Upload a selfie with your ID document'}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => router.push('/b/verify')}
+                    disabled={!verificationStatus.onboardingComplete}
+                  >
+                    {verificationStatus.selfieUploaded ? 'View' : 'Verify'}
+                  </Button>
+                </div>
+
+                {/* Verification Status */}
+                {verificationStatus.selfieUploaded && (
+                  <div className={`flex items-center justify-between p-3 rounded-lg ${
+                    verificationStatus.verificationStatus === 'approved'
+                      ? 'bg-green-50 border border-green-200'
+                      : verificationStatus.verificationStatus === 'pending'
+                        ? 'bg-blue-50 border border-blue-200'
+                        : verificationStatus.verificationStatus === 'rejected'
+                          ? 'bg-red-50 border border-red-200'
+                          : 'bg-gray-50 border border-gray-200'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      {verificationStatus.verificationStatus === 'approved' ? (
+                        <ShieldCheck className="h-5 w-5 text-green-600" />
+                      ) : verificationStatus.verificationStatus === 'pending' ? (
+                        <Clock className="h-5 w-5 text-blue-600" />
+                      ) : verificationStatus.verificationStatus === 'rejected' ? (
+                        <XCircle className="h-5 w-5 text-red-600" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-gray-600" />
+                      )}
+                      <div>
+                        <p className={`font-medium text-sm ${
+                          verificationStatus.verificationStatus === 'approved'
+                            ? 'text-green-900'
+                            : verificationStatus.verificationStatus === 'pending'
+                              ? 'text-blue-900'
+                              : verificationStatus.verificationStatus === 'rejected'
+                                ? 'text-red-900'
+                                : 'text-gray-900'
+                        }`}>
+                          Verification Status
+                        </p>
+                        <p className={`text-xs ${
+                          verificationStatus.verificationStatus === 'approved'
+                            ? 'text-green-700'
+                            : verificationStatus.verificationStatus === 'pending'
+                              ? 'text-blue-700'
+                              : verificationStatus.verificationStatus === 'rejected'
+                                ? 'text-red-700'
+                                : 'text-gray-700'
+                        }`}>
+                          {verificationStatus.verificationStatus === 'approved'
+                            ? 'Your identity has been verified'
+                            : verificationStatus.verificationStatus === 'pending'
+                              ? 'Pending admin review'
+                              : verificationStatus.verificationStatus === 'rejected'
+                                ? 'Your verification was rejected'
+                                : 'Verification incomplete'}
+                        </p>
+                      </div>
+                    </div>
+                    {verificationStatus.verificationStatus === 'approved' && (
+                      <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                        Verified
+                      </span>
+                    )}
+                    {verificationStatus.verificationStatus === 'rejected' && (
+                      <Button size="sm" variant="outline" onClick={() => router.push('/b/reupload-selfie')}>
+                        Retry
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Quick Actions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-lg border p-4 space-y-3">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <UserCheck className="h-4 w-4" />
+                    Profile Information
+                  </h4>
+                  <p className="text-sm text-gray-500">
+                    Update your basic profile and contact details
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => router.push('/b/onboarding')}
+                  >
+                    Edit Profile
+                    <ExternalLink className="h-4 w-4 ml-2" />
+                  </Button>
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-3">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Camera className="h-4 w-4" />
+                    ID Verification
+                  </h4>
+                  <p className="text-sm text-gray-500">
+                    {verificationStatus.selfieUploaded
+                      ? 'View or resubmit your verification photo'
+                      : 'Submit your ID verification photo'}
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => router.push(verificationStatus.selfieUploaded ? '/b/verify' : '/b/verify')}
+                  >
+                    {verificationStatus.selfieUploaded ? 'View Verification' : 'Start Verification'}
+                    <ExternalLink className="h-4 w-4 ml-2" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Benefits of Verification */}
+              <div className="rounded-lg border p-4 bg-blue-50 border-blue-200">
+                <h4 className="font-medium text-blue-900 mb-2">Benefits of Verification</h4>
+                <ul className="space-y-1 text-sm text-blue-800">
+                  <li className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-blue-600" />
+                    Access to request loans from verified lenders
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-blue-600" />
+                    Better loan offers and interest rates
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-blue-600" />
+                    Higher trust score with lenders
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-blue-600" />
+                    Faster loan approval process
+                  </li>
+                </ul>
               </div>
             </CardContent>
           </Card>

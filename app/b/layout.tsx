@@ -31,6 +31,7 @@ import {
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
 import NotificationBell from '@/components/NotificationBell'
+import BorrowerProfileCompletionBanner from '@/components/BorrowerProfileCompletionBanner'
 
 const navigation = [
   { name: 'Overview', href: '/b/overview', icon: Home },
@@ -209,6 +210,8 @@ export default function BorrowerLayout({
         {/* Page content */}
         <main className="py-6">
           <div className="mx-auto px-4 sm:px-6 lg:px-8">
+            {/* Profile completion banner - prompts user to complete verification */}
+            <BorrowerProfileCompletionBanner />
             {children}
           </div>
         </main>

@@ -30,7 +30,6 @@ import {
   Flag,
   Calculator,
   MessageSquare,
-  UserCheck,
   ShieldCheck,
   Wallet,
   Download,
@@ -85,9 +84,7 @@ const navigationGroups = [
   {
     title: 'Settings',
     items: [
-      { name: 'Complete Profile', href: '/l/complete-profile', icon: UserCheck, badge: null },
-      { name: 'Provider Info', href: '/l/provider-info', icon: Building2, badge: null },
-      { name: 'Account', href: '/l/settings', icon: Settings, badge: null },
+      { name: 'Settings', href: '/l/settings', icon: Settings, badge: null },
     ]
   },
 ]
