@@ -234,10 +234,10 @@ export default function LenderRegisterPage() {
           <CardHeader className="space-y-1">
             <div className="flex items-center space-x-2">
               <Building2 className="h-5 w-5 text-green-600" />
-              <CardTitle className="text-2xl">Register as Lender</CardTitle>
+              <CardTitle className="text-2xl">Join the Lender Network</CardTitle>
             </div>
             <CardDescription>
-              Create your account - complete your profile in the next step
+              Check borrowers before you lend. Report defaulters to protect other lenders.
             </CardDescription>
           </CardHeader>
 

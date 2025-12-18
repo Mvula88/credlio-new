@@ -582,11 +582,9 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  {!lenderInfo.identityComplete && (
-                    <Button size="sm" variant="outline" onClick={() => router.push('/l/complete-profile')}>
-                      Complete
-                    </Button>
-                  )}
+                  <Button size="sm" variant="outline" onClick={() => router.push('/l/complete-profile')}>
+                    {lenderInfo.identityComplete ? 'View' : 'Complete'}
+                  </Button>
                 </div>
 
                 {/* Step 2: Business Profile */}
