@@ -39,6 +39,7 @@ import {
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
 import NotificationBell from '@/components/NotificationBell'
+import ProfileCompletionBanner from '@/components/ProfileCompletionBanner'
 
 const navigationGroups = [
   {
@@ -307,6 +308,8 @@ export default function LenderLayout({
         {/* Page content */}
         <main className="py-6">
           <div className="mx-auto px-4 sm:px-6 lg:px-8">
+            {/* Profile completion banner - prompts user to complete missing steps */}
+            <ProfileCompletionBanner />
             {children}
           </div>
         </main>

@@ -148,17 +148,16 @@ export default function MessagesPage() {
 
       setMessages(data || [])
 
-      // Mark messages as read
-      const { error: updateError } = await supabase
-        .from('messages')
-        .update({ read_at: new Date().toISOString() })
-        .eq('thread_id', threadId)
-        .eq('sender_type', 'borrower')
-        .is('read_at', null)
+      // Mark messages as read using the RPC function
+      const { error: updateError } = await supabase.rpc('mark_thread_messages_read', {
+        p_thread_id: threadId
+      })
 
       if (!updateError) {
         // Dispatch custom event to notify NotificationBell to refresh counts
         window.dispatchEvent(new CustomEvent('messages-read'))
+      } else {
+        console.error('Error marking messages as read:', updateError)
       }
 
       // Reload threads to update unread count

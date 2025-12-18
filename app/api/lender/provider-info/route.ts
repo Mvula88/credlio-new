@@ -22,7 +22,27 @@ export async function GET() {
       return NextResponse.json({ error: 'Lender not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ lender })
+    // Get profile data (for syncing name, phone)
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, phone_e164')
+      .eq('user_id', user.id)
+      .single()
+
+    // Merge profile data with lender data
+    // If lender doesn't have contact_number/email yet, use profile data
+    const mergedLender = {
+      ...lender,
+      // Pre-fill contact_number from profile phone if not set
+      contact_number: lender.contact_number || profile?.phone_e164 || '',
+      // Pre-fill email from auth user email if not set in lender
+      email: lender.email || user.email || '',
+      // Include profile data for reference
+      profile_full_name: profile?.full_name,
+      profile_phone: profile?.phone_e164
+    }
+
+    return NextResponse.json({ lender: mergedLender })
   } catch (error) {
     console.error('Error fetching provider info:', error)
     return NextResponse.json(
@@ -104,6 +124,22 @@ export async function POST(request: NextRequest) {
         { error: 'Failed to update provider information' },
         { status: 500 }
       )
+    }
+
+    // Also sync phone to profiles table if it's different
+    // This keeps the contact info in sync across tables
+    const { data: currentProfile } = await supabase
+      .from('profiles')
+      .select('phone_e164')
+      .eq('user_id', user.id)
+      .single()
+
+    // Only update profile phone if it's empty and we have a contact number
+    if (!currentProfile?.phone_e164 && contactNumber) {
+      await supabase
+        .from('profiles')
+        .update({ phone_e164: contactNumber })
+        .eq('user_id', user.id)
     }
 
     return NextResponse.json({

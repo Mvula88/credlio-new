@@ -189,7 +189,9 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
 
   const markAllAsRead = async () => {
     try {
-      const { error } = await supabase.rpc('mark_all_notifications_read')
+      const { error } = await supabase.rpc('mark_all_notifications_read', {
+        p_target_role: userRole
+      })
 
       if (error) throw error
 

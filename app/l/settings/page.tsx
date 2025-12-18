@@ -20,8 +20,12 @@ import {
   Shield,
   ExternalLink,
   Save,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle,
+  UserCheck,
+  ShieldCheck
 } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -57,7 +61,9 @@ export default function SettingsPage() {
   // Lender info
   const [lenderInfo, setLenderInfo] = useState({
     businessName: '',
-    profileCompleted: false
+    profileCompleted: false,
+    identityComplete: false,
+    idVerified: false
   })
 
   useEffect(() => {
@@ -93,14 +99,21 @@ export default function SettingsPage() {
       // Load lender info
       const { data: lender } = await supabase
         .from('lenders')
-        .select('business_name, profile_completed')
+        .select('business_name, profile_completed, id_number, city, physical_address, id_verified')
         .eq('user_id', user.id)
         .single()
 
       if (lender) {
+        // Identity is complete if they have id_number and city
+        const identityComplete = !!(lender.id_number && lender.city)
+        // Provider info is complete if they have business details
+        const providerComplete = !!(lender.business_name && lender.physical_address && lender.profile_completed)
+
         setLenderInfo({
           businessName: lender.business_name || '',
-          profileCompleted: lender.profile_completed || false
+          profileCompleted: providerComplete,
+          identityComplete: identityComplete,
+          idVerified: lender.id_verified || false
         })
       }
 
@@ -536,38 +549,147 @@ export default function SettingsPage() {
                 Manage your business profile and provider information
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg border p-4 space-y-3">
+            <CardContent className="space-y-6">
+              {/* Profile Completion Overview */}
+              <div className="rounded-lg border bg-gradient-to-r from-gray-50 to-slate-50 p-4 space-y-4">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">Provider Profile</h4>
-                    <p className="text-sm text-gray-500">
-                      {lenderInfo.businessName || 'Not set up yet'}
-                    </p>
-                  </div>
-                  <div>
-                    {lenderInfo.profileCompleted ? (
-                      <span className="text-sm text-green-600 font-medium">Complete</span>
+                  <h4 className="font-semibold">Profile Completion</h4>
+                  <span className="text-sm font-medium">
+                    {[lenderInfo.identityComplete, lenderInfo.profileCompleted].filter(Boolean).length}/2 steps
+                  </span>
+                </div>
+                <Progress
+                  value={([lenderInfo.identityComplete, lenderInfo.profileCompleted].filter(Boolean).length / 2) * 100}
+                  className="h-2"
+                />
+
+                {/* Step 1: Identity Verification */}
+                <div className={`flex items-center justify-between p-3 rounded-lg ${
+                  lenderInfo.identityComplete ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    {lenderInfo.identityComplete ? (
+                      <CheckCircle className="h-5 w-5 text-green-600" />
                     ) : (
-                      <span className="text-sm text-orange-600 font-medium">Incomplete</span>
+                      <UserCheck className="h-5 w-5 text-orange-600" />
+                    )}
+                    <div>
+                      <p className={`font-medium text-sm ${lenderInfo.identityComplete ? 'text-green-900' : 'text-orange-900'}`}>
+                        Step 1: Identity Verification
+                      </p>
+                      <p className={`text-xs ${lenderInfo.identityComplete ? 'text-green-700' : 'text-orange-700'}`}>
+                        {lenderInfo.identityComplete ? 'Your identity has been submitted' : 'Submit your ID and personal details'}
+                      </p>
+                    </div>
+                  </div>
+                  {!lenderInfo.identityComplete && (
+                    <Button size="sm" variant="outline" onClick={() => router.push('/l/complete-profile')}>
+                      Complete
+                    </Button>
+                  )}
+                </div>
+
+                {/* Step 2: Business Profile */}
+                <div className={`flex items-center justify-between p-3 rounded-lg ${
+                  lenderInfo.profileCompleted ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    {lenderInfo.profileCompleted ? (
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    ) : (
+                      <Building2 className="h-5 w-5 text-orange-600" />
+                    )}
+                    <div>
+                      <p className={`font-medium text-sm ${lenderInfo.profileCompleted ? 'text-green-900' : 'text-orange-900'}`}>
+                        Step 2: Business Profile
+                      </p>
+                      <p className={`text-xs ${lenderInfo.profileCompleted ? 'text-green-700' : 'text-orange-700'}`}>
+                        {lenderInfo.profileCompleted
+                          ? lenderInfo.businessName || 'Business profile complete'
+                          : 'Add your business details and service areas'}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => router.push('/l/provider-info')}
+                    disabled={!lenderInfo.identityComplete}
+                  >
+                    {lenderInfo.profileCompleted ? 'Edit' : 'Complete'}
+                  </Button>
+                </div>
+
+                {/* ID Verification Status by Admin */}
+                {lenderInfo.identityComplete && (
+                  <div className={`flex items-center justify-between p-3 rounded-lg ${
+                    lenderInfo.idVerified ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <ShieldCheck className={`h-5 w-5 ${lenderInfo.idVerified ? 'text-green-600' : 'text-blue-600'}`} />
+                      <div>
+                        <p className={`font-medium text-sm ${lenderInfo.idVerified ? 'text-green-900' : 'text-blue-900'}`}>
+                          ID Verification
+                        </p>
+                        <p className={`text-xs ${lenderInfo.idVerified ? 'text-green-700' : 'text-blue-700'}`}>
+                          {lenderInfo.idVerified ? 'Your ID has been verified by admin' : 'Pending admin review'}
+                        </p>
+                      </div>
+                    </div>
+                    {lenderInfo.idVerified && (
+                      <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                        Verified
+                      </span>
                     )}
                   </div>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Quick Actions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-lg border p-4 space-y-3">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <UserCheck className="h-4 w-4" />
+                    Identity Details
+                  </h4>
+                  <p className="text-sm text-gray-500">
+                    View or update your personal verification information
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => router.push('/l/complete-profile')}
+                  >
+                    View Identity Info
+                    <ExternalLink className="h-4 w-4 ml-2" />
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => router.push('/l/provider-info')}
-                >
-                  <Building2 className="h-4 w-4 mr-2" />
-                  Edit Provider Information
-                  <ExternalLink className="h-4 w-4 ml-2" />
-                </Button>
+
+                <div className="rounded-lg border p-4 space-y-3">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Building2 className="h-4 w-4" />
+                    Provider Profile
+                  </h4>
+                  <p className="text-sm text-gray-500">
+                    Edit your business details and service areas
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => router.push('/l/provider-info')}
+                  >
+                    Edit Provider Info
+                    <ExternalLink className="h-4 w-4 ml-2" />
+                  </Button>
+                </div>
               </div>
 
               <Separator />
 
               <div className="rounded-lg border p-4 space-y-3">
-                <h4 className="font-medium">License & Verification</h4>
+                <h4 className="font-medium">License & Documents</h4>
                 <p className="text-sm text-gray-500">
                   Upload your lending license and business documents
                 </p>
