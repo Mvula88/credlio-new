@@ -33,7 +33,8 @@ import {
   FileSignature,
   Building2,
   User,
-  MessageSquare
+  MessageSquare,
+  Banknote
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -48,6 +49,7 @@ const navigation = [
   { name: 'Verifications', href: '/admin/verifications', icon: UserCheck },
   { name: 'Risk Management', href: '/admin/risk', icon: ShieldAlert },
   { name: 'Loan Agreements', href: '/admin/agreements', icon: FileSignature },
+  { name: 'Disbursements', href: '/admin/disbursements', icon: Banknote },
   { name: 'Compliance', href: '/admin/compliance', icon: FileCheck },
   { name: 'Disputes', href: '/admin/disputes', icon: Scale },
   { name: 'Fraud Signals', href: '/admin/fraud', icon: AlertTriangle },

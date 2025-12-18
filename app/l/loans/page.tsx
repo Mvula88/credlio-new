@@ -179,7 +179,7 @@ export default function LoansPage() {
         (loanData || []).map(async (loan) => {
           const { data: schedules } = await supabase
             .from('repayment_schedules')
-            .select('id, due_date, amount_due_minor, installment_no, principal_minor, interest_minor, repayment_events(id, amount_paid_minor, paid_at)')
+            .select('id, due_date, amount_due_minor, installment_no, principal_minor, interest_minor, status, paid_amount_minor, paid_at, is_early_payment, repayment_events(id, amount_paid_minor, paid_at)')
             .eq('loan_id', loan.id)
             .order('installment_no', { ascending: true })
 
@@ -268,8 +268,13 @@ export default function LoansPage() {
     return formatCurrencyUtil(amountMinor, lenderCurrency)
   }
 
-  // Helper to check if a schedule is paid (has repayment events covering the full amount)
+  // Helper to check if a schedule is paid
   const isSchedulePaid = (schedule: any) => {
+    // First check the status column if available
+    if (schedule.status === 'paid') return true
+    if (schedule.status === 'partial' || schedule.status === 'pending' || schedule.status === 'overdue') return false
+
+    // Fallback to checking repayment events
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
     const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
     return totalPaid >= schedule.amount_due_minor
@@ -279,8 +284,12 @@ export default function LoansPage() {
     const schedules = loan.repayment_schedules || []
     if (schedules.length === 0) return 0
 
-    const paidSchedules = schedules.filter((s: any) => isSchedulePaid(s)).length
-    return Math.round((paidSchedules / schedules.length) * 100)
+    // Use amount-based progress instead of schedule-count-based progress
+    // This shows partial payment progress correctly
+    const totalDue = schedules.reduce((sum: number, s: any) => sum + (s.amount_due_minor || 0), 0)
+    const totalPaid = schedules.reduce((sum: number, s: any) => sum + (s.paid_amount_minor || 0), 0)
+
+    return totalDue > 0 ? Math.round((totalPaid / totalDue) * 100) : 0
   }
 
   const getNextPayment = (loan: any) => {
@@ -330,48 +339,49 @@ export default function LoansPage() {
     })
   }
 
-  // Record payment function
+  // Record payment function - uses improved process_repayment RPC
   const recordPayment = async () => {
     if (!selectedSchedule || !paymentAmount) return
 
     try {
       setRecordingPayment(true)
-      const amount = parseFloat(paymentAmount) * 100 // Convert to minor units
+      const amount = parseFloat(paymentAmount) // Amount in major units (the RPC expects this)
 
-      // Get current user for reported_by
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        toast.error('You must be logged in to record payments')
-        return
-      }
+      // Use the improved process_repayment function which:
+      // - Automatically allocates payment to schedules (oldest first)
+      // - Handles early payments, partial payments, and overpayments
+      // - Updates loan total_repaid
+      // - Sends notifications
+      // - Marks loan as completed if fully paid
+      // - Updates borrower credit score
+      console.log('Calling process_repayment with:', {
+        p_loan_id: selectedSchedule.loan_id,
+        p_amount: amount,
+      })
 
-      // Create repayment event
-      const { error: paymentError } = await supabase
-        .from('repayment_events')
-        .insert({
-          schedule_id: selectedSchedule.id,
-          amount_paid_minor: amount,
-          method: paymentMethod,
-          paid_at: new Date().toISOString(),
-          reported_by: user.id,
-        })
+      const { data: result, error: paymentError } = await supabase.rpc('process_repayment', {
+        p_loan_id: selectedSchedule.loan_id,
+        p_amount: amount,
+      })
+
+      console.log('RPC result:', { result, paymentError })
 
       if (paymentError) {
-        console.error('Payment error:', paymentError)
-        toast.error('Failed to record payment: ' + paymentError.message)
+        console.error('Payment error:', JSON.stringify(paymentError, null, 2))
+        toast.error('Failed to record payment: ' + (paymentError.message || paymentError.details || paymentError.hint || 'Unknown error'))
         return
       }
 
-      // Update schedule status
-      await supabase
-        .from('repayment_schedules')
-        .update({
-          status: amount >= selectedSchedule.amount_due_minor ? 'paid' : 'partial',
-          paid_at: new Date().toISOString(),
-        })
-        .eq('id', selectedSchedule.id)
-
-      toast.success('Payment recorded successfully')
+      // Show success message with details
+      if (result) {
+        if (result.loan_completed) {
+          toast.success(`Loan fully repaid! ${result.overpayment > 0 ? `(Overpayment: ${result.overpayment})` : ''}`)
+        } else {
+          toast.success(`Payment recorded! ${result.schedules_paid} installment(s) paid.`)
+        }
+      } else {
+        toast.success('Payment recorded successfully')
+      }
 
       // Reload data
       await loadLoans()
@@ -757,6 +767,11 @@ function LoanTable({ loans, formatCurrency, getStatusBadge, calculateProgress, g
 
   // Check if schedule is paid for table display
   const isSchedulePaidForDisplay = (schedule: any) => {
+    // First check the status column if available
+    if (schedule.status === 'paid') return true
+    if (schedule.status === 'partial' || schedule.status === 'pending' || schedule.status === 'overdue') return false
+
+    // Fallback to checking repayment events
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
     const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
     return totalPaid >= schedule.amount_due_minor

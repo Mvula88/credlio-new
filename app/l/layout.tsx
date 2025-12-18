@@ -30,7 +30,11 @@ import {
   Flag,
   Calculator,
   MessageSquare,
-  UserCheck
+  UserCheck,
+  ShieldCheck,
+  Wallet,
+  Download,
+  Webhook
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -53,6 +57,14 @@ const navigationGroups = [
     title: 'Lending Activity',
     items: [
       { name: 'Loans', href: '/l/loans', icon: CreditCard, badge: null },
+      { name: 'Repayments', href: '/l/repayments', icon: Wallet, badge: null },
+    ]
+  },
+  {
+    title: 'Risk & Compliance',
+    items: [
+      { name: 'Affordability Check', href: '/l/affordability', icon: Wallet, badge: null },
+      { name: 'Document Verification', href: '/l/verification', icon: ShieldCheck, badge: null },
     ]
   },
   {
@@ -60,6 +72,13 @@ const navigationGroups = [
     items: [
       { name: 'Credit Intelligence', href: '/l/reports', icon: Flag, badge: null },
       { name: 'Loan Requests', href: '/l/marketplace', icon: ShoppingBag, badge: null, proPlusOnly: false },
+    ]
+  },
+  {
+    title: 'Tools',
+    items: [
+      { name: 'Export Data', href: '/l/export', icon: Download, badge: null },
+      { name: 'Webhooks', href: '/l/webhooks', icon: Webhook, badge: null },
     ]
   },
   {

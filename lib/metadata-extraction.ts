@@ -2,13 +2,35 @@
  * FREE Metadata Extraction Utilities
  * Client-side document verification for fraud detection
  * NO external APIs or costs
+ *
+ * NOTE: This module uses dynamic imports to avoid SSR issues.
+ * pdfjs-dist requires browser APIs (DOMMatrix) that don't exist in Node.js.
  */
 
-import * as pdfjs from 'pdfjs-dist'
+// PDF.js is loaded dynamically to avoid SSR issues (DOMMatrix not available in Node.js)
+// We use a promise-based singleton pattern to ensure single initialization
+let pdfjsPromise: Promise<typeof import('pdfjs-dist')> | null = null
 
-// Configure PDF.js worker
-if (typeof window !== 'undefined') {
-  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
+// Initialize PDF.js only on client side
+async function getPdfJs(): Promise<typeof import('pdfjs-dist') | null> {
+  // Server-side check
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  // Return cached promise if already loading/loaded
+  if (pdfjsPromise) {
+    return pdfjsPromise
+  }
+
+  // Create a new promise for loading
+  pdfjsPromise = (async () => {
+    const pdfjs = await import('pdfjs-dist')
+    pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
+    return pdfjs
+  })()
+
+  return pdfjsPromise
 }
 
 export interface PDFMetadata {
@@ -86,9 +108,15 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
   let riskScore = 0
 
   try {
+    // Load PDF.js dynamically (client-side only)
+    const pdfjsLib = await getPdfJs()
+    if (!pdfjsLib) {
+      throw new Error('PDF.js is not available (server-side rendering)')
+    }
+
     // Read file
     const arrayBuffer = await file.arrayBuffer()
-    const loadingTask = pdfjs.getDocument(arrayBuffer)
+    const loadingTask = pdfjsLib.getDocument(arrayBuffer)
     const pdf = await loadingTask.promise
     const metadata = await pdf.getMetadata()
 

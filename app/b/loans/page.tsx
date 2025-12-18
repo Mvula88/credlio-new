@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -40,9 +41,14 @@ import {
   RefreshCw,
   AlertTriangle,
   Upload,
-  Loader2
+  Loader2,
+  Send,
+  XCircle,
+  Wallet
 } from 'lucide-react'
 import { format, addMonths, differenceInDays, parseISO, isPast } from 'date-fns'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 import { getCurrencyByCountry, getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 import {
   LineChart,
@@ -79,6 +85,12 @@ export default function BorrowerLoansPage() {
   const [signedAgreementFile, setSignedAgreementFile] = useState<File | null>(null)
   const [uploadingSignedAgreement, setUploadingSignedAgreement] = useState(false)
   const [agreementData, setAgreementData] = useState<any>(null)
+  const [disbursementData, setDisbursementData] = useState<any>(null)
+  const [confirmingReceipt, setConfirmingReceipt] = useState(false)
+  const [disputeDialog, setDisputeDialog] = useState(false)
+  const [disputeReason, setDisputeReason] = useState('')
+  const [submittingDispute, setSubmittingDispute] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -197,22 +209,74 @@ export default function BorrowerLoansPage() {
       // Get the HTML content
       const htmlContent = await response.text()
 
-      // Open in new window for print to PDF
-      const pw = window.open('', '_blank')
-      if (pw) {
-        pw.document.write(`<!DOCTYPE html><html><head><title>Loan Agreement</title><style>@media print{.no-print{display:none!important}}.print-box{background:#f0f9ff;border:2px solid #0ea5e9;border-radius:8px;padding:16px;margin-bottom:20px;font-family:system-ui}.print-box h3{margin:0 0 8px;color:#0369a1}.print-box p{margin:4px 0;color:#475569}.print-box button{background:#0ea5e9;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;margin-top:12px}</style></head><body><div class="print-box no-print"><h3>Save as PDF</h3><p>1. Press Ctrl+P</p><p>2. Select "Save as PDF"</p><button onclick="window.print()">Print/Save as PDF</button></div>${htmlContent}</body></html>`)
-        pw.document.close()
-      } else {
-        const blob = new Blob([htmlContent], { type: 'text/html' })
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `loan-agreement-${loanId}.html`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        window.URL.revokeObjectURL(url)
+      // Create a temporary container for rendering
+      const container = document.createElement('div')
+      container.innerHTML = htmlContent
+      container.style.position = 'absolute'
+      container.style.left = '-9999px'
+      container.style.top = '0'
+      container.style.width = '800px'
+      container.style.padding = '40px'
+      container.style.background = 'white'
+      document.body.appendChild(container)
+
+      // Generate PDF using html2canvas and jsPDF
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      })
+
+      // Remove the temporary container
+      document.body.removeChild(container)
+
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF('p', 'mm', 'a4')
+
+      const imgWidth = 210 // A4 width in mm
+      const pageHeight = 297 // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      let heightLeft = imgHeight
+      let position = 0
+
+      // Add first page
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+
+      // Add additional pages if content is longer than one page
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
       }
+
+      // Add Credlio watermark to all pages
+      const totalPages = pdf.getNumberOfPages()
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i)
+
+        // Diagonal watermark
+        pdf.setTextColor(200, 200, 200)
+        pdf.setFontSize(60)
+        pdf.setFont('helvetica', 'bold')
+        const centerX = imgWidth / 2
+        const centerY = pageHeight / 2
+        pdf.text('CREDLIO', centerX, centerY, { angle: 45, align: 'center' })
+
+        // Footer
+        pdf.setFontSize(10)
+        pdf.setTextColor(150, 150, 150)
+        pdf.text('Powered by Credlio - Secure Lending Platform', imgWidth / 2, pageHeight - 10, { align: 'center' })
+
+        // Page number
+        pdf.setFontSize(9)
+        pdf.text(`Page ${i} of ${totalPages}`, imgWidth - 15, pageHeight - 10, { align: 'right' })
+      }
+
+      // Download the PDF
+      pdf.save(`loan-agreement-${loanId}.pdf`)
     } catch (error: any) {
       console.error('Error downloading agreement:', error)
       alert(error.message || 'Failed to download loan agreement')
@@ -237,6 +301,12 @@ export default function BorrowerLoansPage() {
         return
       }
 
+      // Read file once and compute hash BEFORE upload (faster)
+      const arrayBuffer = await signedAgreementFile.arrayBuffer()
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      const signedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
       // Upload file to Supabase Storage
       const fileExt = signedAgreementFile.name.split('.').pop()
       const fileName = `${user.id}/loan-${selectedLoan.id}/borrower-signed-${Date.now()}.${fileExt}`
@@ -256,13 +326,7 @@ export default function BorrowerLoansPage() {
         .from('evidence')
         .getPublicUrl(filePath)
 
-      // Compute hash for tamper detection
-      const arrayBuffer = await signedAgreementFile.arrayBuffer()
-      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
-      const hashArray = Array.from(new Uint8Array(hashBuffer))
-      const signedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-
-      // Upload signed agreement using database function
+      // Save signed agreement to database
       const { error: dbError } = await supabase
         .rpc('upload_borrower_signed_agreement', {
           p_agreement_id: agreementData.id,
@@ -272,7 +336,7 @@ export default function BorrowerLoansPage() {
 
       if (dbError) throw dbError
 
-      alert('✅ Signed agreement uploaded successfully!')
+      alert('Signed agreement uploaded successfully!')
       setSignedAgreementFile(null)
 
       // Reload agreement data
@@ -290,7 +354,8 @@ export default function BorrowerLoansPage() {
     const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
     const disbursedLoans = loansData.filter(l => disbursedStatuses.includes(l.status))
     const totalBorrowed = disbursedLoans.reduce((sum, loan) => sum + loan.principal_amount, 0)
-    const totalRepaid = loansData.reduce((sum, loan) => sum + loan.total_repaid, 0)
+    // total_repaid is stored in major units (dollars), not cents
+    const totalRepaid = loansData.reduce((sum, loan) => sum + (loan.total_repaid || 0), 0)
     const activeLoans = loansData.filter(l => l.status === 'active').length
     const completedLoans = loansData.filter(l => l.status === 'completed').length
     const totalInterestPaid = loansData.reduce((sum, loan) => {
@@ -314,6 +379,7 @@ export default function BorrowerLoansPage() {
       setRepaymentSchedule(selectedLoan.repayment_schedules || [])
       setPaymentHistory(selectedLoan.repayment_events || [])
       loadAgreementData(selectedLoan.id)
+      loadDisbursementData(selectedLoan.id)
     }
   }, [selectedLoan])
 
@@ -325,6 +391,67 @@ export default function BorrowerLoansPage() {
       .maybeSingle()
 
     setAgreementData(agreement)
+  }
+
+  const loadDisbursementData = async (loanId: string) => {
+    const { data: disbursement } = await supabase
+      .from('disbursement_proofs')
+      .select('*')
+      .eq('loan_id', loanId)
+      .maybeSingle()
+
+    setDisbursementData(disbursement)
+  }
+
+  const handleConfirmReceipt = async () => {
+    if (!selectedLoan) return
+
+    try {
+      setConfirmingReceipt(true)
+
+      const { error } = await supabase.rpc('confirm_disbursement_receipt', {
+        p_loan_id: selectedLoan.id,
+        p_notes: null
+      })
+
+      if (error) throw error
+
+      alert('Funds received confirmed! Your loan is now active.')
+      loadLoansData() // Reload to get updated loan status
+    } catch (error: any) {
+      console.error('Error confirming receipt:', error)
+      alert(error.message || 'Failed to confirm receipt')
+    } finally {
+      setConfirmingReceipt(false)
+    }
+  }
+
+  const handleDisputeDisbursement = async () => {
+    if (!selectedLoan || !disputeReason.trim()) {
+      alert('Please provide a reason for the dispute')
+      return
+    }
+
+    try {
+      setSubmittingDispute(true)
+
+      const { error } = await supabase.rpc('dispute_disbursement', {
+        p_loan_id: selectedLoan.id,
+        p_reason: disputeReason
+      })
+
+      if (error) throw error
+
+      alert('Dispute submitted. The lender has been notified.')
+      setDisputeDialog(false)
+      setDisputeReason('')
+      loadDisbursementData(selectedLoan.id)
+    } catch (error: any) {
+      console.error('Error disputing disbursement:', error)
+      alert(error.message || 'Failed to submit dispute')
+    } finally {
+      setSubmittingDispute(false)
+    }
   }
 
   // Format currency based on the loan's currency (not borrower's default)
@@ -354,6 +481,8 @@ export default function BorrowerLoansPage() {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-800'
       case 'pending': return 'bg-yellow-100 text-yellow-800'
+      case 'pending_signatures': return 'bg-purple-100 text-purple-800'
+      case 'pending_disbursement': return 'bg-orange-100 text-orange-800'
       case 'completed': return 'bg-blue-100 text-blue-800'
       case 'defaulted': return 'bg-red-100 text-red-800'
       case 'overdue': return 'bg-orange-100 text-orange-800'
@@ -361,9 +490,26 @@ export default function BorrowerLoansPage() {
     }
   }
 
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'pending_signatures': return 'Awaiting Signatures'
+      case 'pending_disbursement': return 'Awaiting Funds'
+      case 'pending_offer': return 'Offer Pending'
+      default: return status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')
+    }
+  }
+
   const calculateLoanProgress = (loan: any) => {
     if (!loan) return 0
-    return Math.round((loan.total_repaid / loan.total_amount) * 100)
+    // total_amount_minor is in cents, total_repaid is in major units (dollars)
+    // Convert total_repaid to minor units for consistent calculation
+    const totalAmountMinor = loan.total_amount_minor || (loan.total_amount || 0) * 100
+    const totalRepaidMinor = (loan.total_repaid || 0) * 100
+    // Prevent division by zero and NaN
+    if (totalAmountMinor <= 0) return 0
+    const progress = Math.round((totalRepaidMinor / totalAmountMinor) * 100)
+    // Ensure progress is a valid number between 0-100
+    return isNaN(progress) ? 0 : Math.min(100, Math.max(0, progress))
   }
 
   const getNextPayment = (loan: any) => {
@@ -389,12 +535,14 @@ export default function BorrowerLoansPage() {
   const generatePaymentProgressData = () => {
     if (!selectedLoan) return []
 
-    const paid = selectedLoan.total_repaid
-    const remaining = selectedLoan.total_amount - paid
+    // Convert to same units (minor/cents) for consistent calculations
+    const paidMinor = (selectedLoan.total_repaid || 0) * 100
+    const totalMinor = selectedLoan.total_amount_minor || (selectedLoan.total_amount || 0) * 100
+    const remainingMinor = Math.max(0, totalMinor - paidMinor)
 
     return [
-      { name: 'Paid', value: paid, color: '#10b981' },
-      { name: 'Remaining', value: remaining, color: '#e5e7eb' }
+      { name: 'Paid', value: paidMinor, color: '#10b981' },
+      { name: 'Remaining', value: remainingMinor, color: '#e5e7eb' }
     ]
   }
 
@@ -789,7 +937,7 @@ export default function BorrowerLoansPage() {
                   >
                     Loan #{loan.id.slice(0, 8)}
                     <Badge className={`ml-2 ${getStatusColor(loan.status)}`}>
-                      {loan.status}
+                      {getStatusLabel(loan.status)}
                     </Badge>
                   </Button>
                 ))}
@@ -798,6 +946,27 @@ export default function BorrowerLoansPage() {
 
             {selectedLoan && (
               <>
+                {/* Action Required Alert */}
+                {(selectedLoan.status === 'pending_signatures' || selectedLoan.status === 'pending_disbursement') && (
+                  <Alert className="border-2 border-orange-400 bg-orange-50">
+                    <AlertCircle className="h-5 w-5 text-orange-600" />
+                    <AlertTitle className="text-orange-900">
+                      {selectedLoan.status === 'pending_signatures' ? 'Signature Required' : 'Confirm Receipt of Funds'}
+                    </AlertTitle>
+                    <AlertDescription className="text-orange-800">
+                      <p className="mb-3">
+                        {selectedLoan.status === 'pending_signatures'
+                          ? 'You need to sign the loan agreement before the loan can proceed.'
+                          : 'Your lender has sent the funds. Please confirm receipt to activate your loan.'}
+                      </p>
+                      <Button onClick={() => router.push(`/b/loans/${selectedLoan.id}`)} className="bg-orange-600 hover:bg-orange-700">
+                        <Eye className="mr-2 h-4 w-4" />
+                        {selectedLoan.status === 'pending_signatures' ? 'Sign Agreement' : 'Confirm Funds'}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 {/* Current Loan Details */}
                 <Card>
                   <CardHeader>
@@ -810,16 +979,25 @@ export default function BorrowerLoansPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => router.push(`/b/loans/${selectedLoan.id}`)}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          View Details
+                        </Button>
+                        <Button
                           variant="outline"
                           size="sm"
                           onClick={() => handleDownloadAgreement(selectedLoan.id)}
                           disabled={downloadingAgreement}
+                          className="text-blue-600 border-blue-300 hover:bg-blue-50"
                         >
                           <Download className="h-4 w-4 mr-2" />
-                          {downloadingAgreement ? 'Downloading...' : 'Agreement'}
+                          {downloadingAgreement ? 'Generating PDF...' : 'Download PDF'}
                         </Button>
                         <Badge className={getStatusColor(selectedLoan.status)}>
-                          {selectedLoan.status}
+                          {getStatusLabel(selectedLoan.status)}
                         </Badge>
                       </div>
                     </div>
@@ -875,13 +1053,13 @@ export default function BorrowerLoansPage() {
                       <div className="p-4 bg-green-100 rounded-lg">
                         <p className="text-sm text-green-700">Total Repaid</p>
                         <p className="text-2xl font-bold text-green-900">
-                          {formatCurrency(selectedLoan.total_repaid, selectedLoan.currency)}
+                          {formatCurrency((selectedLoan.total_repaid || 0) * 100, selectedLoan.currency)}
                         </p>
                       </div>
                       <div className="p-4 bg-gray-100 rounded-lg">
                         <p className="text-sm text-gray-700">Remaining</p>
                         <p className="text-2xl font-bold text-gray-900">
-                          {formatCurrency((selectedLoan.total_amount_minor || selectedLoan.total_amount) - selectedLoan.total_repaid, selectedLoan.currency)}
+                          {formatCurrency((selectedLoan.total_amount_minor || selectedLoan.total_amount) - (selectedLoan.total_repaid || 0) * 100, selectedLoan.currency)}
                         </p>
                       </div>
                     </div>
@@ -969,31 +1147,65 @@ export default function BorrowerLoansPage() {
                                 </AlertDescription>
                               </Alert>
 
-                              <div className="space-y-2">
-                                <Label htmlFor="borrower-signed-file">Upload Signed Agreement</Label>
-                                <Input
-                                  id="borrower-signed-file"
+                              <div className="space-y-3">
+                                <Label>Upload Signed Agreement</Label>
+
+                                {/* Hidden file input with ref */}
+                                <input
+                                  ref={fileInputRef}
                                   type="file"
                                   accept="image/*,.pdf"
+                                  style={{ display: 'none' }}
                                   onChange={(e) => {
                                     const file = e.target.files?.[0]
+                                    console.log('Borrower file selected:', file?.name, file?.size)
                                     if (file) {
-                                      if (file.size > 5 * 1024 * 1024) {
-                                        alert('File size must be less than 5MB')
+                                      if (file.size > 25 * 1024 * 1024) {
+                                        alert('File size must be less than 25MB')
                                         e.target.value = ''
                                         return
                                       }
                                       setSignedAgreementFile(file)
+                                      alert(`File selected: ${file.name}`)
                                     }
                                   }}
-                                  className="cursor-pointer"
                                 />
+
+                                {/* Visible button to trigger file picker */}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="w-full border-dashed border-2 h-20"
+                                  onClick={() => fileInputRef.current?.click()}
+                                >
+                                  <div className="flex flex-col items-center gap-1">
+                                    <FileText className="h-6 w-6 text-blue-600" />
+                                    <span className="text-sm">Click to select a file</span>
+                                    <span className="text-xs text-muted-foreground">Images or PDF (max 25MB)</span>
+                                  </div>
+                                </Button>
+
                                 {signedAgreementFile && (
-                                  <div className="flex items-center gap-2 text-sm text-green-600">
-                                    <FileText className="h-4 w-4" />
-                                    <span>Selected: {signedAgreementFile.name}</span>
+                                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                                    <CheckCircle className="h-5 w-5 text-green-600" />
+                                    <div className="flex-1">
+                                      <p className="text-sm font-medium text-green-800">File selected:</p>
+                                      <p className="text-sm text-green-600">{signedAgreementFile.name}</p>
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        setSignedAgreementFile(null)
+                                        if (fileInputRef.current) fileInputRef.current.value = ''
+                                      }}
+                                      className="text-red-500 hover:text-red-700"
+                                    >
+                                      Remove
+                                    </Button>
                                   </div>
                                 )}
+
                                 <Button
                                   onClick={handleUploadSignedAgreement}
                                   disabled={!signedAgreementFile || uploadingSignedAgreement}
@@ -1072,6 +1284,179 @@ export default function BorrowerLoansPage() {
                             The agreement is now legally binding.
                           </p>
                         </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Disbursement Confirmation Section - For pending_disbursement loans */}
+                {selectedLoan.status === 'pending_disbursement' && (
+                  <Card className="border-2 border-orange-300 bg-orange-50/50">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-orange-900">
+                        <Wallet className="h-5 w-5" />
+                        Confirm Receipt of Funds
+                      </CardTitle>
+                      <CardDescription>
+                        Your lender has sent the loan funds. Please confirm once you receive them.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {disbursementData?.lender_submitted_at ? (
+                        <>
+                          {/* Lender has submitted proof */}
+                          <Alert className="bg-blue-50 border-blue-200">
+                            <Send className="h-4 w-4 text-blue-600" />
+                            <AlertTitle className="text-blue-900">Funds Sent by Lender</AlertTitle>
+                            <AlertDescription className="text-blue-800">
+                              Your lender submitted proof of disbursement on{' '}
+                              {format(new Date(disbursementData.lender_submitted_at), 'MMM d, yyyy HH:mm')}
+                            </AlertDescription>
+                          </Alert>
+
+                          {/* Disbursement Details */}
+                          <div className="bg-white rounded-lg p-4 border space-y-3">
+                            <h4 className="font-semibold">Disbursement Details</h4>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                              <div>
+                                <p className="text-gray-600">Amount Sent</p>
+                                <p className="font-bold text-lg">
+                                  {formatCurrency(disbursementData.lender_proof_amount * 100, selectedLoan.currency)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">Method</p>
+                                <p className="font-medium capitalize">
+                                  {disbursementData.lender_proof_method?.replace('_', ' ') || 'Not specified'}
+                                </p>
+                              </div>
+                              {disbursementData.lender_proof_reference && (
+                                <div>
+                                  <p className="text-gray-600">Reference/Transaction ID</p>
+                                  <p className="font-medium">{disbursementData.lender_proof_reference}</p>
+                                </div>
+                              )}
+                              {disbursementData.lender_proof_date && (
+                                <div>
+                                  <p className="text-gray-600">Date Sent</p>
+                                  <p className="font-medium">
+                                    {format(new Date(disbursementData.lender_proof_date), 'MMM d, yyyy')}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                            {disbursementData.lender_proof_notes && (
+                              <div>
+                                <p className="text-gray-600 text-sm">Notes from Lender</p>
+                                <p className="text-sm">{disbursementData.lender_proof_notes}</p>
+                              </div>
+                            )}
+                            {disbursementData.lender_proof_url && (
+                              <a
+                                href={disbursementData.lender_proof_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                              >
+                                <Eye className="h-3 w-3" />
+                                View Proof of Transfer
+                              </a>
+                            )}
+                          </div>
+
+                          {/* Already disputed? */}
+                          {disbursementData.borrower_disputed ? (
+                            <Alert className="bg-red-50 border-red-200">
+                              <XCircle className="h-4 w-4 text-red-600" />
+                              <AlertTitle className="text-red-900">Dispute Submitted</AlertTitle>
+                              <AlertDescription className="text-red-800">
+                                You disputed this disbursement on{' '}
+                                {format(new Date(disbursementData.borrower_disputed_at), 'MMM d, yyyy HH:mm')}.
+                                <br />
+                                <strong>Reason:</strong> {disbursementData.borrower_dispute_reason}
+                              </AlertDescription>
+                            </Alert>
+                          ) : (
+                            /* Action buttons */
+                            <div className="flex flex-col sm:flex-row gap-3">
+                              <Button
+                                onClick={handleConfirmReceipt}
+                                disabled={confirmingReceipt}
+                                className="flex-1 bg-green-600 hover:bg-green-700"
+                              >
+                                {confirmingReceipt ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    Confirming...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="h-4 w-4 mr-2" />
+                                    I Received the Funds
+                                  </>
+                                )}
+                              </Button>
+
+                              <Dialog open={disputeDialog} onOpenChange={setDisputeDialog}>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" className="border-red-300 text-red-700 hover:bg-red-50">
+                                    <XCircle className="h-4 w-4 mr-2" />
+                                    I Did Not Receive Funds
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader>
+                                    <DialogTitle>Dispute Disbursement</DialogTitle>
+                                    <DialogDescription>
+                                      If you did not receive the funds, please explain the situation.
+                                      The lender will be notified.
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  <div className="space-y-4">
+                                    <div>
+                                      <Label>Reason for Dispute *</Label>
+                                      <Textarea
+                                        value={disputeReason}
+                                        onChange={(e) => setDisputeReason(e.target.value)}
+                                        placeholder="Explain why you did not receive the funds..."
+                                        rows={4}
+                                      />
+                                    </div>
+                                    <div className="flex gap-3 justify-end">
+                                      <Button variant="outline" onClick={() => setDisputeDialog(false)}>
+                                        Cancel
+                                      </Button>
+                                      <Button
+                                        onClick={handleDisputeDisbursement}
+                                        disabled={submittingDispute || !disputeReason.trim()}
+                                        className="bg-red-600 hover:bg-red-700"
+                                      >
+                                        {submittingDispute ? (
+                                          <>
+                                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                            Submitting...
+                                          </>
+                                        ) : (
+                                          'Submit Dispute'
+                                        )}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        /* Lender hasn't submitted proof yet */
+                        <Alert>
+                          <Clock className="h-4 w-4" />
+                          <AlertTitle>Waiting for Lender</AlertTitle>
+                          <AlertDescription>
+                            Your lender has not yet submitted proof of disbursement.
+                            You will be notified once the funds are sent.
+                          </AlertDescription>
+                        </Alert>
                       )}
                     </CardContent>
                   </Card>

@@ -63,11 +63,11 @@ export default function LenderNotificationsPage() {
     loadNotifications()
   }, [typeFilter, readFilter])
 
-  // Auto-mark all notifications as read when page loads
+  // Auto-mark all lender notifications as read when page loads
   useEffect(() => {
     const autoMarkAsRead = async () => {
       try {
-        await supabase.rpc('mark_all_notifications_read')
+        await supabase.rpc('mark_all_notifications_read', { p_target_role: 'lender' })
       } catch (error) {
         console.error('Error auto-marking notifications as read:', error)
       }
@@ -136,7 +136,7 @@ export default function LenderNotificationsPage() {
 
   const markAllAsRead = async () => {
     try {
-      const { error } = await supabase.rpc('mark_all_notifications_read')
+      const { error } = await supabase.rpc('mark_all_notifications_read', { p_target_role: 'lender' })
 
       if (error) throw error
 

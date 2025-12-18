@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -35,7 +36,16 @@ import {
   Target,
   Award,
   Download,
-  Upload
+  Upload,
+  Send,
+  Banknote,
+  AlertCircle,
+  RefreshCw,
+  Percent,
+  HandCoins,
+  Receipt,
+  Eye,
+  Image
 } from 'lucide-react'
 import { format, isPast, differenceInDays } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
@@ -59,6 +69,38 @@ export default function LoanDetailPage() {
   const [signedAgreementFile, setSignedAgreementFile] = useState<File | null>(null)
   const [uploadingSignedAgreement, setUploadingSignedAgreement] = useState(false)
   const [agreementData, setAgreementData] = useState<any>(null)
+  const [disbursementData, setDisbursementData] = useState<any>(null)
+  const [disbursementDialog, setDisbursementDialog] = useState(false)
+  const [disbursementForm, setDisbursementForm] = useState({
+    amount: '',
+    method: 'mobile_money',
+    reference: '',
+    notes: ''
+  })
+  const [disbursementFile, setDisbursementFile] = useState<File | null>(null)
+  const [submittingDisbursement, setSubmittingDisbursement] = useState(false)
+  const [earlyPayoffDialog, setEarlyPayoffDialog] = useState(false)
+  const [earlyPayoffInfo, setEarlyPayoffInfo] = useState<any>(null)
+  const [processingEarlyPayoff, setProcessingEarlyPayoff] = useState(false)
+  const [lateFees, setLateFees] = useState<any[]>([])
+  const [lateFeeSummary, setLateFeeSummary] = useState<any>(null)
+  const [waivingFee, setWaivingFee] = useState<string | null>(null)
+  const [restructureDialog, setRestructureDialog] = useState(false)
+  const [restructureForm, setRestructureForm] = useState({
+    newTermMonths: '',
+    newInterestRate: '',
+    reason: '',
+    reasonDetails: ''
+  })
+  const [submittingRestructure, setSubmittingRestructure] = useState(false)
+  const [pendingRestructure, setPendingRestructure] = useState<any>(null)
+  const [respondingToRestructure, setRespondingToRestructure] = useState(false)
+  const [paymentProofs, setPaymentProofs] = useState<any[]>([])
+  const [reviewingProof, setReviewingProof] = useState<any>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [processingProofReview, setProcessingProofReview] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const disbursementFileRef = useRef<HTMLInputElement>(null)
 
   const router = useRouter()
   const params = useParams()
@@ -93,6 +135,11 @@ export default function LoanDetailPage() {
             amount_due_minor,
             principal_minor,
             interest_minor,
+            status,
+            paid_amount_minor,
+            paid_at,
+            is_early_payment,
+            late_fee_minor,
             repayment_events(
               id,
               amount_paid_minor,
@@ -125,6 +172,65 @@ export default function LoanDetailPage() {
         .maybeSingle()
 
       setAgreementData(agreement)
+
+      // Load disbursement data
+      const { data: disbursement } = await supabase
+        .from('disbursement_proofs')
+        .select('*')
+        .eq('loan_id', loanId)
+        .maybeSingle()
+
+      setDisbursementData(disbursement)
+
+      // Load payment proofs
+      const { data: proofs } = await supabase
+        .from('payment_proofs')
+        .select('*')
+        .eq('loan_id', loanId)
+        .order('created_at', { ascending: false })
+      setPaymentProofs(proofs || [])
+
+      // Pre-fill disbursement amount with principal
+      if (loanData && !disbursement?.lender_submitted_at) {
+        setDisbursementForm(prev => ({
+          ...prev,
+          amount: ((loanData.principal_minor || 0) / 100).toString()
+        }))
+      }
+
+      // Load late fees for this loan
+      const { data: fees } = await supabase
+        .from('late_fees')
+        .select('*')
+        .eq('loan_id', loanId)
+        .order('created_at', { ascending: false })
+
+      setLateFees(fees || [])
+
+      // Get late fee summary
+      const { data: feeSummary } = await supabase.rpc('get_loan_late_fees_summary', {
+        p_loan_id: loanId
+      })
+      setLateFeeSummary(feeSummary)
+
+      // Check for pending restructure requests
+      const { data: restructure } = await supabase
+        .from('loan_restructures')
+        .select('*')
+        .eq('loan_id', loanId)
+        .eq('status', 'pending')
+        .maybeSingle()
+
+      setPendingRestructure(restructure)
+
+      // Pre-fill restructure form with current loan terms
+      if (loanData) {
+        setRestructureForm(prev => ({
+          ...prev,
+          newTermMonths: (loanData.term_months || 12).toString(),
+          newInterestRate: ((loanData.apr_bps || 0) / 100).toString()
+        }))
+      }
     } catch (error) {
       console.error('Error loading loan:', error)
       toast.error('Failed to load loan details')
@@ -211,6 +317,40 @@ export default function LoanDetailPage() {
         heightLeft -= pageHeight
       }
 
+      // Add watermark to all pages
+      const totalPages = pdf.getNumberOfPages()
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i)
+
+        // Diagonal watermark
+        pdf.setTextColor(200, 200, 200) // Light gray
+        pdf.setFontSize(60)
+        pdf.setFont('helvetica', 'bold')
+
+        // Save graphics state
+        const centerX = imgWidth / 2
+        const centerY = pageHeight / 2
+
+        // Add rotated text (diagonal watermark)
+        pdf.text('CREDLIO', centerX, centerY, {
+          angle: 45,
+          align: 'center'
+        })
+
+        // Footer watermark on each page
+        pdf.setFontSize(10)
+        pdf.setTextColor(150, 150, 150)
+        pdf.text('Powered by Credlio - Secure Lending Platform', imgWidth / 2, pageHeight - 10, {
+          align: 'center'
+        })
+
+        // Page number
+        pdf.setFontSize(9)
+        pdf.text(`Page ${i} of ${totalPages}`, imgWidth - 15, pageHeight - 10, {
+          align: 'right'
+        })
+      }
+
       // Download the PDF
       const borrowerName = loan.borrowers?.full_name?.replace(/\s+/g, '-') || 'borrower'
       const fileName = `Loan-Agreement-${borrowerName}-${format(new Date(), 'yyyy-MM-dd')}.pdf`
@@ -246,14 +386,23 @@ export default function LoanDetailPage() {
       const fileName = `${user.id}/loan-${loanId}/lender-signed-${Date.now()}.${fileExt}`
       const filePath = `signed-agreements/${fileName}`
 
-      const { error: uploadError } = await supabase.storage
+      console.log('Uploading to path:', filePath)
+      console.log('User ID:', user.id)
+      console.log('File size:', signedAgreementFile.size)
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from('evidence')
         .upload(filePath, signedAgreementFile, {
           cacheControl: '3600',
           upsert: false
         })
 
-      if (uploadError) throw uploadError
+      if (uploadError) {
+        console.error('Storage upload error details:', JSON.stringify(uploadError, null, 2))
+        throw new Error(uploadError.message || 'Failed to upload file to storage')
+      }
+
+      console.log('File uploaded successfully:', uploadData)
 
       // Get public URL
       const { data: { publicUrl } } = supabase.storage
@@ -274,8 +423,12 @@ export default function LoanDetailPage() {
           p_signed_hash: signedHash
         })
 
-      if (dbError) throw dbError
+      if (dbError) {
+        console.error('Database RPC error:', JSON.stringify(dbError, null, 2))
+        throw new Error(dbError.message || 'Failed to save agreement to database')
+      }
 
+      console.log('Agreement saved to database successfully')
       toast.success('✅ Signed agreement uploaded successfully!')
       setSignedAgreementFile(null)
 
@@ -283,9 +436,93 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Error uploading signed agreement:', error)
+      console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
       toast.error(error.message || 'Failed to upload signed agreement')
     } finally {
       setUploadingSignedAgreement(false)
+    }
+  }
+
+  const handleSubmitDisbursement = async () => {
+    if (!loan || !disbursementForm.amount) {
+      toast.error('Please enter the disbursement amount')
+      return
+    }
+
+    try {
+      setSubmittingDisbursement(true)
+
+      let proofUrl = null
+
+      // Upload proof file if provided
+      if (disbursementFile) {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          toast.error('Please sign in to continue')
+          return
+        }
+
+        const fileExt = disbursementFile.name.split('.').pop()
+        const fileName = `${user.id}/loan-${loanId}/disbursement-${Date.now()}.${fileExt}`
+        const filePath = `disbursement-proofs/${fileName}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('evidence')
+          .upload(filePath, disbursementFile, {
+            cacheControl: '3600',
+            upsert: false
+          })
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError)
+          toast.error('Failed to upload proof: ' + (uploadError.message || 'Storage error'))
+          return
+        } else {
+          const { data: { publicUrl } } = supabase.storage
+            .from('evidence')
+            .getPublicUrl(filePath)
+          proofUrl = publicUrl
+        }
+      }
+
+      // Submit via RPC
+      console.log('Calling submit_disbursement_proof with:', {
+        p_loan_id: loanId,
+        p_amount: parseFloat(disbursementForm.amount),
+        p_method: disbursementForm.method,
+        p_reference: disbursementForm.reference || null,
+        p_proof_url: proofUrl,
+        p_notes: disbursementForm.notes || null
+      })
+
+      const { data, error } = await supabase.rpc('submit_disbursement_proof', {
+        p_loan_id: loanId,
+        p_amount: parseFloat(disbursementForm.amount),
+        p_method: disbursementForm.method,
+        p_reference: disbursementForm.reference || null,
+        p_proof_url: proofUrl,
+        p_notes: disbursementForm.notes || null
+      })
+
+      console.log('RPC result:', { data, error })
+
+      if (error) {
+        console.error('RPC error details:', JSON.stringify(error, null, 2))
+        throw new Error(error.message || error.details || 'RPC call failed')
+      }
+
+      toast.success('Proof of payment uploaded! Waiting for borrower to confirm they received the money.')
+      setDisbursementDialog(false)
+      setDisbursementFile(null)
+
+      // Reload loan details
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error submitting disbursement:', error)
+      console.error('Error details:', JSON.stringify(error, null, 2))
+      toast.error(error.message || 'Failed to submit proof of payment')
+    } finally {
+      setSubmittingDisbursement(false)
     }
   }
 
@@ -295,59 +532,35 @@ export default function LoanDetailPage() {
     try {
       setProcessingPayment(true)
 
-      const amountMinor = Math.round(parseFloat(paymentData.amountPaid) * 100)
+      const amount = parseFloat(paymentData.amountPaid)
 
-      // Create repayment event
-      const { error: eventError } = await supabase
-        .from('repayment_events')
-        .insert({
-          loan_id: loan.id,
-          schedule_id: selectedSchedule.id,
-          amount_minor: amountMinor,
-          payment_date: paymentData.paymentDate,
-          notes: paymentData.notes,
-        })
-
-      if (eventError) throw eventError
-
-      // Update schedule status
-      const { error: scheduleError } = await supabase
-        .from('repayment_schedules')
-        .update({
-          status: amountMinor >= selectedSchedule.amount_due_minor ? 'paid' : 'partial',
-          paid_at: amountMinor >= selectedSchedule.amount_due_minor ? new Date().toISOString() : null,
-          paid_amount_minor: amountMinor,
-        })
-        .eq('id', selectedSchedule.id)
-
-      if (scheduleError) throw scheduleError
-
-      // Check if all schedules are paid to update loan status
-      const { data: allSchedules } = await supabase
-        .from('repayment_schedules')
-        .select('id, amount_due_minor, repayment_events(amount_paid_minor)')
-        .eq('loan_id', loan.id)
-
-      const allPaid = allSchedules?.every(s => {
-        const totalPaid = (s.repayment_events || []).reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
-        return totalPaid >= s.amount_due_minor
+      // Use the improved process_repayment function which:
+      // - Automatically allocates payment to schedules (oldest first)
+      // - Handles early payments, partial payments, and overpayments
+      // - Updates loan total_repaid
+      // - Sends notifications
+      // - Marks loan as completed if fully paid
+      // - Updates borrower credit score
+      const { data: result, error: paymentError } = await supabase.rpc('process_repayment', {
+        p_loan_id: loan.id,
+        p_amount: amount,
       })
 
-      if (allPaid) {
-        await supabase
-          .from('loans')
-          .update({ status: 'completed' })
-          .eq('id', loan.id)
+      if (paymentError) {
+        throw new Error(paymentError.message || 'Failed to process payment')
       }
 
-      // Update borrower credit score
-      await supabase.rpc('update_credit_score', {
-        p_borrower_id: loan.borrower_id,
-        p_event_type: 'payment_made',
-        p_amount: amountMinor,
-      })
+      // Show success message with details
+      if (result) {
+        if (result.loan_completed) {
+          toast.success(`Loan fully repaid! ${result.overpayment > 0 ? `(Overpayment: ${formatCurrency(result.overpayment * 100, loan.country_code)})` : ''}`)
+        } else {
+          toast.success(`Payment recorded! ${result.schedules_paid} installment(s) paid. Remaining: ${formatCurrency(result.remaining * 100, loan.country_code)}`)
+        }
+      } else {
+        toast.success('Payment recorded successfully')
+      }
 
-      toast.success('Payment recorded successfully')
       setPaymentDialog(false)
       setSelectedSchedule(null)
       setPaymentData({
@@ -363,6 +576,223 @@ export default function LoanDetailPage() {
       toast.error(error.message || 'Failed to record payment')
     } finally {
       setProcessingPayment(false)
+    }
+  }
+
+  const handleShowEarlyPayoff = async () => {
+    try {
+      // Get early payoff amount from database function
+      const { data, error } = await supabase.rpc('get_early_payoff_amount', {
+        p_loan_id: loan.id,
+      })
+
+      if (error) {
+        toast.error('Failed to get payoff amount')
+        return
+      }
+
+      setEarlyPayoffInfo(data)
+      setEarlyPayoffDialog(true)
+    } catch (error) {
+      console.error('Error getting early payoff:', error)
+      toast.error('Failed to get payoff amount')
+    }
+  }
+
+  const handleProcessEarlyPayoff = async () => {
+    if (!earlyPayoffInfo) return
+
+    try {
+      setProcessingEarlyPayoff(true)
+
+      // Process the full remaining balance
+      const { data: result, error } = await supabase.rpc('process_repayment', {
+        p_loan_id: loan.id,
+        p_amount: earlyPayoffInfo.remaining_balance,
+      })
+
+      if (error) {
+        throw new Error(error.message || 'Failed to process early payoff')
+      }
+
+      if (result?.loan_completed) {
+        toast.success('Loan fully paid off! Congratulations!')
+      } else {
+        toast.success('Payment processed successfully')
+      }
+
+      setEarlyPayoffDialog(false)
+      setEarlyPayoffInfo(null)
+
+      // Reload loan details
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Early payoff error:', error)
+      toast.error(error.message || 'Failed to process early payoff')
+    } finally {
+      setProcessingEarlyPayoff(false)
+    }
+  }
+
+  const handleCalculateLateFees = async () => {
+    try {
+      toast.info('Calculating late fees...')
+      const { data, error } = await supabase.rpc('calculate_late_fees', {
+        p_loan_id: loan.id
+      })
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      if (data?.total_fees_applied_minor > 0) {
+        toast.success(`Late fees applied: ${formatCurrency(data.total_fees_applied_minor, loan.country_code)}`)
+      } else {
+        toast.info('No new late fees to apply')
+      }
+
+      // Reload loan details to show new fees
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error calculating late fees:', error)
+      toast.error(error.message || 'Failed to calculate late fees')
+    }
+  }
+
+  const handleWaiveLateFee = async (feeId: string) => {
+    try {
+      setWaivingFee(feeId)
+      const { error } = await supabase.rpc('waive_late_fee', {
+        p_late_fee_id: feeId,
+        p_reason: 'Waived by lender'
+      })
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      toast.success('Late fee waived successfully')
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error waiving fee:', error)
+      toast.error(error.message || 'Failed to waive late fee')
+    } finally {
+      setWaivingFee(null)
+    }
+  }
+
+  const handleApprovePaymentProof = async (proofId: string) => {
+    try {
+      setProcessingProofReview(true)
+      const { data, error } = await supabase.rpc('review_payment_proof', {
+        p_proof_id: proofId,
+        p_action: 'approve'
+      })
+
+      if (error) throw new Error(error.message)
+
+      toast.success('Payment proof approved and payment recorded!')
+      setReviewingProof(null)
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error approving proof:', error)
+      toast.error(error.message || 'Failed to approve payment proof')
+    } finally {
+      setProcessingProofReview(false)
+    }
+  }
+
+  const handleRejectPaymentProof = async (proofId: string) => {
+    if (!rejectReason.trim()) {
+      toast.error('Please provide a reason for rejection')
+      return
+    }
+
+    try {
+      setProcessingProofReview(true)
+      const { error } = await supabase.rpc('review_payment_proof', {
+        p_proof_id: proofId,
+        p_action: 'reject',
+        p_rejection_reason: rejectReason
+      })
+
+      if (error) throw new Error(error.message)
+
+      toast.success('Payment proof rejected')
+      setReviewingProof(null)
+      setRejectReason('')
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error rejecting proof:', error)
+      toast.error(error.message || 'Failed to reject payment proof')
+    } finally {
+      setProcessingProofReview(false)
+    }
+  }
+
+  const handleRequestRestructure = async () => {
+    if (!restructureForm.newTermMonths || !restructureForm.reason) {
+      toast.error('Please fill in all required fields')
+      return
+    }
+
+    try {
+      setSubmittingRestructure(true)
+
+      const { data, error } = await supabase.rpc('request_loan_restructure', {
+        p_loan_id: loan.id,
+        p_new_term_months: parseInt(restructureForm.newTermMonths),
+        p_new_interest_rate: parseFloat(restructureForm.newInterestRate) || (loan.apr_bps / 100),
+        p_reason: restructureForm.reason,
+        p_reason_details: restructureForm.reasonDetails || null
+      })
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      if (data?.error) {
+        throw new Error(data.error)
+      }
+
+      toast.success('Restructure request sent! Waiting for borrower to approve.')
+      setRestructureDialog(false)
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error requesting restructure:', error)
+      toast.error(error.message || 'Failed to request restructure')
+    } finally {
+      setSubmittingRestructure(false)
+    }
+  }
+
+  const handleRespondToRestructure = async (approve: boolean) => {
+    if (!pendingRestructure) return
+
+    try {
+      setRespondingToRestructure(true)
+
+      const { data, error } = await supabase.rpc('respond_to_restructure', {
+        p_restructure_id: pendingRestructure.id,
+        p_approve: approve,
+        p_rejection_reason: approve ? null : 'Declined by lender'
+      })
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      if (data?.error) {
+        throw new Error(data.error)
+      }
+
+      toast.success(approve ? 'Restructure approved and applied!' : 'Restructure request declined')
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error responding to restructure:', error)
+      toast.error(error.message || 'Failed to respond to restructure')
+    } finally {
+      setRespondingToRestructure(false)
     }
   }
 
@@ -396,8 +826,13 @@ export default function LoanDetailPage() {
     }
   }
 
-  // Helper to check if a schedule is paid (has repayment events covering the full amount)
+  // Helper to check if a schedule is paid
   const isSchedulePaid = (schedule: any) => {
+    // First check the status column if available
+    if (schedule.status === 'paid') return true
+    if (schedule.status === 'partial' || schedule.status === 'pending' || schedule.status === 'overdue') return false
+
+    // Fallback to checking repayment events for backwards compatibility
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
     const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
     return totalPaid >= schedule.amount_due_minor
@@ -405,6 +840,11 @@ export default function LoanDetailPage() {
 
   // Helper to check if schedule is partially paid
   const isSchedulePartial = (schedule: any) => {
+    // First check the status column if available
+    if (schedule.status === 'partial') return true
+    if (schedule.status === 'paid') return false
+
+    // Fallback to checking repayment events
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
     const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
     return totalPaid > 0 && totalPaid < schedule.amount_due_minor
@@ -420,6 +860,10 @@ export default function LoanDetailPage() {
   }
 
   const getScheduleStatus = (schedule: any) => {
+    // Use the status column if available
+    if (schedule.status) return schedule.status
+
+    // Fallback to computed status
     if (isSchedulePaid(schedule)) return 'paid'
     if (isSchedulePartial(schedule)) return 'partial'
     if (isPast(new Date(schedule.due_date))) return 'overdue'
@@ -428,9 +872,13 @@ export default function LoanDetailPage() {
 
   const calculateProgress = () => {
     if (!loan || !loan.repayment_schedules) return 0
-    const paid = loan.repayment_schedules.filter((s: any) => isSchedulePaid(s)).length
-    const total = loan.repayment_schedules.length
-    return total > 0 ? Math.round((paid / total) * 100) : 0
+
+    // Use amount-based progress instead of schedule-count-based progress
+    // This shows partial payment progress correctly
+    const totalDue = loan.repayment_schedules.reduce((sum: number, s: any) => sum + (s.amount_due_minor || 0), 0)
+    const totalPaid = loan.repayment_schedules.reduce((sum: number, s: any) => sum + (s.paid_amount_minor || 0), 0)
+
+    return totalDue > 0 ? Math.round((totalPaid / totalDue) * 100) : 0
   }
 
   // Helper to collect all repayment events from schedules
@@ -475,12 +923,18 @@ export default function LoanDetailPage() {
         overduePayments: 0,
         progressPercentage: 0,
         paymentHealthScore: 0,
+        totalDueMinor: 0,
+        totalPaidMinor: 0,
       }
     }
 
     const schedules = loan.repayment_schedules
     const totalPayments = schedules.length
     const paidPayments = schedules.filter((s: any) => isSchedulePaid(s)).length
+
+    // Calculate amount-based progress (includes partial payments)
+    const totalDueMinor = schedules.reduce((sum: number, s: any) => sum + (s.amount_due_minor || 0), 0)
+    const totalPaidMinor = schedules.reduce((sum: number, s: any) => sum + (s.paid_amount_minor || 0), 0)
 
     let onTimePayments = 0
     let latePayments = 0
@@ -506,7 +960,9 @@ export default function LoanDetailPage() {
       return isPast(new Date(s.due_date))
     }).length
 
-    const progressPercentage = totalPayments > 0 ? Math.round((paidPayments / totalPayments) * 100) : 0
+    // Use amount-based progress instead of schedule-count-based progress
+    // This shows partial payment progress correctly
+    const progressPercentage = totalDueMinor > 0 ? Math.round((totalPaidMinor / totalDueMinor) * 100) : 0
 
     // Health score: 100 if all on time, decrease for late/overdue payments
     let healthScore = 100
@@ -526,6 +982,8 @@ export default function LoanDetailPage() {
       overduePayments,
       progressPercentage,
       paymentHealthScore: healthScore,
+      totalDueMinor,
+      totalPaidMinor,
     }
   }
 
@@ -752,31 +1210,65 @@ export default function LoanDetailPage() {
                       </AlertDescription>
                     </Alert>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="lender-signed-file">Upload Signed Agreement</Label>
-                      <Input
-                        id="lender-signed-file"
+                    <div className="space-y-3">
+                      <Label>Upload Signed Agreement</Label>
+
+                      {/* Hidden file input with ref */}
+                      <input
+                        ref={fileInputRef}
                         type="file"
                         accept="image/*,.pdf"
+                        style={{ display: 'none' }}
                         onChange={(e) => {
                           const file = e.target.files?.[0]
+                          console.log('Lender file selected:', file?.name, file?.size)
                           if (file) {
-                            if (file.size > 5 * 1024 * 1024) {
-                              toast.error('File size must be less than 5MB')
+                            if (file.size > 25 * 1024 * 1024) {
+                              toast.error('File size must be less than 25MB')
                               e.target.value = ''
                               return
                             }
                             setSignedAgreementFile(file)
+                            toast.success(`File selected: ${file.name}`)
                           }
                         }}
-                        className="cursor-pointer"
                       />
+
+                      {/* Visible button to trigger file picker */}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full border-dashed border-2 h-20"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <div className="flex flex-col items-center gap-1">
+                          <FileText className="h-6 w-6 text-blue-600" />
+                          <span className="text-sm">Click to select a file</span>
+                          <span className="text-xs text-muted-foreground">Images or PDF (max 25MB)</span>
+                        </div>
+                      </Button>
+
                       {signedAgreementFile && (
-                        <div className="flex items-center gap-2 text-sm text-green-600">
-                          <FileText className="h-4 w-4" />
-                          <span>Selected: {signedAgreementFile.name}</span>
+                        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-green-800">File selected:</p>
+                            <p className="text-sm text-green-600">{signedAgreementFile.name}</p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSignedAgreementFile(null)
+                              if (fileInputRef.current) fileInputRef.current.value = ''
+                            }}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            Remove
+                          </Button>
                         </div>
                       )}
+
                       <Button
                         onClick={handleUploadSignedAgreement}
                         disabled={!signedAgreementFile || uploadingSignedAgreement}
@@ -854,6 +1346,125 @@ export default function LoanDetailPage() {
                   Both parties have signed on {format(new Date(agreementData.fully_signed_at), 'MMM d, yyyy HH:mm')}.
                   The agreement is now legally binding.
                 </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Send Money & Upload Proof Section - Show for pending_disbursement status */}
+      {loan.status === 'pending_disbursement' && (
+        <Card className="border-2 border-orange-200 bg-orange-50/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Banknote className="h-5 w-5 text-orange-600" />
+              Send Money to Borrower
+            </CardTitle>
+            <CardDescription>
+              The agreement is signed. Now send the loan amount to the borrower and upload proof of payment (bank receipt, mobile money screenshot, etc.)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {disbursementData?.lender_submitted_at ? (
+              // Lender has submitted proof, waiting for borrower
+              <div className="space-y-4">
+                <Alert className="bg-blue-50 border-blue-200">
+                  <Clock className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-blue-900">
+                    You have uploaded your proof of payment. Waiting for {loan.borrowers?.full_name} to confirm they received the money.
+                  </AlertDescription>
+                </Alert>
+
+                <div className="bg-white rounded-lg border p-4 space-y-2">
+                  <h4 className="font-semibold">Payment Details</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Amount Sent:</span>
+                      <p className="font-medium">{formatCurrency((disbursementData.lender_proof_amount || 0) * 100, loan.country_code)}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Method:</span>
+                      <p className="font-medium capitalize">{disbursementData.lender_proof_method?.replace('_', ' ')}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Date:</span>
+                      <p className="font-medium">{disbursementData.lender_proof_date ? format(new Date(disbursementData.lender_proof_date), 'MMM dd, yyyy') : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Reference:</span>
+                      <p className="font-medium font-mono">{disbursementData.lender_proof_reference || 'N/A'}</p>
+                    </div>
+                  </div>
+                  {disbursementData.lender_proof_url && (
+                    <a
+                      href={disbursementData.lender_proof_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 hover:underline flex items-center gap-1 mt-2"
+                    >
+                      <Download className="h-3 w-3" />
+                      View Proof
+                    </a>
+                  )}
+                </div>
+
+                {disbursementData.borrower_disputed && (
+                  <div className="space-y-4">
+                    <Alert className="bg-red-50 border-red-200">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="text-red-900">
+                        <strong>Borrower says they haven&apos;t received the money!</strong><br />
+                        <span className="text-sm">Reason: {disbursementData.borrower_dispute_reason || 'Not specified'}</span>
+                        <p className="text-sm mt-2 text-red-700">
+                          Disputed on: {disbursementData.borrower_disputed_at ? format(new Date(disbursementData.borrower_disputed_at), 'MMM d, yyyy HH:mm') : 'Unknown'}
+                        </p>
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-amber-900 mb-2">What you can do:</h4>
+                      <ul className="text-sm text-amber-800 space-y-1 mb-4">
+                        <li>• Double-check that you sent to the correct account/number</li>
+                        <li>• Verify the transaction was successful on your end</li>
+                        <li>• Contact the borrower directly via Messages to resolve</li>
+                        <li>• Upload new/updated proof if needed</li>
+                      </ul>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => setDisbursementDialog(true)}
+                          className="flex-1"
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload New Proof
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => router.push('/l/messages')}
+                          className="flex-1"
+                        >
+                          <Send className="h-4 w-4 mr-2" />
+                          Message Borrower
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              // Lender needs to submit proof
+              <div className="space-y-4">
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Please send <strong>{formatCurrency(loan.principal_minor || 0, loan.country_code)}</strong> to {loan.borrowers?.full_name} and then upload proof of payment (bank transfer receipt, mobile money screenshot, etc.)
+                  </AlertDescription>
+                </Alert>
+
+                <Button onClick={() => setDisbursementDialog(true)} className="w-full" size="lg">
+                  <Send className="h-4 w-4 mr-2" />
+                  Upload Proof of Payment
+                </Button>
               </div>
             )}
           </CardContent>
@@ -1005,6 +1616,244 @@ export default function LoanDetailPage() {
       </Card>
       )}
 
+      {/* Late Fees Section - Only show for active/overdue loans */}
+      {['active', 'defaulted'].includes(loan.status) && (
+        <Card className="border-2 border-orange-200">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-orange-600" />
+                  Late Payment Fees
+                </CardTitle>
+                <CardDescription>
+                  Manage late fees for overdue payments
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleCalculateLateFees}
+                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Calculate Fees
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {/* Late Fee Summary */}
+            {lateFeeSummary && lateFeeSummary.fee_count > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-orange-50 rounded-lg p-3">
+                  <p className="text-xs text-orange-700">Total Fees</p>
+                  <p className="text-lg font-bold text-orange-900">
+                    {formatCurrency(lateFeeSummary.total_fees_minor || 0, loan.country_code)}
+                  </p>
+                </div>
+                <div className="bg-green-50 rounded-lg p-3">
+                  <p className="text-xs text-green-700">Paid</p>
+                  <p className="text-lg font-bold text-green-900">
+                    {formatCurrency(lateFeeSummary.paid_fees_minor || 0, loan.country_code)}
+                  </p>
+                </div>
+                <div className="bg-red-50 rounded-lg p-3">
+                  <p className="text-xs text-red-700">Pending</p>
+                  <p className="text-lg font-bold text-red-900">
+                    {formatCurrency(lateFeeSummary.pending_fees_minor || 0, loan.country_code)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-700">Waived</p>
+                  <p className="text-lg font-bold text-gray-900">
+                    {formatCurrency(lateFeeSummary.waived_fees_minor || 0, loan.country_code)}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Late Fees List */}
+            {lateFees.length > 0 ? (
+              <div className="space-y-3">
+                {lateFees.map((fee) => (
+                  <div
+                    key={fee.id}
+                    className={`flex items-center justify-between p-4 rounded-lg border ${
+                      fee.status === 'paid' ? 'bg-green-50 border-green-200' :
+                      fee.status === 'waived' ? 'bg-gray-50 border-gray-200' :
+                      'bg-orange-50 border-orange-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                        fee.status === 'paid' ? 'bg-green-100' :
+                        fee.status === 'waived' ? 'bg-gray-100' :
+                        'bg-orange-100'
+                      }`}>
+                        <Percent className={`h-5 w-5 ${
+                          fee.status === 'paid' ? 'text-green-600' :
+                          fee.status === 'waived' ? 'text-gray-600' :
+                          'text-orange-600'
+                        }`} />
+                      </div>
+                      <div>
+                        <p className="font-medium">
+                          {formatCurrency(fee.fee_amount_minor || 0, loan.country_code)}
+                          <span className="text-sm text-muted-foreground ml-2">
+                            ({fee.fee_percentage}% - Tier {fee.tier_applied})
+                          </span>
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {fee.days_overdue} days overdue • Applied {format(new Date(fee.created_at), 'MMM dd, yyyy')}
+                        </p>
+                        {fee.waiver_reason && (
+                          <p className="text-xs text-gray-500 mt-1">Waiver reason: {fee.waiver_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={
+                        fee.status === 'paid' ? 'default' :
+                        fee.status === 'waived' ? 'secondary' :
+                        'destructive'
+                      }>
+                        {fee.status}
+                      </Badge>
+                      {fee.status === 'pending' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleWaiveLateFee(fee.id)}
+                          disabled={waivingFee === fee.id}
+                          className="text-orange-600 hover:text-orange-700 hover:bg-orange-100"
+                        >
+                          {waivingFee === fee.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            'Waive'
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <AlertCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                <p>No late fees have been applied to this loan</p>
+                <p className="text-sm mt-1">Late fees are automatically calculated for overdue payments</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Loan Restructuring Section */}
+      {loan.status === 'active' && (
+        <Card className="border-2 border-blue-200">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <RefreshCw className="h-5 w-5 text-blue-600" />
+                  Loan Restructuring
+                </CardTitle>
+                <CardDescription>
+                  Modify loan terms if the borrower is struggling
+                </CardDescription>
+              </div>
+              {!pendingRestructure && (
+                <Button
+                  variant="outline"
+                  onClick={() => setRestructureDialog(true)}
+                  className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                >
+                  <HandCoins className="h-4 w-4 mr-2" />
+                  Propose Restructure
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {pendingRestructure ? (
+              <div className="space-y-4">
+                <Alert className="bg-blue-50 border-blue-200">
+                  <Clock className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-blue-900">
+                    <strong>Pending Restructure Request</strong>
+                    <p className="text-sm mt-1">
+                      {pendingRestructure.requested_by_role === 'borrower'
+                        ? 'The borrower has requested to restructure this loan. Please review:'
+                        : 'You have requested a restructure. Waiting for borrower approval.'}
+                    </p>
+                  </AlertDescription>
+                </Alert>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-600">Current Term</p>
+                    <p className="text-lg font-bold">{pendingRestructure.original_term_months} months</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <p className="text-xs text-blue-600">Proposed Term</p>
+                    <p className="text-lg font-bold text-blue-900">{pendingRestructure.new_term_months} months</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-600">Current Rate</p>
+                    <p className="text-lg font-bold">{pendingRestructure.original_interest_rate}%</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <p className="text-xs text-blue-600">Proposed Rate</p>
+                    <p className="text-lg font-bold text-blue-900">{pendingRestructure.new_interest_rate}%</p>
+                  </div>
+                </div>
+
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <p className="text-sm font-medium">Reason: <span className="capitalize">{pendingRestructure.reason?.replace('_', ' ')}</span></p>
+                  {pendingRestructure.reason_details && (
+                    <p className="text-sm text-muted-foreground mt-1">{pendingRestructure.reason_details}</p>
+                  )}
+                </div>
+
+                {pendingRestructure.requested_by_role === 'borrower' && (
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={() => handleRespondToRestructure(true)}
+                      disabled={respondingToRestructure}
+                      className="flex-1 bg-green-600 hover:bg-green-700"
+                    >
+                      {respondingToRestructure ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Check className="h-4 w-4 mr-2" />
+                      )}
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleRespondToRestructure(false)}
+                      disabled={respondingToRestructure}
+                      className="flex-1 border-red-300 text-red-700 hover:bg-red-50"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Decline
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <RefreshCw className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                <p>No active restructure requests</p>
+                <p className="text-sm mt-1">
+                  You can propose new terms if the borrower is having difficulty repaying
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Borrower & Loan Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
@@ -1052,12 +1901,182 @@ export default function LoanDetailPage() {
         </Card>
       </div>
 
+      {/* Payment Proofs from Borrower */}
+      {paymentProofs.length > 0 && (
+        <Card className="border-2 border-yellow-200 bg-yellow-50/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-yellow-600" />
+              Payment Proofs from Borrower
+              {paymentProofs.filter(p => p.status === 'pending').length > 0 && (
+                <Badge className="bg-yellow-600 ml-2">
+                  {paymentProofs.filter(p => p.status === 'pending').length} Pending
+                </Badge>
+              )}
+            </CardTitle>
+            <CardDescription>
+              Review and confirm payments submitted by your borrower. Failure to respond promptly may affect your lender score.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {paymentProofs.map((proof) => (
+              <div
+                key={proof.id}
+                className={`p-4 rounded-lg border ${
+                  proof.status === 'approved' ? 'bg-green-50 border-green-200' :
+                  proof.status === 'rejected' ? 'bg-red-50 border-red-200' :
+                  'bg-white border-yellow-300'
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2 flex-1">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl font-bold">
+                        {formatCurrency((proof.amount || proof.amount_claimed || 0) * 100)}
+                      </span>
+                      <Badge className={
+                        proof.status === 'approved' ? 'bg-green-600' :
+                        proof.status === 'rejected' ? 'bg-red-600' :
+                        'bg-yellow-600'
+                      }>
+                        {proof.status === 'approved' && <CheckCircle className="h-3 w-3 mr-1" />}
+                        {proof.status === 'rejected' && <X className="h-3 w-3 mr-1" />}
+                        {proof.status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
+                        {proof.status.charAt(0).toUpperCase() + proof.status.slice(1)}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                      <div>
+                        <p className="text-gray-500">Payment Date</p>
+                        <p className="font-medium">{format(new Date(proof.payment_date), 'MMM d, yyyy')}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500">Method</p>
+                        <p className="font-medium capitalize">{proof.payment_method?.replace('_', ' ')}</p>
+                      </div>
+                      {proof.reference_number && (
+                        <div>
+                          <p className="text-gray-500">Reference</p>
+                          <p className="font-medium">{proof.reference_number}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-gray-500">Submitted</p>
+                        <p className="font-medium">{format(new Date(proof.created_at), 'MMM d, HH:mm')}</p>
+                      </div>
+                    </div>
+                    {proof.notes && (
+                      <p className="text-sm text-gray-600 italic">"{proof.notes}"</p>
+                    )}
+                    {proof.status === 'rejected' && proof.rejection_reason && (
+                      <p className="text-sm text-red-600">
+                        <strong>Rejection reason:</strong> {proof.rejection_reason}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2 ml-4">
+                    <a
+                      href={proof.proof_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-blue-600 hover:underline text-sm"
+                    >
+                      <Eye className="h-4 w-4" />
+                      View Proof
+                    </a>
+                    {proof.status === 'pending' && (
+                      <>
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700"
+                          onClick={() => handleApprovePaymentProof(proof.id)}
+                          disabled={processingProofReview}
+                        >
+                          {processingProofReview ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 mr-1" />}
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-red-300 text-red-700 hover:bg-red-50"
+                          onClick={() => setReviewingProof(proof)}
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Reject
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Reject Payment Proof Dialog */}
+      <Dialog open={!!reviewingProof} onOpenChange={() => { setReviewingProof(null); setRejectReason(''); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Payment Proof</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting this payment proof. The borrower will be notified.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {reviewingProof && (
+              <div className="bg-gray-50 p-3 rounded-lg text-sm">
+                <p><strong>Amount claimed:</strong> {formatCurrency((reviewingProof.amount || reviewingProof.amount_claimed || 0) * 100)}</p>
+                <p><strong>Payment date:</strong> {format(new Date(reviewingProof.payment_date), 'MMM d, yyyy')}</p>
+                <a href={reviewingProof.proof_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                  View submitted proof
+                </a>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Reason for rejection *</Label>
+              <Textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="e.g., The receipt doesn't match the claimed amount, or the transaction reference is invalid..."
+                rows={3}
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => { setReviewingProof(null); setRejectReason(''); }}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700"
+                onClick={() => reviewingProof && handleRejectPaymentProof(reviewingProof.id)}
+                disabled={processingProofReview || !rejectReason.trim()}
+              >
+                {processingProofReview ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Reject Proof
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Repayment Schedule - Only show for tracked loans */}
       {['active', 'completed', 'defaulted', 'written_off'].includes(loan.status) && (
         <Card>
-          <CardHeader>
-            <CardTitle>Repayment Schedule</CardTitle>
-            <CardDescription>Track and mark payments as they come in</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Repayment Schedule</CardTitle>
+              <CardDescription>Track and mark payments as they come in</CardDescription>
+            </div>
+            {loan.status === 'active' && (
+              <Button
+                variant="outline"
+                onClick={handleShowEarlyPayoff}
+                className="border-green-300 text-green-700 hover:bg-green-50"
+              >
+                <Banknote className="h-4 w-4 mr-2" />
+                Pay Off Entire Loan
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -1091,13 +2110,20 @@ export default function LoanDetailPage() {
                           {formatCurrency(schedule.amount_due_minor || 0, loan.country_code)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {formatCurrency(schedule.principal_portion_minor || 0, loan.country_code)}
+                          {formatCurrency(schedule.principal_minor || 0, loan.country_code)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {formatCurrency(schedule.interest_portion_minor || 0, loan.country_code)}
+                          {formatCurrency(schedule.interest_minor || 0, loan.country_code)}
                         </TableCell>
                         <TableCell>
-                          {getStatusBadge(status)}
+                          <div className="flex items-center gap-2">
+                            {getStatusBadge(status)}
+                            {schedule.is_early_payment && status === 'paid' && (
+                              <Badge className="bg-blue-100 text-blue-800 text-xs">
+                                Early
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           {status !== 'paid' && (
@@ -1110,9 +2136,9 @@ export default function LoanDetailPage() {
                               Mark as Paid
                             </Button>
                           )}
-                          {status === 'paid' && getSchedulePaidAt(schedule) && (
+                          {status === 'paid' && (schedule.paid_at || getSchedulePaidAt(schedule)) && (
                             <span className="text-sm text-muted-foreground">
-                              Paid {format(new Date(getSchedulePaidAt(schedule)), 'MMM dd')}
+                              Paid {format(new Date(schedule.paid_at || getSchedulePaidAt(schedule)), 'MMM dd')}
                             </span>
                           )}
                         </TableCell>
@@ -1232,6 +2258,326 @@ export default function LoanDetailPage() {
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Record Payment
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Early Payoff Dialog */}
+      <Dialog open={earlyPayoffDialog} onOpenChange={setEarlyPayoffDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pay Off Entire Loan Early</DialogTitle>
+            <DialogDescription>
+              Record a full payoff for this loan. This will mark all remaining installments as paid.
+            </DialogDescription>
+          </DialogHeader>
+
+          {earlyPayoffInfo && (
+            <div className="space-y-4">
+              <Alert className="bg-green-50 border-green-200">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+                <AlertDescription className="text-green-900">
+                  <strong>Early Payoff Benefits:</strong> Paying off the loan early gives the borrower a credit score boost!
+                </AlertDescription>
+              </Alert>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-muted/50 rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground">Total Loan Amount</p>
+                  <p className="text-xl font-bold">
+                    {earlyPayoffInfo.currency_symbol}{earlyPayoffInfo.total_due?.toLocaleString()}
+                  </p>
+                </div>
+                <div className="bg-green-50 rounded-lg p-4">
+                  <p className="text-sm text-green-700">Already Paid</p>
+                  <p className="text-xl font-bold text-green-600">
+                    {earlyPayoffInfo.currency_symbol}{earlyPayoffInfo.total_paid?.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-6 text-center">
+                <p className="text-sm text-blue-700 mb-1">Amount to Pay Off</p>
+                <p className="text-3xl font-bold text-blue-900">
+                  {earlyPayoffInfo.currency_symbol}{earlyPayoffInfo.remaining_balance?.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEarlyPayoffDialog(false)
+                setEarlyPayoffInfo(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleProcessEarlyPayoff}
+              disabled={processingEarlyPayoff || !earlyPayoffInfo?.remaining_balance}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {processingEarlyPayoff ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Confirm Full Payoff
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Proof of Payment Dialog */}
+      <Dialog open={disbursementDialog} onOpenChange={setDisbursementDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Upload Proof of Payment</DialogTitle>
+            <DialogDescription>
+              Upload your bank receipt or mobile money screenshot showing you sent money to {loan?.borrowers?.full_name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Amount Sent *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={disbursementForm.amount}
+                  onChange={(e) => setDisbursementForm({...disbursementForm, amount: e.target.value})}
+                  placeholder="0.00"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Loan amount: {formatCurrency(loan?.principal_minor || 0, loan?.country_code)}
+                </p>
+              </div>
+              <div>
+                <Label>How did you send it? *</Label>
+                <Select
+                  value={disbursementForm.method}
+                  onValueChange={(value) => setDisbursementForm({...disbursementForm, method: value})}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label>Transaction Reference / Receipt Number</Label>
+              <Input
+                value={disbursementForm.reference}
+                onChange={(e) => setDisbursementForm({...disbursementForm, reference: e.target.value})}
+                placeholder="e.g., TXN123456, MPESA code, etc."
+              />
+            </div>
+
+            <div>
+              <Label>Upload Proof (Bank Receipt / Screenshot) *</Label>
+              <div className="mt-1">
+                <input
+                  ref={disbursementFileRef}
+                  type="file"
+                  accept="image/*,.pdf"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      if (file.size > 25 * 1024 * 1024) {
+                        toast.error('File size must be less than 25MB')
+                        e.target.value = ''
+                        return
+                      }
+                      setDisbursementFile(file)
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full border-dashed border-2 h-20"
+                  onClick={() => disbursementFileRef.current?.click()}
+                >
+                  {disbursementFile ? (
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <span className="text-sm">{disbursementFile.name}</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1">
+                      <Upload className="h-6 w-6 text-muted-foreground" />
+                      <span className="text-sm">Click to upload bank receipt or screenshot</span>
+                    </div>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <Label>Notes (Optional)</Label>
+              <Textarea
+                value={disbursementForm.notes}
+                onChange={(e) => setDisbursementForm({...disbursementForm, notes: e.target.value})}
+                placeholder="Any additional details about the payment..."
+                rows={2}
+              />
+            </div>
+
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                After you upload this proof, the borrower will be asked to confirm they received the money.
+                The loan will become active once they confirm receipt.
+              </AlertDescription>
+            </Alert>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisbursementDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitDisbursement}
+              disabled={submittingDisbursement || !disbursementForm.amount}
+            >
+              {submittingDisbursement ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Submit Proof
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restructure Dialog */}
+      <Dialog open={restructureDialog} onOpenChange={setRestructureDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Propose Loan Restructure</DialogTitle>
+            <DialogDescription>
+              Propose new terms for this loan. The borrower will need to approve.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-muted/50 rounded-lg p-3 mb-4">
+              <p className="text-sm font-medium">Current Terms</p>
+              <div className="grid grid-cols-2 gap-4 mt-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Term:</span>
+                  <span className="ml-2 font-medium">{loan?.term_months} months</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Rate:</span>
+                  <span className="ml-2 font-medium">{((loan?.apr_bps || 0) / 100).toFixed(2)}%</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>New Term (months) *</Label>
+                <Input
+                  type="number"
+                  value={restructureForm.newTermMonths}
+                  onChange={(e) => setRestructureForm({...restructureForm, newTermMonths: e.target.value})}
+                  placeholder="12"
+                  min="1"
+                />
+              </div>
+              <div>
+                <Label>New Interest Rate (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={restructureForm.newInterestRate}
+                  onChange={(e) => setRestructureForm({...restructureForm, newInterestRate: e.target.value})}
+                  placeholder="10"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Reason for Restructuring *</Label>
+              <Select
+                value={restructureForm.reason}
+                onValueChange={(value) => setRestructureForm({...restructureForm, reason: value})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="financial_hardship">Financial Hardship</SelectItem>
+                  <SelectItem value="income_change">Income Change</SelectItem>
+                  <SelectItem value="medical_emergency">Medical Emergency</SelectItem>
+                  <SelectItem value="job_loss">Job Loss</SelectItem>
+                  <SelectItem value="business_downturn">Business Downturn</SelectItem>
+                  <SelectItem value="rate_adjustment">Rate Adjustment</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Additional Details (Optional)</Label>
+              <Textarea
+                value={restructureForm.reasonDetails}
+                onChange={(e) => setRestructureForm({...restructureForm, reasonDetails: e.target.value})}
+                placeholder="Provide more context about the restructuring request..."
+                rows={3}
+              />
+            </div>
+
+            <Alert className="bg-blue-50 border-blue-200">
+              <AlertCircle className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-blue-900 text-sm">
+                The borrower will receive a notification and must approve before changes take effect.
+                A new repayment schedule will be generated automatically.
+              </AlertDescription>
+            </Alert>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRestructureDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRequestRestructure}
+              disabled={submittingRestructure || !restructureForm.newTermMonths || !restructureForm.reason}
+            >
+              {submittingRestructure ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Send Proposal
                 </>
               )}
             </Button>

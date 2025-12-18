@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { 
+import {
   CreditCard,
   Calendar as CalendarIcon,
   DollarSign,
@@ -44,8 +44,13 @@ import {
   ArrowDownRight,
   History,
   Target,
-  Award
+  Award,
+  Upload,
+  Camera,
+  XCircle,
+  Loader2
 } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
 import { format, addDays, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, parseISO, subMonths } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 import {
@@ -81,6 +86,16 @@ export default function RepaymentsPage() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
   const [showPaymentDialog, setShowPaymentDialog] = useState(false)
   const [paymentStats, setPaymentStats] = useState<any>(null)
+  const [paymentProofs, setPaymentProofs] = useState<any[]>([])
+  const [confirmedPayments, setConfirmedPayments] = useState<any[]>([])
+  const [showProofDialog, setShowProofDialog] = useState(false)
+  const [proofAmount, setProofAmount] = useState('')
+  const [proofDate, setProofDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [proofMethod, setProofMethod] = useState('mobile_money')
+  const [proofReference, setProofReference] = useState('')
+  const [proofNotes, setProofNotes] = useState('')
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [submittingProof, setSubmittingProof] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -110,14 +125,25 @@ export default function RepaymentsPage() {
 
       setProfile(profileData)
 
-      // Get borrower record
-      const { data: borrowerData } = await supabase
-        .from('borrowers')
-        .select('*')
+      // Get borrower record via borrower_user_links
+      const { data: linkData } = await supabase
+        .from('borrower_user_links')
+        .select('borrower_id')
         .eq('user_id', user.id)
         .single()
 
-      if (borrowerData) {
+      if (linkData) {
+        const { data: borrowerData } = await supabase
+          .from('borrowers')
+          .select('*')
+          .eq('id', linkData.borrower_id)
+          .single()
+
+        if (!borrowerData) {
+          setLoading(false)
+          return
+        }
+
         setBorrower(borrowerData)
 
         // Load borrower's currency
@@ -172,6 +198,19 @@ export default function RepaymentsPage() {
           
           // Calculate stats
           calculatePaymentStats(loanData, schedules, history)
+
+          // Load payment proofs for this loan
+          const { data: proofsData } = await supabase
+            .from('payment_proofs')
+            .select('*')
+            .eq('loan_id', loanData.id)
+            .order('created_at', { ascending: false })
+
+          setPaymentProofs(proofsData || [])
+
+          // Set confirmed payments (approved proofs + direct lender recordings)
+          const confirmed = (proofsData || []).filter((p: any) => p.status === 'approved')
+          setConfirmedPayments(confirmed)
         }
       }
     } catch (error) {
@@ -243,6 +282,74 @@ export default function RepaymentsPage() {
     setShowPaymentDialog(true)
   }
 
+  const handleSubmitPaymentProof = async () => {
+    if (!activeLoan || !proofAmount || !proofDate) return
+
+    setSubmittingProof(true)
+    try {
+      let proofUrl = null
+
+      // Upload proof file if provided
+      if (proofFile) {
+        const fileExt = proofFile.name.split('.').pop()
+        const fileName = `${activeLoan.id}/${Date.now()}.${fileExt}`
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('payment-proofs')
+          .upload(fileName, proofFile)
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError)
+        } else {
+          const { data: urlData } = supabase.storage
+            .from('payment-proofs')
+            .getPublicUrl(fileName)
+          proofUrl = urlData.publicUrl
+        }
+      }
+
+      // Submit proof via RPC
+      const { data, error } = await supabase.rpc('submit_payment_proof', {
+        p_loan_id: activeLoan.id,
+        p_amount: parseFloat(proofAmount),
+        p_payment_date: proofDate,
+        p_payment_method: proofMethod,
+        p_reference_number: proofReference || null,
+        p_proof_url: proofUrl,
+        p_notes: proofNotes || null
+      })
+
+      if (error) throw error
+
+      // Reset form and close dialog
+      setProofAmount('')
+      setProofDate(format(new Date(), 'yyyy-MM-dd'))
+      setProofMethod('mobile_money')
+      setProofReference('')
+      setProofNotes('')
+      setProofFile(null)
+      setShowProofDialog(false)
+
+      // Refresh data
+      await loadRepaymentsData()
+
+      alert('Payment proof submitted successfully! Your lender will review it shortly.')
+    } catch (error: any) {
+      console.error('Error submitting payment proof:', error)
+      alert(error.message || 'Failed to submit payment proof')
+    } finally {
+      setSubmittingProof(false)
+    }
+  }
+
+  const getProofStatusColor = (status: string) => {
+    switch (status) {
+      case 'approved': return 'bg-green-100 text-green-800 border-green-300'
+      case 'rejected': return 'bg-red-100 text-red-800 border-red-300'
+      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
+      default: return 'bg-gray-100 text-gray-800 border-gray-300'
+    }
+  }
+
   const processPayment = async () => {
     // In a real app, this would integrate with a payment processor
     console.log('Processing payment:', selectedPayment, paymentMethod)
@@ -297,9 +404,9 @@ export default function RepaymentsPage() {
           </p>
         </div>
         <div className="flex space-x-2">
-          <Button variant="outline">
-            <Settings className="mr-2 h-4 w-4" />
-            Payment Settings
+          <Button onClick={() => setShowProofDialog(true)} disabled={!activeLoan}>
+            <Upload className="mr-2 h-4 w-4" />
+            Submit Payment Proof
           </Button>
           <Button variant="outline">
             <Download className="mr-2 h-4 w-4" />
@@ -418,11 +525,12 @@ export default function RepaymentsPage() {
           )}
 
           <Tabs defaultValue="upcoming" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
-              <TabsTrigger value="calendar">Calendar</TabsTrigger>
+              <TabsTrigger value="proofs">My Submissions</TabsTrigger>
+              <TabsTrigger value="confirmed">Confirmed</TabsTrigger>
               <TabsTrigger value="history">History</TabsTrigger>
-              <TabsTrigger value="autopay">Auto-Pay</TabsTrigger>
+              <TabsTrigger value="calendar">Calendar</TabsTrigger>
             </TabsList>
 
             {/* Upcoming Payments Tab */}
@@ -510,6 +618,208 @@ export default function RepaymentsPage() {
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Payment Proofs Tab - My Submissions */}
+            <TabsContent value="proofs" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <CardTitle>My Payment Submissions</CardTitle>
+                      <CardDescription>
+                        Payment proofs you've submitted for lender review
+                      </CardDescription>
+                    </div>
+                    <Button onClick={() => setShowProofDialog(true)}>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Submit New Proof
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {paymentProofs.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Receipt className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No Payment Proofs</h3>
+                      <p className="text-gray-600 mb-4">
+                        Made a payment? Submit proof so your lender can verify and update your balance.
+                      </p>
+                      <Button onClick={() => setShowProofDialog(true)}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Submit Payment Proof
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {paymentProofs.map((proof) => (
+                        <div
+                          key={proof.id}
+                          className={`p-4 border rounded-lg ${
+                            proof.status === 'pending' ? 'border-yellow-200 bg-yellow-50' :
+                            proof.status === 'approved' ? 'border-green-200 bg-green-50' :
+                            'border-red-200 bg-red-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start space-x-4">
+                              <div className={`p-3 rounded-full ${
+                                proof.status === 'pending' ? 'bg-yellow-100' :
+                                proof.status === 'approved' ? 'bg-green-100' :
+                                'bg-red-100'
+                              }`}>
+                                {proof.status === 'pending' && <Clock className="h-6 w-6 text-yellow-600" />}
+                                {proof.status === 'approved' && <CheckCircle className="h-6 w-6 text-green-600" />}
+                                {proof.status === 'rejected' && <XCircle className="h-6 w-6 text-red-600" />}
+                              </div>
+                              <div>
+                                <p className="font-semibold text-lg">
+                                  {formatCurrency(proof.amount * 100)}
+                                </p>
+                                <p className="text-sm text-gray-600">
+                                  Paid on {format(new Date(proof.payment_date), 'MMMM dd, yyyy')}
+                                </p>
+                                <p className="text-sm text-gray-500">
+                                  Method: {proof.payment_method.replace('_', ' ')}
+                                  {proof.reference_number && ` • Ref: ${proof.reference_number}`}
+                                </p>
+                                {proof.notes && (
+                                  <p className="text-sm text-gray-500 mt-1">Note: {proof.notes}</p>
+                                )}
+                                {proof.status === 'rejected' && proof.rejection_reason && (
+                                  <Alert className="mt-2 border-red-200 bg-red-50">
+                                    <AlertCircle className="h-4 w-4 text-red-600" />
+                                    <AlertDescription className="text-red-800">
+                                      Rejected: {proof.rejection_reason}
+                                    </AlertDescription>
+                                  </Alert>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <Badge className={getProofStatusColor(proof.status)}>
+                                {proof.status === 'pending' ? 'Awaiting Review' :
+                                 proof.status === 'approved' ? 'Confirmed' : 'Rejected'}
+                              </Badge>
+                              <p className="text-xs text-gray-500 mt-2">
+                                Submitted {format(new Date(proof.created_at), 'MMM dd, yyyy')}
+                              </p>
+                              {proof.proof_url && (
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  className="mt-1"
+                                  onClick={() => window.open(proof.proof_url, '_blank')}
+                                >
+                                  <FileText className="h-4 w-4 mr-1" />
+                                  View Proof
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Confirmed Payments Tab - Payments updated by lender */}
+            <TabsContent value="confirmed" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Confirmed Payments</CardTitle>
+                  <CardDescription>
+                    Payments that have been verified and recorded by your lender
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {(activeLoan?.total_repaid || 0) === 0 && confirmedPayments.length === 0 ? (
+                    <div className="text-center py-8">
+                      <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No Confirmed Payments Yet</h3>
+                      <p className="text-gray-600">
+                        When your lender confirms your payments, they will appear here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Total Repaid Summary */}
+                      <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-green-700">Total Confirmed Repaid</p>
+                            <p className="text-3xl font-bold text-green-800">
+                              {formatCurrency((activeLoan?.total_repaid || 0) * 100)}
+                            </p>
+                          </div>
+                          <div className="p-4 bg-green-100 rounded-full">
+                            <CheckCircle className="h-8 w-8 text-green-600" />
+                          </div>
+                        </div>
+                        <div className="mt-4">
+                          <div className="flex justify-between text-sm text-green-700 mb-1">
+                            <span>Progress</span>
+                            <span>
+                              {activeLoan?.total_amount_minor
+                                ? Math.round(((activeLoan?.total_repaid || 0) * 100 / activeLoan.total_amount_minor) * 100)
+                                : 0}%
+                            </span>
+                          </div>
+                          <Progress
+                            value={activeLoan?.total_amount_minor
+                              ? ((activeLoan?.total_repaid || 0) * 100 / activeLoan.total_amount_minor) * 100
+                              : 0}
+                            className="h-2"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Approved Payment Proofs */}
+                      {confirmedPayments.length > 0 && (
+                        <div>
+                          <h3 className="text-lg font-semibold mb-3">Payment Confirmations</h3>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Date Paid</TableHead>
+                                <TableHead>Amount</TableHead>
+                                <TableHead>Method</TableHead>
+                                <TableHead>Reference</TableHead>
+                                <TableHead>Confirmed On</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {confirmedPayments.map((payment) => (
+                                <TableRow key={payment.id}>
+                                  <TableCell>
+                                    {format(new Date(payment.payment_date), 'MMM dd, yyyy')}
+                                  </TableCell>
+                                  <TableCell className="font-semibold text-green-600">
+                                    {formatCurrency(payment.amount * 100)}
+                                  </TableCell>
+                                  <TableCell className="capitalize">
+                                    {payment.payment_method.replace('_', ' ')}
+                                  </TableCell>
+                                  <TableCell className="font-mono text-sm">
+                                    {payment.reference_number || '-'}
+                                  </TableCell>
+                                  <TableCell>
+                                    {payment.reviewed_at
+                                      ? format(new Date(payment.reviewed_at), 'MMM dd, yyyy')
+                                      : '-'}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -784,6 +1094,142 @@ export default function RepaymentsPage() {
             <Button onClick={processPayment}>
               <Send className="mr-2 h-4 w-4" />
               Proceed to Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Submit Payment Proof Dialog */}
+      <Dialog open={showProofDialog} onOpenChange={setShowProofDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Submit Payment Proof</DialogTitle>
+            <DialogDescription>
+              Made a payment? Submit proof so your lender can verify and update your balance.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Amount Paid *</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={proofAmount}
+                  onChange={(e) => setProofAmount(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Payment Date *</Label>
+                <Input
+                  type="date"
+                  value={proofDate}
+                  onChange={(e) => setProofDate(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Payment Method *</Label>
+              <Select value={proofMethod} onValueChange={setProofMethod}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mobile_money">Mobile Money (M-Pesa, MTN, etc.)</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="card">Card Payment</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Transaction Reference / Receipt Number</Label>
+              <Input
+                placeholder="e.g., TXN123456 or receipt number"
+                value={proofReference}
+                onChange={(e) => setProofReference(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label>Upload Proof (Screenshot/Photo of Receipt)</Label>
+              <div className="mt-1">
+                <label
+                  className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 ${
+                    proofFile ? 'border-green-300 bg-green-50' : 'border-gray-300'
+                  }`}
+                >
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    {proofFile ? (
+                      <>
+                        <CheckCircle className="w-8 h-8 mb-2 text-green-500" />
+                        <p className="text-sm text-green-600 font-medium">{proofFile.name}</p>
+                        <p className="text-xs text-gray-500">Click to change file</p>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-8 h-8 mb-2 text-gray-400" />
+                        <p className="text-sm text-gray-500">
+                          <span className="font-semibold">Click to upload</span> or drag and drop
+                        </p>
+                        <p className="text-xs text-gray-400">PNG, JPG, PDF up to 10MB</p>
+                      </>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <Label>Additional Notes</Label>
+              <Textarea
+                placeholder="Any additional information about this payment..."
+                value={proofNotes}
+                onChange={(e) => setProofNotes(e.target.value)}
+                className="mt-1"
+                rows={3}
+              />
+            </div>
+
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                Your lender will review this payment proof and update your loan balance once verified.
+                You'll receive a notification when your payment is confirmed.
+              </AlertDescription>
+            </Alert>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowProofDialog(false)} disabled={submittingProof}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitPaymentProof}
+              disabled={submittingProof || !proofAmount || !proofDate}
+            >
+              {submittingProof ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Submit Proof
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
