@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Slider } from '@/components/ui/slider'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -48,6 +49,7 @@ import {
   X
 } from 'lucide-react'
 import { format } from 'date-fns'
+import { toast } from 'sonner'
 import { getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 
 export default function MarketplacePage() {
@@ -61,6 +63,7 @@ export default function MarketplacePage() {
   const [offerExtraRate, setOfferExtraRate] = useState('2')
   const [offerPaymentType, setOfferPaymentType] = useState<'once_off' | 'installments'>('once_off')
   const [offerInstallments, setOfferInstallments] = useState('1')
+  const [lenderMessage, setLenderMessage] = useState('')
   const [submittingOffer, setSubmittingOffer] = useState(false)
   const [lenderCurrency, setLenderCurrency] = useState<CurrencyInfo | null>(null)
   const [filters, setFilters] = useState({
@@ -160,7 +163,8 @@ export default function MarketplacePage() {
 
       // CRITICAL: Only show loan requests from the SAME COUNTRY as the lender
       // Get loan requests from borrowers with full verification details
-      const { data: requests } = await supabase
+      // Use explicit foreign key since there are two relationships between loan_requests and loan_offers
+      const { data: requests, error: requestsError } = await supabase
         .from('loan_requests')
         .select(`
           *,
@@ -191,9 +195,9 @@ export default function MarketplacePage() {
             has_social_media,
             created_at,
             borrower_scores(score),
-            borrower_self_verification_status(verification_status)
+            borrower_self_verification_status!borrower_self_verification_status_borrower_id_fkey(verification_status)
           ),
-          loan_offers(
+          loan_offers!loan_offers_request_id_fkey(
             id,
             lender_id,
             status
@@ -203,6 +207,12 @@ export default function MarketplacePage() {
         .eq('country_code', profile.country_code) // COUNTRY FILTER: Only same country
         .order('created_at', { ascending: false })
 
+      console.log('Marketplace - fetching requests for country:', profile.country_code)
+      console.log('Marketplace requests data:', requests)
+      if (requestsError) {
+        console.error('Marketplace requests error:', JSON.stringify(requestsError, null, 2))
+      }
+
       // Keep amounts in minor units, convert only interest rates
       const formattedRequests = requests?.map(r => ({
         ...r,
@@ -210,12 +220,12 @@ export default function MarketplacePage() {
         max_interest_rate: r.max_apr_bps / 100,
       }))
 
-      // Get my offers
-      const { data: offers } = await supabase
+      // Get my offers - use explicit FK reference to avoid ambiguity
+      const { data: offers, error: offersError } = await supabase
         .from('loan_offers')
         .select(`
           *,
-          loan_requests(
+          loan_requests!loan_offers_request_id_fkey(
             *,
             borrowers(
               full_name,
@@ -226,8 +236,16 @@ export default function MarketplacePage() {
         .eq('lender_id', lender.user_id)
         .order('created_at', { ascending: false })
 
-      // Keep offer amounts in minor units
-      const formattedOffers = offers?.map(o => ({
+      console.log('My offers query - lender_id:', lender.user_id)
+      console.log('My offers data:', offers)
+      if (offersError) {
+        console.error('My offers error:', JSON.stringify(offersError, null, 2))
+      }
+
+      // Keep offer amounts in minor units and filter out withdrawn offers
+      const formattedOffers = offers
+        ?.filter(o => o.status !== 'withdrawn') // Hide withdrawn/cancelled offers
+        ?.map(o => ({
         ...o,
         amount_minor: o.amount_minor, // Keep in minor units
         interest_rate: o.apr_bps / 100,
@@ -315,13 +333,19 @@ export default function MarketplacePage() {
   }
 
   const submitOffer = async () => {
-    if (!selectedRequest || !offerAmount || !offerBaseRate) return
+    if (!selectedRequest || !offerAmount || !offerBaseRate) {
+      toast.error('Please fill in all required fields')
+      return
+    }
 
     try {
       setSubmittingOffer(true)
 
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        toast.error('You must be logged in')
+        return
+      }
 
       const { data: lender } = await supabase
         .from('lenders')
@@ -329,7 +353,10 @@ export default function MarketplacePage() {
         .eq('user_id', user.id)
         .single()
 
-      if (!lender) return
+      if (!lender) {
+        toast.error('Lender profile not found')
+        return
+      }
 
       // Calculate values
       const baseRate = parseFloat(offerBaseRate)
@@ -358,15 +385,20 @@ export default function MarketplacePage() {
           payment_type: offerPaymentType,
           num_installments: numInstallments,
           term_months: numInstallments, // term_months = num_installments for this model
+          lender_message: lenderMessage || null, // Personal message to borrower
           status: 'pending',
         })
         .select()
         .single()
 
       if (error) {
-        console.error('Error submitting offer:', error)
+        console.error('Error submitting offer:', JSON.stringify(error, null, 2))
+        const errorMsg = error.message || error.details || error.hint || 'Failed to submit offer'
+        toast.error(errorMsg)
         return
       }
+
+      toast.success('Offer submitted successfully!')
 
       // Create message thread for this offer
       const { error: threadError } = await supabase
@@ -395,8 +427,10 @@ export default function MarketplacePage() {
       setOfferExtraRate('2')
       setOfferPaymentType('once_off')
       setOfferInstallments('1')
+      setLenderMessage('')
     } catch (error) {
       console.error('Error:', error)
+      toast.error('An unexpected error occurred')
     } finally {
       setSubmittingOffer(false)
     }
@@ -702,18 +736,19 @@ export default function MarketplacePage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {loanRequests
                     .filter(req => {
-                      const score = req.borrowers?.borrower_scores?.[0]?.score || 0
-                      const verificationStatus = req.borrowers?.borrower_self_verification_status?.[0]?.verification_status
-                      // Only show verified borrowers
+                      const score = req.borrowers?.borrower_scores?.[0]?.score || 500
+                      const verificationStatus = req.borrowers?.borrower_self_verification_status?.verification_status
+                      // Convert amount from minor units to major for comparison
+                      const amountMajor = req.amount_minor / 100
+                      // Filter by score and amount, verification is optional for now
                       return score >= filters.minScore &&
-                             req.amount <= filters.maxAmount &&
-                             verificationStatus === 'approved'
+                             amountMajor <= filters.maxAmount
                     })
                     .map((request) => {
                       const score = request.borrowers?.borrower_scores?.[0]?.score || 500
                       const hasMyOffer = request.loan_offers?.some((o: any) => o.status === 'pending')
                       const borrower = request.borrowers
-                      const verificationStatus = borrower?.borrower_self_verification_status?.[0]
+                      const verificationStatus = borrower?.borrower_self_verification_status
 
                       // Calculate verification badges
                       const badges = {
@@ -744,6 +779,17 @@ export default function MarketplacePage() {
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-3">
+                            {/* Borrower's Message */}
+                            {request.borrower_message && (
+                              <div className="border-l-4 border-blue-400 bg-blue-50 p-3 rounded-r-lg mb-3">
+                                <p className="text-xs text-blue-600 font-medium mb-1 flex items-center gap-1">
+                                  <MessageSquare className="h-3 w-3" />
+                                  Message from Borrower
+                                </p>
+                                <p className="text-sm text-blue-900">{request.borrower_message}</p>
+                              </div>
+                            )}
+
                             <div className="space-y-2 text-sm">
                               <div className="flex items-center justify-between">
                                 <span className="text-gray-600">Borrower:</span>
@@ -788,302 +834,16 @@ export default function MarketplacePage() {
                                 Offer Submitted
                               </Button>
                             ) : (
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button 
-                                    className="w-full"
-                                    onClick={() => {
-                                      setSelectedRequest(request)
-                                      setOfferAmount(request.amount.toString())
-                                      setOfferTerms(request.term_months.toString())
-                                    }}
-                                  >
-                                    <Send className="mr-2 h-4 w-4" />
-                                    Make Offer
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                                  <DialogHeader>
-                                    <DialogTitle>Make Loan Offer</DialogTitle>
-                                    <DialogDescription>
-                                      Review borrower details and submit your offer
-                                    </DialogDescription>
-                                  </DialogHeader>
-                                  <div className="space-y-4 py-4">
-                                    {/* Basic Info */}
-                                    <div className="border rounded-lg p-3 bg-gray-50">
-                                      <div className="flex justify-between items-start">
-                                        <div>
-                                          <p className="font-medium text-lg">{borrower?.full_name}</p>
-                                          <p className="text-sm text-gray-600">Credit Score: {score}</p>
-                                        </div>
-                                        <Badge variant={verifiedCount >= 5 ? 'default' : 'secondary'}>
-                                          {verifiedCount}/6 verified
-                                        </Badge>
-                                      </div>
-                                    </div>
-
-                                    {/* Full Verification Details */}
-                                    <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50/30">
-                                      <h4 className="font-semibold text-sm text-blue-900 mb-3 flex items-center gap-2">
-                                        <Shield className="h-4 w-4" />
-                                        Full Verification Details
-                                      </h4>
-                                      <div className="grid grid-cols-2 gap-4 text-sm">
-                                        {/* Left Column */}
-                                        <div className="space-y-3">
-                                          <div>
-                                            <p className="text-gray-500 text-xs">Phone</p>
-                                            <p className="font-medium">{borrower?.phone_e164 || 'N/A'}</p>
-                                          </div>
-                                          <div>
-                                            <p className="text-gray-500 text-xs">Address</p>
-                                            <p className="font-medium">{borrower?.street_address || 'N/A'}</p>
-                                            <p className="text-xs">{borrower?.city}{borrower?.postal_code ? `, ${borrower.postal_code}` : ''}</p>
-                                          </div>
-                                          <div>
-                                            <p className="text-gray-500 text-xs">Employment</p>
-                                            <p className="font-medium capitalize">{borrower?.employment_status?.replace('_', ' ') || 'N/A'}</p>
-                                            {borrower?.employer_name && <p className="text-xs">{borrower.employer_name}</p>}
-                                          </div>
-                                          <div>
-                                            <p className="text-gray-500 text-xs">Income Range</p>
-                                            <p className="font-medium">{borrower?.monthly_income_range || 'N/A'}</p>
-                                          </div>
-                                        </div>
-                                        {/* Right Column */}
-                                        <div className="space-y-3">
-                                          <div>
-                                            <p className="text-gray-500 text-xs">Bank Account</p>
-                                            <p className="font-medium">{borrower?.bank_name || 'N/A'}</p>
-                                            <p className="text-xs font-mono">{borrower?.bank_account_number || 'N/A'}</p>
-                                            <p className="text-xs">{borrower?.bank_account_name || 'N/A'}</p>
-                                          </div>
-                                          <div>
-                                            <p className="text-gray-500 text-xs">Emergency Contact</p>
-                                            <p className="font-medium">{borrower?.emergency_contact_name || 'N/A'}</p>
-                                            <p className="text-xs">{borrower?.emergency_contact_phone || 'N/A'}</p>
-                                          </div>
-                                          <div>
-                                            <p className="text-gray-500 text-xs">Next of Kin</p>
-                                            <p className="font-medium">{borrower?.next_of_kin_name || 'N/A'}</p>
-                                            <p className="text-xs">{borrower?.next_of_kin_phone || 'N/A'}</p>
-                                          </div>
-                                          {(borrower?.linkedin_url || borrower?.facebook_url) && (
-                                            <div>
-                                              <p className="text-gray-500 text-xs">Social Media</p>
-                                              <div className="flex gap-2">
-                                                {borrower?.linkedin_url && (
-                                                  <a href={borrower.linkedin_url} target="_blank" rel="noopener noreferrer"
-                                                     className="text-blue-600 hover:underline text-xs flex items-center gap-1">
-                                                    LinkedIn <ExternalLink className="h-3 w-3" />
-                                                  </a>
-                                                )}
-                                                {borrower?.facebook_url && (
-                                                  <a href={borrower.facebook_url} target="_blank" rel="noopener noreferrer"
-                                                     className="text-blue-600 hover:underline text-xs flex items-center gap-1">
-                                                    Facebook <ExternalLink className="h-3 w-3" />
-                                                  </a>
-                                                )}
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <Alert className="mt-3 bg-yellow-50 border-yellow-200">
-                                        <AlertCircle className="h-3 w-3 text-yellow-600" />
-                                        <AlertDescription className="text-xs text-yellow-800">
-                                          Verify this info matches what the borrower tells you in person before disbursing.
-                                        </AlertDescription>
-                                      </Alert>
-                                    </div>
-
-                                    {/* Offer Form - New Interest System */}
-                                    <div className="space-y-4 border-2 border-green-200 rounded-lg p-4 bg-green-50/30">
-                                      <h4 className="font-semibold text-sm text-green-900 flex items-center gap-2">
-                                        <DollarSign className="h-4 w-4" />
-                                        Your Loan Offer
-                                      </h4>
-
-                                      {/* Amount */}
-                                      <div className="space-y-2">
-                                        <Label htmlFor="offer-amount">Loan Amount</Label>
-                                        <Input
-                                          id="offer-amount"
-                                          type="number"
-                                          placeholder="e.g., 1000"
-                                          value={offerAmount}
-                                          onChange={(e) => setOfferAmount(e.target.value)}
-                                        />
-                                      </div>
-
-                                      {/* Interest Rate */}
-                                      <div className="grid grid-cols-2 gap-3">
-                                        <div className="space-y-2">
-                                          <Label htmlFor="offer-base-rate">
-                                            Base Interest Rate (%)
-                                            <span className="text-xs text-gray-500 block">For 1-month / once-off payment</span>
-                                          </Label>
-                                          <Input
-                                            id="offer-base-rate"
-                                            type="number"
-                                            step="0.5"
-                                            placeholder="e.g., 30"
-                                            value={offerBaseRate}
-                                            onChange={(e) => setOfferBaseRate(e.target.value)}
-                                          />
-                                        </div>
-
-                                        <div className="space-y-2">
-                                          <Label htmlFor="offer-extra-rate">
-                                            Extra Rate Per Installment (%)
-                                            <span className="text-xs text-gray-500 block">Added for each extra month</span>
-                                          </Label>
-                                          <Input
-                                            id="offer-extra-rate"
-                                            type="number"
-                                            step="0.5"
-                                            placeholder="e.g., 2"
-                                            value={offerExtraRate}
-                                            onChange={(e) => setOfferExtraRate(e.target.value)}
-                                          />
-                                        </div>
-                                      </div>
-
-                                      {/* Payment Type */}
-                                      <div className="space-y-2">
-                                        <Label>Payment Type</Label>
-                                        <RadioGroup
-                                          value={offerPaymentType}
-                                          onValueChange={(value: 'once_off' | 'installments') => {
-                                            setOfferPaymentType(value)
-                                            if (value === 'once_off') {
-                                              setOfferInstallments('1')
-                                            } else {
-                                              setOfferInstallments('2')
-                                            }
-                                          }}
-                                          className="flex gap-4"
-                                        >
-                                          <div className="flex items-center space-x-2">
-                                            <RadioGroupItem value="once_off" id="once_off" />
-                                            <Label htmlFor="once_off" className="font-normal cursor-pointer">
-                                              Once-off (Single payment)
-                                            </Label>
-                                          </div>
-                                          <div className="flex items-center space-x-2">
-                                            <RadioGroupItem value="installments" id="installments" />
-                                            <Label htmlFor="installments" className="font-normal cursor-pointer">
-                                              Installments (Multiple payments)
-                                            </Label>
-                                          </div>
-                                        </RadioGroup>
-                                      </div>
-
-                                      {/* Number of Installments - only show if installments selected */}
-                                      {offerPaymentType === 'installments' && (
-                                        <div className="space-y-2">
-                                          <Label htmlFor="offer-installments">Number of Installments</Label>
-                                          <Select
-                                            value={offerInstallments}
-                                            onValueChange={setOfferInstallments}
-                                          >
-                                            <SelectTrigger>
-                                              <SelectValue placeholder="Select installments" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                              <SelectItem value="2">2 months</SelectItem>
-                                              <SelectItem value="3">3 months</SelectItem>
-                                              <SelectItem value="4">4 months</SelectItem>
-                                              <SelectItem value="5">5 months</SelectItem>
-                                              <SelectItem value="6">6 months</SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                        </div>
-                                      )}
-
-                                      {/* Live Calculation Preview */}
-                                      {offerAmount && offerBaseRate && (
-                                        <div className="border-2 border-blue-300 rounded-lg p-4 bg-blue-50">
-                                          <h5 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
-                                            <TrendingUp className="h-4 w-4" />
-                                            What Borrower Will Pay
-                                          </h5>
-                                          {(() => {
-                                            const principal = parseFloat(offerAmount) || 0
-                                            const baseRate = parseFloat(offerBaseRate) || 0
-                                            const extraRate = parseFloat(offerExtraRate) || 0
-                                            const installments = offerPaymentType === 'once_off' ? 1 : parseInt(offerInstallments)
-
-                                            // Calculate total rate
-                                            const totalRate = offerPaymentType === 'once_off'
-                                              ? baseRate
-                                              : baseRate + (extraRate * (installments - 1))
-
-                                            const interestAmount = principal * (totalRate / 100)
-                                            const totalAmount = principal + interestAmount
-                                            const perInstallment = totalAmount / installments
-
-                                            return (
-                                              <div className="space-y-2 text-sm">
-                                                <div className="flex justify-between">
-                                                  <span className="text-gray-600">Principal:</span>
-                                                  <span className="font-medium">{formatCurrency(principal * 100)}</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                  <span className="text-gray-600">
-                                                    Interest Rate:
-                                                    {offerPaymentType === 'installments' && (
-                                                      <span className="text-xs ml-1">
-                                                        ({baseRate}% + {extraRate}% x {installments - 1})
-                                                      </span>
-                                                    )}
-                                                  </span>
-                                                  <span className="font-medium text-orange-600">{totalRate.toFixed(1)}%</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                  <span className="text-gray-600">Interest Amount:</span>
-                                                  <span className="font-medium text-orange-600">{formatCurrency(interestAmount * 100)}</span>
-                                                </div>
-                                                <div className="border-t pt-2 mt-2">
-                                                  <div className="flex justify-between text-lg">
-                                                    <span className="font-semibold text-blue-900">Total to Pay:</span>
-                                                    <span className="font-bold text-blue-900">{formatCurrency(totalAmount * 100)}</span>
-                                                  </div>
-                                                </div>
-                                                {offerPaymentType === 'installments' && (
-                                                  <div className="bg-white rounded p-2 mt-2">
-                                                    <div className="flex justify-between">
-                                                      <span className="text-gray-600">Per Installment:</span>
-                                                      <span className="font-bold text-green-700">
-                                                        {formatCurrency(perInstallment * 100)} x {installments}
-                                                      </span>
-                                                    </div>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )
-                                          })()}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <DialogFooter>
-                                    <Button
-                                      variant="outline"
-                                      onClick={() => setSelectedRequest(null)}
-                                    >
-                                      Cancel
-                                    </Button>
-                                    <Button
-                                      onClick={submitOffer}
-                                      disabled={submittingOffer}
-                                    >
-                                      {submittingOffer ? 'Submitting...' : 'Submit Offer'}
-                                    </Button>
-                                  </DialogFooter>
-                                </DialogContent>
-                              </Dialog>
+                              <Button
+                                className="w-full"
+                                onClick={() => {
+                                  setSelectedRequest(request)
+                                  setOfferAmount((request.amount_minor / 100).toString())
+                                }}
+                              >
+                                <Send className="mr-2 h-4 w-4" />
+                                Make Offer
+                              </Button>
                             )}
                           </CardContent>
                         </Card>
@@ -1091,6 +851,346 @@ export default function MarketplacePage() {
                     })}
                 </div>
               )}
+
+              {/* Make Offer Dialog - Single controlled dialog */}
+              <Dialog open={selectedRequest !== null} onOpenChange={(open) => { if (!open) { setSelectedRequest(null); setLenderMessage(''); } }}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Make Loan Offer</DialogTitle>
+                    <DialogDescription>
+                      Review borrower details and submit your offer
+                    </DialogDescription>
+                  </DialogHeader>
+                  {selectedRequest && (
+                    <div className="space-y-4 py-4">
+                      {/* Borrower's Message */}
+                      {selectedRequest.borrower_message && (
+                        <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded-r-lg">
+                          <p className="text-sm text-blue-600 font-medium mb-1 flex items-center gap-1">
+                            <MessageSquare className="h-4 w-4" />
+                            Message from Borrower
+                          </p>
+                          <p className="text-gray-900">{selectedRequest.borrower_message}</p>
+                        </div>
+                      )}
+
+                      {/* Basic Info */}
+                      <div className="border rounded-lg p-3 bg-gray-50">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium text-lg">{selectedRequest.borrowers?.full_name}</p>
+                            <p className="text-sm text-gray-600">Credit Score: {selectedRequest.borrowers?.borrower_scores?.[0]?.score || 500}</p>
+                          </div>
+                          <Badge variant={(() => {
+                            const borrower = selectedRequest.borrowers
+                            const verificationStatus = borrower?.borrower_self_verification_status
+                            const badges = {
+                              identity: verificationStatus?.verification_status === 'approved',
+                              address: !!borrower?.street_address,
+                              employment: !!borrower?.employment_status,
+                              bank: !!borrower?.bank_name,
+                              contacts: !!(borrower?.emergency_contact_name && borrower?.next_of_kin_name),
+                              social: borrower?.has_social_media || false,
+                            }
+                            const verifiedCount = Object.values(badges).filter(Boolean).length
+                            return verifiedCount >= 5 ? 'default' : 'secondary'
+                          })()}>
+                            {(() => {
+                              const borrower = selectedRequest.borrowers
+                              const verificationStatus = borrower?.borrower_self_verification_status
+                              const badges = {
+                                identity: verificationStatus?.verification_status === 'approved',
+                                address: !!borrower?.street_address,
+                                employment: !!borrower?.employment_status,
+                                bank: !!borrower?.bank_name,
+                                contacts: !!(borrower?.emergency_contact_name && borrower?.next_of_kin_name),
+                                social: borrower?.has_social_media || false,
+                              }
+                              return Object.values(badges).filter(Boolean).length
+                            })()}/6 verified
+                          </Badge>
+                        </div>
+                      </div>
+
+                      {/* Full Verification Details */}
+                      <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50/30">
+                        <h4 className="font-semibold text-sm text-blue-900 mb-3 flex items-center gap-2">
+                          <Shield className="h-4 w-4" />
+                          Full Verification Details
+                        </h4>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          {/* Left Column */}
+                          <div className="space-y-3">
+                            <div>
+                              <p className="text-gray-500 text-xs">Phone</p>
+                              <p className="font-medium">{selectedRequest.borrowers?.phone_e164 || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500 text-xs">Address</p>
+                              <p className="font-medium">{selectedRequest.borrowers?.street_address || 'N/A'}</p>
+                              <p className="text-xs">{selectedRequest.borrowers?.city}{selectedRequest.borrowers?.postal_code ? `, ${selectedRequest.borrowers.postal_code}` : ''}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500 text-xs">Employment</p>
+                              <p className="font-medium capitalize">{selectedRequest.borrowers?.employment_status?.replace('_', ' ') || 'N/A'}</p>
+                              {selectedRequest.borrowers?.employer_name && <p className="text-xs">{selectedRequest.borrowers.employer_name}</p>}
+                            </div>
+                            <div>
+                              <p className="text-gray-500 text-xs">Income Range</p>
+                              <p className="font-medium">{selectedRequest.borrowers?.monthly_income_range || 'N/A'}</p>
+                            </div>
+                          </div>
+                          {/* Right Column */}
+                          <div className="space-y-3">
+                            <div>
+                              <p className="text-gray-500 text-xs">Bank Account</p>
+                              <p className="font-medium">{selectedRequest.borrowers?.bank_name || 'N/A'}</p>
+                              <p className="text-xs font-mono">{selectedRequest.borrowers?.bank_account_number || 'N/A'}</p>
+                              <p className="text-xs">{selectedRequest.borrowers?.bank_account_name || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500 text-xs">Emergency Contact</p>
+                              <p className="font-medium">{selectedRequest.borrowers?.emergency_contact_name || 'N/A'}</p>
+                              <p className="text-xs">{selectedRequest.borrowers?.emergency_contact_phone || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500 text-xs">Next of Kin</p>
+                              <p className="font-medium">{selectedRequest.borrowers?.next_of_kin_name || 'N/A'}</p>
+                              <p className="text-xs">{selectedRequest.borrowers?.next_of_kin_phone || 'N/A'}</p>
+                            </div>
+                            {(selectedRequest.borrowers?.linkedin_url || selectedRequest.borrowers?.facebook_url) && (
+                              <div>
+                                <p className="text-gray-500 text-xs">Social Media</p>
+                                <div className="flex gap-2">
+                                  {selectedRequest.borrowers?.linkedin_url && (
+                                    <a href={selectedRequest.borrowers.linkedin_url} target="_blank" rel="noopener noreferrer"
+                                       className="text-blue-600 hover:underline text-xs flex items-center gap-1">
+                                      LinkedIn <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                  )}
+                                  {selectedRequest.borrowers?.facebook_url && (
+                                    <a href={selectedRequest.borrowers.facebook_url} target="_blank" rel="noopener noreferrer"
+                                       className="text-blue-600 hover:underline text-xs flex items-center gap-1">
+                                      Facebook <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <Alert className="mt-3 bg-yellow-50 border-yellow-200">
+                          <AlertCircle className="h-3 w-3 text-yellow-600" />
+                          <AlertDescription className="text-xs text-yellow-800">
+                            Verify this info matches what the borrower tells you in person before disbursing.
+                          </AlertDescription>
+                        </Alert>
+                      </div>
+
+                      {/* Offer Form - New Interest System */}
+                      <div className="space-y-4 border-2 border-green-200 rounded-lg p-4 bg-green-50/30">
+                        <h4 className="font-semibold text-sm text-green-900 flex items-center gap-2">
+                          <DollarSign className="h-4 w-4" />
+                          Your Loan Offer
+                        </h4>
+
+                        {/* Amount */}
+                        <div className="space-y-2">
+                          <Label htmlFor="offer-amount">Loan Amount</Label>
+                          <Input
+                            id="offer-amount"
+                            type="number"
+                            placeholder="e.g., 1000"
+                            value={offerAmount}
+                            onChange={(e) => setOfferAmount(e.target.value)}
+                          />
+                        </div>
+
+                        {/* Interest Rate */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <Label htmlFor="offer-base-rate">
+                              Base Interest Rate (%)
+                              <span className="text-xs text-gray-500 block">For 1-month / once-off payment</span>
+                            </Label>
+                            <Input
+                              id="offer-base-rate"
+                              type="number"
+                              step="0.5"
+                              placeholder="e.g., 30"
+                              value={offerBaseRate}
+                              onChange={(e) => setOfferBaseRate(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="offer-extra-rate">
+                              Extra Rate Per Installment (%)
+                              <span className="text-xs text-gray-500 block">Added for each extra month</span>
+                            </Label>
+                            <Input
+                              id="offer-extra-rate"
+                              type="number"
+                              step="0.5"
+                              placeholder="e.g., 2"
+                              value={offerExtraRate}
+                              onChange={(e) => setOfferExtraRate(e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Payment Type */}
+                        <div className="space-y-2">
+                          <Label>Payment Type</Label>
+                          <RadioGroup
+                            value={offerPaymentType}
+                            onValueChange={(value: 'once_off' | 'installments') => {
+                              setOfferPaymentType(value)
+                              if (value === 'once_off') {
+                                setOfferInstallments('1')
+                              } else {
+                                setOfferInstallments('2')
+                              }
+                            }}
+                            className="flex gap-4"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem value="once_off" id="once_off" />
+                              <Label htmlFor="once_off" className="font-normal cursor-pointer">
+                                Once-off (Single payment)
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem value="installments" id="installments" />
+                              <Label htmlFor="installments" className="font-normal cursor-pointer">
+                                Installments (Multiple payments)
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                        </div>
+
+                        {/* Number of Installments - only show if installments selected */}
+                        {offerPaymentType === 'installments' && (
+                          <div className="space-y-2">
+                            <Label htmlFor="offer-installments">Number of Installments</Label>
+                            <Select
+                              value={offerInstallments}
+                              onValueChange={setOfferInstallments}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select installments" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="2">2 months</SelectItem>
+                                <SelectItem value="3">3 months</SelectItem>
+                                <SelectItem value="4">4 months</SelectItem>
+                                <SelectItem value="5">5 months</SelectItem>
+                                <SelectItem value="6">6 months</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+
+                        {/* Message to Borrower */}
+                        <div className="space-y-2">
+                          <Label htmlFor="lender-message">
+                            Message to Borrower <span className="text-gray-400 text-sm">(Optional)</span>
+                          </Label>
+                          <Textarea
+                            id="lender-message"
+                            value={lenderMessage}
+                            onChange={(e) => setLenderMessage(e.target.value)}
+                            placeholder="Add a personal message to the borrower. Introduce yourself, explain your terms, or ask any questions..."
+                            rows={3}
+                          />
+                          <p className="text-xs text-gray-500">
+                            This message will be shown with your offer
+                          </p>
+                        </div>
+
+                        {/* Live Calculation Preview */}
+                        {offerAmount && offerBaseRate && (
+                          <div className="border-2 border-blue-300 rounded-lg p-4 bg-blue-50">
+                            <h5 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                              <TrendingUp className="h-4 w-4" />
+                              What Borrower Will Pay
+                            </h5>
+                            {(() => {
+                              const principal = parseFloat(offerAmount) || 0
+                              const baseRate = parseFloat(offerBaseRate) || 0
+                              const extraRate = parseFloat(offerExtraRate) || 0
+                              const installments = offerPaymentType === 'once_off' ? 1 : parseInt(offerInstallments)
+
+                              // Calculate total rate
+                              const totalRate = offerPaymentType === 'once_off'
+                                ? baseRate
+                                : baseRate + (extraRate * (installments - 1))
+
+                              const interestAmount = principal * (totalRate / 100)
+                              const totalAmount = principal + interestAmount
+                              const perInstallment = totalAmount / installments
+
+                              return (
+                                <div className="space-y-2 text-sm">
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-600">Principal:</span>
+                                    <span className="font-medium">{formatCurrency(principal * 100)}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-600">
+                                      Interest Rate:
+                                      {offerPaymentType === 'installments' && (
+                                        <span className="text-xs ml-1">
+                                          ({baseRate}% + {extraRate}% x {installments - 1})
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="font-medium text-orange-600">{totalRate.toFixed(1)}%</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-600">Interest Amount:</span>
+                                    <span className="font-medium text-orange-600">{formatCurrency(interestAmount * 100)}</span>
+                                  </div>
+                                  <div className="border-t pt-2 mt-2">
+                                    <div className="flex justify-between text-lg">
+                                      <span className="font-semibold text-blue-900">Total to Pay:</span>
+                                      <span className="font-bold text-blue-900">{formatCurrency(totalAmount * 100)}</span>
+                                    </div>
+                                  </div>
+                                  {offerPaymentType === 'installments' && (
+                                    <div className="bg-white rounded p-2 mt-2">
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Per Installment:</span>
+                                        <span className="font-bold text-green-700">
+                                          {formatCurrency(perInstallment * 100)} x {installments}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setSelectedRequest(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={submitOffer}
+                      disabled={submittingOffer}
+                    >
+                      {submittingOffer ? 'Submitting...' : 'Submit Offer'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </TabsContent>
 
             <TabsContent value="my-offers" className="space-y-4">

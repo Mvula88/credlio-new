@@ -24,10 +24,13 @@ export function RoleSwitcher() {
   const [roles, setRoles] = useState<string[]>([])
   const [currentRole, setCurrentRole] = useState<string>('')
   const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
+    setMounted(true)
+
     async function fetchUserRoles() {
       try {
         const { data: { user } } = await supabase.auth.getUser()
@@ -73,8 +76,8 @@ export function RoleSwitcher() {
     fetchUserRoles()
   }, [supabase])
 
-  // Only show if user has multiple roles
-  if (loading || roles.length <= 1) {
+  // Only show if user has multiple roles (and after mounting to prevent hydration mismatch)
+  if (!mounted || loading || roles.length <= 1) {
     return null
   }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, Controller } from 'react-hook-form'
@@ -13,6 +13,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2, AlertCircle, Building2, CheckCircle, Upload, Camera, Video, RotateCcw, Lock } from 'lucide-react'
+
+const STORAGE_KEY = 'lender_profile_draft'
 
 // Utility function to generate SHA-256 hash of a file
 async function generateFileHash(file: File): Promise<string> {
@@ -39,6 +41,7 @@ const LENDING_PURPOSES = [
 export default function CompleteProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isCheckingProfile, setIsCheckingProfile] = useState(true)
   const [uploadProgress, setUploadProgress] = useState<string>('')
   const router = useRouter()
   const supabase = createClient()
@@ -56,10 +59,127 @@ export default function CompleteProfilePage() {
     register,
     handleSubmit,
     control,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<LenderProfileInput>({
     resolver: zodResolver(lenderProfileSchema),
   })
+
+  // Watch all form values for auto-save
+  const watchedValues = watch()
+
+  // Save draft to localStorage
+  const saveDraft = useCallback((data: Partial<LenderProfileInput>) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    } catch (e) {
+      console.error('Failed to save draft:', e)
+    }
+  }, [])
+
+  // Load draft from localStorage
+  const loadDraft = useCallback((): Partial<LenderProfileInput> | null => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      return saved ? JSON.parse(saved) : null
+    } catch (e) {
+      console.error('Failed to load draft:', e)
+      return null
+    }
+  }, [])
+
+  // Clear draft from localStorage
+  const clearDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch (e) {
+      console.error('Failed to clear draft:', e)
+    }
+  }, [])
+
+  // Auto-save on form changes (debounced)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (watchedValues && Object.keys(watchedValues).some(k => watchedValues[k as keyof LenderProfileInput])) {
+        saveDraft(watchedValues)
+      }
+    }, 1000) // Save after 1 second of no changes
+
+    return () => clearTimeout(timeoutId)
+  }, [watchedValues, saveDraft])
+
+  // Check profile status and load existing data on mount
+  useEffect(() => {
+    const checkProfileAndLoadData = async () => {
+      try {
+        setIsCheckingProfile(true)
+        const { data: { user } } = await supabase.auth.getUser()
+
+        if (!user) {
+          router.push('/l/login')
+          return
+        }
+
+        // Check if profile is already completed
+        const { data: lender } = await supabase
+          .from('lenders')
+          .select('id_number, city, profile_completed, id_type, lending_purpose, contact_number')
+          .eq('user_id', user.id)
+          .single()
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, phone_e164, onboarding_completed')
+          .eq('user_id', user.id)
+          .single()
+
+        // If identity verification is complete (has id_number and city), redirect
+        if (lender?.id_number && lender?.city) {
+          router.push('/l/overview')
+          return
+        }
+
+        // Load existing data from database first
+        if (profile?.full_name && profile.full_name !== 'Pending') {
+          setValue('fullName', profile.full_name)
+        }
+        if (profile?.phone_e164 || lender?.contact_number) {
+          setValue('phoneNumber', profile?.phone_e164 || lender?.contact_number || '')
+        }
+        if (lender?.city) {
+          setValue('city', lender.city)
+        }
+        if (lender?.id_type) {
+          setValue('idType', lender.id_type as any)
+        }
+        if (lender?.id_number) {
+          setValue('idNumber', lender.id_number)
+        }
+        if (lender?.lending_purpose) {
+          setValue('lendingPurpose', lender.lending_purpose as any)
+        }
+
+        // Then load any draft data from localStorage (to restore unsaved progress)
+        const draft = loadDraft()
+        if (draft) {
+          // Only apply draft values if they exist and aren't already set from DB
+          if (draft.fullName && !profile?.full_name) setValue('fullName', draft.fullName)
+          if (draft.phoneNumber && !profile?.phone_e164) setValue('phoneNumber', draft.phoneNumber)
+          if (draft.city && !lender?.city) setValue('city', draft.city)
+          if (draft.idType && !lender?.id_type) setValue('idType', draft.idType)
+          if (draft.idNumber && !lender?.id_number) setValue('idNumber', draft.idNumber)
+          if (draft.lendingPurpose && !lender?.lending_purpose) setValue('lendingPurpose', draft.lendingPurpose)
+        }
+      } catch (err) {
+        console.error('Error checking profile:', err)
+      } finally {
+        setIsCheckingProfile(false)
+      }
+    }
+
+    checkProfileAndLoadData()
+  }, [supabase, router, setValue, loadDraft])
 
   // Camera functions
   const startCamera = async () => {
@@ -315,6 +435,9 @@ export default function CompleteProfilePage() {
         console.error('Failed to update user metadata:', metadataError)
       }
 
+      // Clear draft on successful submission
+      clearDraft()
+
       // Redirect to dashboard
       router.push('/l/overview')
     } catch (err) {
@@ -322,6 +445,18 @@ export default function CompleteProfilePage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Show loading while checking profile status
+  if (isCheckingProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-blue-50">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-green-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading your profile...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

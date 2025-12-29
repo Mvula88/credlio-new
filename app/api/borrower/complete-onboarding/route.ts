@@ -8,6 +8,11 @@ function hashNationalId(nationalId: string): string {
   return createHash('sha256').update(nationalId.trim().toLowerCase()).digest('hex')
 }
 
+// Encode national ID for admin verification (base64)
+function encodeNationalId(nationalId: string): string {
+  return Buffer.from(nationalId.trim()).toString('base64')
+}
+
 export async function POST(request: NextRequest) {
   try {
     const {
@@ -68,8 +73,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Hash the national ID
+    // Hash the national ID for searching
     const idHash = hashNationalId(nationalId)
+    // Encode the national ID for admin verification
+    const idEncoded = encodeNationalId(nationalId)
 
     // Check if borrower already exists with this ID or phone
     const { data: existingBorrower } = await supabase
@@ -95,6 +102,7 @@ export async function POST(request: NextRequest) {
           date_of_birth: dateOfBirth,
           email_verified: true,
           profile_completed: true,
+          national_id_encrypted: idEncoded,
           // Enhanced verification fields
           street_address: streetAddress,
           city: city,
@@ -127,6 +135,7 @@ export async function POST(request: NextRequest) {
           country_code: profile.country_code,
           full_name: profile.full_name,
           national_id_hash: idHash,
+          national_id_encrypted: idEncoded,
           phone_e164: phone,
           date_of_birth: dateOfBirth,
           email_verified: true,

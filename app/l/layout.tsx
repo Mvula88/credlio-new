@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -32,8 +32,6 @@ import {
   MessageSquare,
   ShieldCheck,
   Wallet,
-  Download,
-  Webhook
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -75,13 +73,6 @@ const navigationGroups = [
     ]
   },
   {
-    title: 'Tools',
-    items: [
-      { name: 'Export Data', href: '/l/export', icon: Download, badge: null },
-      { name: 'Webhooks', href: '/l/webhooks', icon: Webhook, badge: null },
-    ]
-  },
-  {
     title: 'Settings',
     items: [
       { name: 'Settings', href: '/l/settings', icon: Settings, badge: null },
@@ -95,9 +86,15 @@ export default function LenderLayout({
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+
+  // Prevent hydration mismatch with Radix UI
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -271,6 +268,7 @@ export default function LenderLayout({
               <RoleSwitcher />
 
               {/* User menu */}
+              {mounted ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="flex items-center space-x-2 hover:bg-accent/50 transition-all duration-300">
@@ -298,6 +296,14 @@ export default function LenderLayout({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              ) : (
+                <Button variant="ghost" className="flex items-center space-x-2">
+                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                    <Building2 className="h-4 w-4 text-primary-foreground" />
+                  </div>
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
         </header>

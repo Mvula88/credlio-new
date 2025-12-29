@@ -41,6 +41,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 import { format, addMonths } from 'date-fns'
+import { toast } from 'sonner'
 import { getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 
 const requestSchema = z.object({
@@ -48,13 +49,16 @@ const requestSchema = z.object({
   purpose: z.string().min(10, 'Please describe the loan purpose'),
   termMonths: z.number().min(1).max(60),
   maxInterestRate: z.number().min(0).max(100),
+  borrowerMessage: z.string().optional(),
 })
 
 type RequestInput = z.infer<typeof requestSchema>
 
 export default function LoanRequestsPage() {
   const [loading, setLoading] = useState(true)
-  const [hasActiveLoan, setHasActiveLoan] = useState(false)
+  // Track if borrower has a loan in progress (pending_signatures or pending_disbursement)
+  // They can't request new loans until the current one becomes active
+  const [pendingLoan, setPendingLoan] = useState<any>(null)
   const [myRequests, setMyRequests] = useState<any[]>([])
   const [offers, setOffers] = useState<any[]>([])
   const [selectedOffer, setSelectedOffer] = useState<any>(null)
@@ -171,16 +175,28 @@ export default function LoanRequestsPage() {
         })
       }
 
-      // Check for active loan
-      const activeLoan = borrowerData.loans?.find((l: any) => l.status === 'active')
-      setHasActiveLoan(!!activeLoan)
+      // Check for loans in pending_signatures or pending_disbursement status
+      // Borrowers can't request new loans until current ones become active
+      const { data: pendingLoans } = await supabase
+        .from('loans')
+        .select('id, status, principal_minor, currency, created_at, lenders(business_name)')
+        .eq('borrower_id', linkData.borrower_id)
+        .in('status', ['pending_signatures', 'pending_disbursement'])
+        .limit(1)
+
+      if (pendingLoans && pendingLoans.length > 0) {
+        setPendingLoan(pendingLoans[0])
+      } else {
+        setPendingLoan(null)
+      }
 
       // Get my loan requests
-      const { data: requests } = await supabase
+      // Use explicit foreign key since there are two relationships between loan_requests and loan_offers
+      const { data: requests, error: requestsError } = await supabase
         .from('loan_requests')
         .select(`
           *,
-          loan_offers(
+          loan_offers!loan_offers_request_id_fkey(
             *,
             lenders(
               business_name
@@ -189,6 +205,12 @@ export default function LoanRequestsPage() {
         `)
         .eq('borrower_id', borrowerData.id)
         .order('created_at', { ascending: false })
+
+      console.log('Fetching requests for borrower_id:', borrowerData.id)
+      console.log('Requests data:', requests)
+      if (requestsError) {
+        console.error('Requests error:', JSON.stringify(requestsError, null, 2))
+      }
 
       // Keep amounts in minor units but convert interest rates
       const formattedRequests = requests?.map(r => ({
@@ -281,14 +303,16 @@ export default function LoanRequestsPage() {
           purpose: data.purpose,
           term_months: data.termMonths,
           max_apr_bps: Math.round(data.maxInterestRate * 100), // Convert percentage to basis points
+          borrower_message: data.borrowerMessage || null, // Personal message to lenders
           status: 'open',
         })
 
       if (error) {
-        console.error('Error creating request:', error)
+        toast.error(error.message)
         return
       }
 
+      toast.success('Loan request created successfully!')
       // Reload data
       await loadData()
       reset()
@@ -304,19 +328,23 @@ export default function LoanRequestsPage() {
       setSubmitting(true)
 
       // Accept the offer which will create the loan
-      const { error } = await supabase.rpc('accept_offer', {
+      const { data, error } = await supabase.rpc('accept_offer', {
         p_offer_id: offer.id,
       })
 
       if (error) {
-        console.error('Error accepting offer:', error)
+        console.error('Error accepting offer:', JSON.stringify(error, null, 2))
+        const errorMsg = error.message || error.details || error.hint || 'Failed to accept offer'
+        toast.error(errorMsg)
         return
       }
 
+      toast.success('Offer accepted! Next step: Sign the loan agreement on your Loans page. Both you and the lender must sign before funds are sent.')
       // Redirect to loans page
       router.push('/b/loans')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
+      toast.error(error?.message || 'An unexpected error occurred')
     } finally {
       setSubmitting(false)
     }
@@ -468,42 +496,8 @@ export default function LoanRequestsPage() {
     )
   }
 
-  if (hasActiveLoan) {
-    return (
-      <div className="max-w-2xl mx-auto py-12">
-        <Card>
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-yellow-100 flex items-center justify-center">
-              <AlertCircle className="h-6 w-6 text-yellow-600" />
-            </div>
-            <CardTitle className="text-2xl">Active Loan Detected</CardTitle>
-            <CardDescription>
-              You currently have an active loan
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Single Loan Policy</AlertTitle>
-              <AlertDescription>
-                To maintain a healthy credit profile and prevent over-borrowing, 
-                you can only have one active loan at a time. Please complete your 
-                current loan repayments before requesting a new loan.
-              </AlertDescription>
-            </Alert>
-            <div className="flex justify-center space-x-3">
-              <Button onClick={() => router.push('/b/loans')}>
-                View Current Loan
-              </Button>
-              <Button variant="outline" onClick={() => router.push('/b/repayments')}>
-                Payment Schedule
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+  // Removed active loan block - borrowers can have multiple active loans
+  // The only restriction is one OPEN request at a time (handled in form section)
 
   return (
     <div className="space-y-6">
@@ -606,6 +600,76 @@ export default function LoanRequestsPage() {
             </Card>
           )}
 
+          {/* Block if there's a loan in progress (pending_signatures or pending_disbursement) */}
+          {pendingLoan ? (
+            <Card className="border-2 border-purple-300 bg-purple-50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-purple-900">
+                  <Clock className="h-5 w-5 text-purple-600 animate-pulse" />
+                  Loan In Progress - Complete Current Process First
+                </CardTitle>
+                <CardDescription className="text-purple-700">
+                  You have a loan that is waiting to be finalized. You can request a new loan once your current loan becomes active.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-white rounded-lg p-4 border border-purple-200">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-600">Loan Amount</p>
+                      <p className="font-bold text-lg">{formatCurrency(pendingLoan.principal_minor)}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Status</p>
+                      <Badge className={pendingLoan.status === 'pending_signatures' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800'}>
+                        {pendingLoan.status === 'pending_signatures' ? '✍️ Awaiting Signatures' : '💸 Awaiting Disbursement'}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Lender</p>
+                      <p className="font-medium">{pendingLoan.lenders?.business_name || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Created</p>
+                      <p className="font-medium">{format(new Date(pendingLoan.created_at), 'MMM d, yyyy')}</p>
+                    </div>
+                  </div>
+                </div>
+                <Alert className="border-purple-200 bg-purple-50">
+                  <AlertCircle className="h-4 w-4 text-purple-600" />
+                  <AlertTitle className="text-purple-900">What to do next?</AlertTitle>
+                  <AlertDescription className="text-purple-800">
+                    {pendingLoan.status === 'pending_signatures'
+                      ? 'Go to your Loans page to sign the loan agreement. Both you and the lender must sign before the loan can proceed.'
+                      : 'The lender will send you the money. Once you receive it, confirm receipt on your Loans page to activate the loan.'}
+                  </AlertDescription>
+                </Alert>
+                <Button onClick={() => router.push('/b/loans')} className="w-full bg-purple-600 hover:bg-purple-700">
+                  Go to My Loans
+                </Button>
+              </CardContent>
+            </Card>
+          ) : myRequests.some(r => r.status === 'open') ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-blue-500" />
+                  Active Request In Progress
+                </CardTitle>
+                <CardDescription>
+                  You already have an open loan request. You can create a new request once your current request is closed, accepted, or expired.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Check the "My Requests" tab to view your active request and any offers you've received.
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+          ) : (
           <Card>
             <CardHeader>
               <CardTitle>Create Loan Request</CardTitle>
@@ -675,6 +739,21 @@ export default function LoanRequestsPage() {
                   )}
                 </div>
 
+                <div className="space-y-2">
+                  <Label htmlFor="borrowerMessage">
+                    Message to Lenders <span className="text-gray-400 text-sm">(Optional)</span>
+                  </Label>
+                  <Textarea
+                    id="borrowerMessage"
+                    placeholder="Add a personal message to potential lenders. Explain your situation, why you need the loan, or any other details that might help them understand your request better..."
+                    rows={4}
+                    {...register('borrowerMessage')}
+                  />
+                  <p className="text-xs text-gray-500">
+                    This message will be visible to all lenders viewing your request
+                  </p>
+                </div>
+
                 {amount && termMonths && maxInterestRate && currencyInfo && (
                   <Alert>
                     <Calculator className="h-4 w-4" />
@@ -709,6 +788,7 @@ export default function LoanRequestsPage() {
               </CardContent>
             </form>
           </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="my-requests" className="space-y-4">
@@ -806,6 +886,14 @@ export default function LoanRequestsPage() {
                               {offer.status}
                             </Badge>
                           </div>
+
+                          {/* Lender's Message */}
+                          {offer.lender_message && (
+                            <div className="border-l-4 border-green-400 bg-green-50 p-2 rounded-r-lg">
+                              <p className="text-xs text-green-600 font-medium mb-1">Message from Lender</p>
+                              <p className="text-sm text-green-900">{offer.lender_message}</p>
+                            </div>
+                          )}
                           <div className="flex justify-between items-center text-sm">
                             <span className="text-gray-600">
                               {paymentType === 'once_off'
@@ -836,6 +924,14 @@ export default function LoanRequestsPage() {
                                       </DialogDescription>
                                     </DialogHeader>
                                     <div className="space-y-4 py-4">
+                                      {/* Lender's Message */}
+                                      {offer.lender_message && (
+                                        <div className="border-l-4 border-green-400 bg-green-50 p-3 rounded-r-lg">
+                                          <p className="text-xs text-green-600 font-medium mb-1">Message from {offer.lenders?.business_name || 'Lender'}</p>
+                                          <p className="text-sm text-green-900">{offer.lender_message}</p>
+                                        </div>
+                                      )}
+
                                       {/* Clear Breakdown Card */}
                                       <div className="border-2 border-blue-300 rounded-lg p-4 bg-blue-50">
                                         <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">

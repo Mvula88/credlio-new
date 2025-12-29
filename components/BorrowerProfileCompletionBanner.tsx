@@ -50,12 +50,22 @@ export default function BorrowerProfileCompletionBanner() {
         .eq('user_id', user.id)
         .single()
 
-      // Get borrower data
-      const { data: borrower } = await supabase
-        .from('borrowers')
-        .select('id, full_name, id_number')
+      // Get borrower data via borrower_user_links
+      const { data: linkData } = await supabase
+        .from('borrower_user_links')
+        .select('borrower_id')
         .eq('user_id', user.id)
         .single()
+
+      let borrower = null
+      if (linkData) {
+        const { data: borrowerData } = await supabase
+          .from('borrowers')
+          .select('id, full_name')
+          .eq('id', linkData.borrower_id)
+          .single()
+        borrower = borrowerData
+      }
 
       // Get verification status
       let verificationData = null
@@ -68,8 +78,8 @@ export default function BorrowerProfileCompletionBanner() {
         verificationData = data
       }
 
-      // Onboarding is complete if they have basic info filled
-      const onboardingComplete = !!(profile?.onboarding_completed || (borrower?.full_name && borrower?.id_number))
+      // Onboarding is complete if profile.onboarding_completed is true
+      const onboardingComplete = !!profile?.onboarding_completed
 
       setStatus({
         onboardingComplete,

@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   CreditCard,
@@ -90,6 +90,8 @@ export default function BorrowerLoansPage() {
   const [disputeDialog, setDisputeDialog] = useState(false)
   const [disputeReason, setDisputeReason] = useState('')
   const [submittingDispute, setSubmittingDispute] = useState(false)
+  const [cancelDialog, setCancelDialog] = useState(false)
+  const [cancellingLoan, setCancellingLoan] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
   const supabase = createClient()
@@ -178,10 +180,20 @@ export default function BorrowerLoansPage() {
           const pendingOffers = loansData.filter(l => l.status === 'pending_offer')
           setPendingOffersCount(pendingOffers.length)
 
-          // Filter out pending offers for the main loans view (show only active/completed)
-          const activeLoans = loansData.filter(l => l.status !== 'pending_offer' && l.status !== 'declined')
+          // Filter out pending offers, declined, and cancelled for the main loans view
+          const activeLoans = loansData.filter(l =>
+            l.status !== 'pending_offer' &&
+            l.status !== 'declined' &&
+            l.status !== 'cancelled'
+          )
           setLoans(activeLoans)
-          setSelectedLoan(activeLoans.find(l => l.status === 'active') || activeLoans[0])
+
+          // Prefer selecting an active loan, then pending_signatures, then any other
+          setSelectedLoan(
+            activeLoans.find(l => l.status === 'active') ||
+            activeLoans.find(l => l.status === 'pending_signatures') ||
+            activeLoans[0]
+          )
 
           // Calculate stats (exclude pending offers)
           calculateLoanStats(activeLoans)
@@ -353,24 +365,49 @@ export default function BorrowerLoansPage() {
     // Only count actually disbursed loans (not pending_offer or pending_signatures)
     const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
     const disbursedLoans = loansData.filter(l => disbursedStatuses.includes(l.status))
-    const totalBorrowed = disbursedLoans.reduce((sum, loan) => sum + loan.principal_amount, 0)
-    // total_repaid is stored in major units (dollars), not cents
-    const totalRepaid = loansData.reduce((sum, loan) => sum + (loan.total_repaid || 0), 0)
-    const activeLoans = loansData.filter(l => l.status === 'active').length
+
+    // Keep in minor units (cents) - formatCurrency will convert to major
+    const totalBorrowed = disbursedLoans.reduce((sum, loan) => {
+      const principal = loan.principal_minor || (loan.principal_amount ? loan.principal_amount * 100 : 0)
+      return sum + principal
+    }, 0)
+
+    // total_repaid_minor is in cents - use it directly or convert total_repaid from major
+    const totalRepaid = loansData.reduce((sum, loan) => {
+      const repaid = loan.total_repaid_minor || (loan.total_repaid ? loan.total_repaid * 100 : 0)
+      return sum + repaid
+    }, 0)
+
+    const activeLoansCount = loansData.filter(l => l.status === 'active').length
     const completedLoans = loansData.filter(l => l.status === 'completed').length
+
     const totalInterestPaid = loansData.reduce((sum, loan) => {
-      const paid = loan.repayment_events?.reduce((s: number, e: any) => 
+      const paid = loan.repayment_events?.reduce((s: number, e: any) =>
         e.status === 'completed' ? s + (e.interest_amount || 0) : s, 0) || 0
       return sum + paid
     }, 0)
 
+    // Calculate average APR safely - use total_interest_percent, apr_bps, or interest_rate
+    const loansWithRates = disbursedLoans.filter(l =>
+      l.total_interest_percent || l.apr_bps || l.interest_rate || l.base_rate_percent
+    )
+    const avgAPR = loansWithRates.length > 0
+      ? loansWithRates.reduce((sum, loan) => {
+          const rate = loan.total_interest_percent ||
+                       (loan.apr_bps ? loan.apr_bps / 100 : 0) ||
+                       loan.interest_rate ||
+                       loan.base_rate_percent || 0
+          return sum + rate
+        }, 0) / loansWithRates.length
+      : 0
+
     setLoanStats({
       totalBorrowed,
       totalRepaid,
-      activeLoans,
+      activeLoans: activeLoansCount,
       completedLoans,
       totalInterestPaid,
-      averageAPR: loansData.reduce((sum, loan) => sum + loan.interest_rate, 0) / loansData.length
+      averageAPR: avgAPR
     })
   }
 
@@ -452,6 +489,46 @@ export default function BorrowerLoansPage() {
     } finally {
       setSubmittingDispute(false)
     }
+  }
+
+  // Cancel loan before signing
+  const handleCancelLoan = async () => {
+    if (!selectedLoan) return
+
+    try {
+      setCancellingLoan(true)
+
+      const { data, error } = await supabase.rpc('cancel_loan_by_borrower', {
+        p_loan_id: selectedLoan.id
+      })
+
+      if (error) {
+        console.error('Error cancelling loan:', JSON.stringify(error, null, 2))
+        alert(error.message || error.details || error.hint || error.code || 'Failed to cancel loan')
+        return
+      }
+
+      alert('Loan cancelled successfully. You can create a new loan request if needed.')
+      setCancelDialog(false)
+      setSelectedLoan(null)
+      loadLoansData()
+    } catch (error: any) {
+      console.error('Error cancelling loan:', error)
+      alert(error.message || 'Failed to cancel loan')
+    } finally {
+      setCancellingLoan(false)
+    }
+  }
+
+  // Check if borrower can cancel the loan
+  const canCancelLoan = () => {
+    if (!selectedLoan) return false
+    // Can only cancel if pending_signatures
+    if (selectedLoan.status !== 'pending_signatures') return false
+    // If no agreement data, they definitely haven't signed yet
+    if (!agreementData) return true
+    // If agreement exists but borrower hasn't signed, can still cancel
+    return !agreementData.borrower_signed_at
   }
 
   // Format currency based on the loan's currency (not borrower's default)
@@ -773,7 +850,7 @@ export default function BorrowerLoansPage() {
               <CardTitle className="text-sm font-medium text-gray-600">Avg. APR</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold">{loanStats.averageAPR.toFixed(1)}%</p>
+              <p className="text-2xl font-bold">{isNaN(loanStats.averageAPR) ? '0.0' : loanStats.averageAPR.toFixed(1)}%</p>
             </CardContent>
           </Card>
         </div>
@@ -915,6 +992,60 @@ export default function BorrowerLoansPage() {
           </CardContent>
         </Card>
       ) : (
+        <>
+        {/* Pending Loans Section - Always visible at top */}
+        {loans.filter(l => l.status === 'pending_signatures').length > 0 && (
+          <Card className="border-2 border-purple-300 bg-purple-50 mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-purple-900">
+                <Clock className="h-5 w-5 text-purple-600 animate-pulse" />
+                Loans Awaiting Your Signature
+              </CardTitle>
+              <CardDescription className="text-purple-700">
+                These loans need your signature before they can proceed. You can cancel before signing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {loans.filter(l => l.status === 'pending_signatures').map((loan) => (
+                <div key={loan.id} className="bg-white rounded-lg p-4 border border-purple-200 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold text-lg">{formatCurrency(loan.principal_minor, loan.currency)}</p>
+                    <p className="text-sm text-gray-600">
+                      {loan.term_months} months • {loan.apr_bps / 100}% interest • Lender: {loan.lenders?.business_name || 'Unknown'}
+                    </p>
+                    <p className="text-xs text-purple-600 mt-1">
+                      Created: {format(new Date(loan.created_at), 'MMM d, yyyy')}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => {
+                        setSelectedLoan(loan)
+                        router.push(`/b/loans/${loan.id}`)
+                      }}
+                      className="bg-purple-600 hover:bg-purple-700"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      Sign Agreement
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                      onClick={() => {
+                        setSelectedLoan(loan)
+                        setCancelDialog(true)
+                      }}
+                    >
+                      <XCircle className="h-4 w-4 mr-2" />
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -959,10 +1090,22 @@ export default function BorrowerLoansPage() {
                           ? 'You need to sign the loan agreement before the loan can proceed.'
                           : 'Your lender has sent the funds. Please confirm receipt to activate your loan.'}
                       </p>
-                      <Button onClick={() => router.push(`/b/loans/${selectedLoan.id}`)} className="bg-orange-600 hover:bg-orange-700">
-                        <Eye className="mr-2 h-4 w-4" />
-                        {selectedLoan.status === 'pending_signatures' ? 'Sign Agreement' : 'Confirm Funds'}
-                      </Button>
+                      <div className="flex gap-3 mt-3">
+                        <Button onClick={() => router.push(`/b/loans/${selectedLoan.id}`)} className="bg-orange-600 hover:bg-orange-700">
+                          <Eye className="mr-2 h-4 w-4" />
+                          {selectedLoan.status === 'pending_signatures' ? 'Sign Agreement' : 'Confirm Funds'}
+                        </Button>
+                        {canCancelLoan() && (
+                          <Button
+                            variant="outline"
+                            className="border-red-300 text-red-700 hover:bg-red-50"
+                            onClick={() => setCancelDialog(true)}
+                          >
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Cancel Loan
+                          </Button>
+                        )}
+                      </div>
                     </AlertDescription>
                   </Alert>
                 )}
@@ -1009,60 +1152,84 @@ export default function BorrowerLoansPage() {
                         <Calculator className="h-4 w-4" />
                         Loan Breakdown
                       </h4>
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div>
-                          <p className="text-sm text-gray-600">Principal (Borrowed)</p>
-                          <p className="text-xl font-bold">
-                            {formatCurrency(selectedLoan.principal_minor || selectedLoan.principal_amount, selectedLoan.currency)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-600">Interest Rate</p>
-                          <p className="text-xl font-bold text-orange-600">
-                            {selectedLoan.total_interest_percent || selectedLoan.base_rate_percent || selectedLoan.interest_rate}%
-                          </p>
-                          {selectedLoan.payment_type === 'installments' && selectedLoan.extra_rate_per_installment > 0 && (
-                            <p className="text-xs text-gray-500">
-                              ({selectedLoan.base_rate_percent}% base + {selectedLoan.extra_rate_per_installment}% × {(selectedLoan.num_installments || 1) - 1})
-                            </p>
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-600">Interest Amount</p>
-                          <p className="text-xl font-bold text-orange-600">
-                            {formatCurrency(selectedLoan.interest_amount_minor || (selectedLoan.total_amount - selectedLoan.principal_amount), selectedLoan.currency)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-600">Payment Type</p>
-                          <p className="text-xl font-bold">
-                            {selectedLoan.payment_type === 'once_off' ? 'Once-off' : `${selectedLoan.num_installments || selectedLoan.term_months} Installments`}
-                          </p>
-                        </div>
-                      </div>
+                      {(() => {
+                        // Calculate values with proper fallbacks to avoid NaN
+                        const principal = selectedLoan.principal_minor || (selectedLoan.principal_amount ? selectedLoan.principal_amount * 100 : 0)
+                        const interestRate = selectedLoan.total_interest_percent || selectedLoan.base_rate_percent || (selectedLoan.apr_bps ? selectedLoan.apr_bps / 100 : 0) || selectedLoan.interest_rate || 0
+                        const interestAmount = selectedLoan.interest_amount_minor || (principal * interestRate / 100)
+                        const totalAmount = selectedLoan.total_amount_minor || (principal + interestAmount)
+                        const paymentType = selectedLoan.payment_type || (selectedLoan.term_months <= 1 ? 'once_off' : 'installments')
+                        const numInstallments = selectedLoan.num_installments || selectedLoan.term_months || 1
+
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div>
+                              <p className="text-sm text-gray-600">Principal (Borrowed)</p>
+                              <p className="text-xl font-bold">
+                                {formatCurrency(principal, selectedLoan.currency)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Interest Rate</p>
+                              <p className="text-xl font-bold text-orange-600">
+                                {interestRate}%
+                              </p>
+                              {paymentType === 'installments' && selectedLoan.extra_rate_per_installment > 0 && (
+                                <p className="text-xs text-gray-500">
+                                  ({selectedLoan.base_rate_percent}% base + {selectedLoan.extra_rate_per_installment}% × {numInstallments - 1})
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Interest Amount</p>
+                              <p className="text-xl font-bold text-orange-600">
+                                {formatCurrency(interestAmount, selectedLoan.currency)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Payment Type</p>
+                              <p className="text-xl font-bold">
+                                {paymentType === 'once_off' ? 'Once-off' : `${numInstallments} Installments`}
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* Total & Progress */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="p-4 bg-blue-100 rounded-lg">
-                        <p className="text-sm text-blue-700">Total to Pay</p>
-                        <p className="text-2xl font-bold text-blue-900">
-                          {formatCurrency(selectedLoan.total_amount_minor || selectedLoan.total_amount, selectedLoan.currency)}
-                        </p>
-                      </div>
-                      <div className="p-4 bg-green-100 rounded-lg">
-                        <p className="text-sm text-green-700">Total Repaid</p>
-                        <p className="text-2xl font-bold text-green-900">
-                          {formatCurrency((selectedLoan.total_repaid || 0) * 100, selectedLoan.currency)}
-                        </p>
-                      </div>
-                      <div className="p-4 bg-gray-100 rounded-lg">
-                        <p className="text-sm text-gray-700">Remaining</p>
-                        <p className="text-2xl font-bold text-gray-900">
-                          {formatCurrency((selectedLoan.total_amount_minor || selectedLoan.total_amount) - (selectedLoan.total_repaid || 0) * 100, selectedLoan.currency)}
-                        </p>
-                      </div>
-                    </div>
+                    {(() => {
+                      // Calculate totals with proper fallbacks
+                      const principal = selectedLoan.principal_minor || (selectedLoan.principal_amount ? selectedLoan.principal_amount * 100 : 0)
+                      const interestRate = selectedLoan.total_interest_percent || selectedLoan.base_rate_percent || (selectedLoan.apr_bps ? selectedLoan.apr_bps / 100 : 0) || selectedLoan.interest_rate || 0
+                      const interestAmount = selectedLoan.interest_amount_minor || (principal * interestRate / 100)
+                      const totalToPay = selectedLoan.total_amount_minor || (principal + interestAmount) || 0
+                      const totalRepaid = (selectedLoan.total_repaid_minor || (selectedLoan.total_repaid ? selectedLoan.total_repaid * 100 : 0)) || 0
+                      const remaining = Math.max(0, totalToPay - totalRepaid)
+
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="p-4 bg-blue-100 rounded-lg">
+                            <p className="text-sm text-blue-700">Total to Pay</p>
+                            <p className="text-2xl font-bold text-blue-900">
+                              {formatCurrency(totalToPay, selectedLoan.currency)}
+                            </p>
+                          </div>
+                          <div className="p-4 bg-green-100 rounded-lg">
+                            <p className="text-sm text-green-700">Total Repaid</p>
+                            <p className="text-2xl font-bold text-green-900">
+                              {formatCurrency(totalRepaid, selectedLoan.currency)}
+                            </p>
+                          </div>
+                          <div className="p-4 bg-gray-100 rounded-lg">
+                            <p className="text-sm text-gray-700">Remaining</p>
+                            <p className="text-2xl font-bold text-gray-900">
+                              {formatCurrency(remaining, selectedLoan.currency)}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                     <div>
                       <div className="flex justify-between text-sm mb-2">
@@ -1835,7 +2002,56 @@ export default function BorrowerLoansPage() {
             </Card>
           </TabsContent>
         </Tabs>
+        </>
       )}
+
+      {/* Cancel Loan Confirmation Dialog */}
+      <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-700">Cancel This Loan?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to cancel this loan? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Alert className="border-orange-200 bg-orange-50">
+              <AlertCircle className="h-4 w-4 text-orange-600" />
+              <AlertTitle className="text-orange-900">What happens when you cancel:</AlertTitle>
+              <AlertDescription className="text-orange-800">
+                <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
+                  <li>This loan will be cancelled immediately</li>
+                  <li>Your loan request will also be closed</li>
+                  <li>The lender will be notified</li>
+                  <li>You can create a new loan request if needed</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelDialog(false)}>
+              Keep This Loan
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCancelLoan}
+              disabled={cancellingLoan}
+            >
+              {cancellingLoan ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Cancelling...
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Yes, Cancel Loan
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

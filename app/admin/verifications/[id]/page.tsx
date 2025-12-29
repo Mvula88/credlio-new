@@ -28,8 +28,19 @@ import {
   Users,
   Landmark,
   Link as LinkIcon,
-  ExternalLink
+  ExternalLink,
+  CreditCard
 } from 'lucide-react'
+
+// Decode base64 national ID for display
+function decodeNationalId(encoded: string | null): string | null {
+  if (!encoded) return null
+  try {
+    return Buffer.from(encoded, 'base64').toString('utf-8')
+  } catch {
+    return null
+  }
+}
 import { toast } from 'sonner'
 
 export default function VerificationDetailPage() {
@@ -111,10 +122,14 @@ export default function VerificationDetailPage() {
     try {
       setSubmitting(true)
 
+      // Get the current session token
+      const { data: { session } } = await supabase.auth.getSession()
+
       const response = await fetch('/api/admin/verify-borrower', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify({
           borrower_id: borrowerId,
@@ -147,10 +162,14 @@ export default function VerificationDetailPage() {
     try {
       setSubmitting(true)
 
+      // Get the current session token
+      const { data: { session } } = await supabase.auth.getSession()
+
       const response = await fetch('/api/admin/verify-borrower', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify({
           borrower_id: borrowerId,
@@ -280,14 +299,17 @@ export default function VerificationDetailPage() {
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Mail className="h-5 w-5 text-muted-foreground mt-0.5" />
+              <CreditCard className="h-5 w-5 text-primary mt-0.5" />
               <div>
-                <p className="text-sm text-muted-foreground">Email</p>
-                <p className="font-medium">{borrower.profiles?.email || 'N/A'}</p>
+                <p className="text-sm text-muted-foreground">National ID Number</p>
+                <p className="font-bold text-lg font-mono">
+                  {decodeNationalId(borrower.national_id_encrypted) || 'Not available'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Verify this matches the ID in the photo</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <FileText className="h-5 w-5 text-muted-foreground mt-0.5" />
+              <Phone className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm text-muted-foreground">Phone Number</p>
                 <p className="font-medium">{borrower.phone_e164 || 'Not provided'}</p>

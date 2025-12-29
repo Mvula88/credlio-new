@@ -71,6 +71,12 @@ export async function POST(request: NextRequest) {
             )
           }
 
+          // Update profile's app_role to lender for backward compatibility
+          await supabase
+            .from('profiles')
+            .update({ app_role: 'lender' })
+            .eq('user_id', existingUser.id)
+
           // NOTE: We do NOT create a lender record here
           // The user will be redirected to /l/complete-profile by middleware
           // where they will complete lender profile and ID photo verification

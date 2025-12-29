@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, Controller } from 'react-hook-form'
@@ -17,6 +17,8 @@ import { Progress } from '@/components/ui/progress'
 import { Loader2, AlertCircle, Shield, Lock, CheckCircle, Camera, Video, RotateCcw, AlertTriangle, MapPin, Briefcase, Phone, Building2, Users, Landmark, Link as LinkIcon } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { format } from 'date-fns'
+
+const STORAGE_KEY = 'borrower_onboarding_draft'
 
 const EMPLOYMENT_STATUS = [
   { value: 'employed', label: 'Employed' },
@@ -48,6 +50,7 @@ const RELATIONSHIPS = [
 export default function BorrowerOnboardingPage() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isCheckingProfile, setIsCheckingProfile] = useState(true)
   const [step, setStep] = useState(1)
   const [formData, setFormData] = useState<BorrowerOnboardingInput | null>(null)
   const [cameraActive, setCameraActive] = useState(false)
@@ -71,6 +74,150 @@ export default function BorrowerOnboardingPage() {
 
   const consent = watch('consent')
   const employmentStatus = watch('employmentStatus')
+
+  // Watch all form values for auto-save
+  const watchedValues = watch()
+
+  // Save draft to localStorage
+  const saveDraft = useCallback((data: Partial<BorrowerOnboardingInput>, currentStep: number) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ data, step: currentStep }))
+    } catch (e) {
+      console.error('Failed to save draft:', e)
+    }
+  }, [])
+
+  // Load draft from localStorage
+  const loadDraft = useCallback((): { data: Partial<BorrowerOnboardingInput>, step: number } | null => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      return saved ? JSON.parse(saved) : null
+    } catch (e) {
+      console.error('Failed to load draft:', e)
+      return null
+    }
+  }, [])
+
+  // Clear draft from localStorage
+  const clearDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch (e) {
+      console.error('Failed to clear draft:', e)
+    }
+  }, [])
+
+  // Auto-save on form changes (debounced)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (watchedValues && Object.keys(watchedValues).some(k => watchedValues[k as keyof BorrowerOnboardingInput])) {
+        saveDraft(watchedValues, step)
+      }
+    }, 1000) // Save after 1 second of no changes
+
+    return () => clearTimeout(timeoutId)
+  }, [watchedValues, step, saveDraft])
+
+  // Check profile status and load existing data on mount
+  useEffect(() => {
+    const checkProfileAndLoadData = async () => {
+      try {
+        setIsCheckingProfile(true)
+        const { data: { user } } = await supabase.auth.getUser()
+
+        if (!user) {
+          router.push('/b/login')
+          return
+        }
+
+        // Check if onboarding is already completed
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, phone_e164, date_of_birth, onboarding_completed')
+          .eq('user_id', user.id)
+          .single()
+
+        // Check if borrower record exists with completed verification
+        const { data: borrowerLink } = await supabase
+          .from('borrower_user_links')
+          .select('borrower_id')
+          .eq('user_id', user.id)
+          .single()
+
+        if (borrowerLink) {
+          const { data: borrower } = await supabase
+            .from('borrowers')
+            .select('national_id_hash, city, verification_status')
+            .eq('id', borrowerLink.borrower_id)
+            .single()
+
+          // If onboarding is complete, redirect to overview
+          if (profile?.onboarding_completed && borrower?.national_id_hash) {
+            router.push('/b/overview')
+            return
+          }
+
+          // Load existing borrower data
+          if (borrower?.city) {
+            setValue('city', borrower.city)
+          }
+        }
+
+        // Load existing profile data
+        if (profile?.full_name && profile.full_name !== 'Pending') {
+          setValue('fullName', profile.full_name)
+        }
+        if (profile?.phone_e164) {
+          setValue('phoneNumber', profile.phone_e164)
+        }
+        if (profile?.date_of_birth) {
+          setValue('dateOfBirth', profile.date_of_birth)
+        }
+
+        // Load draft data from localStorage (to restore unsaved progress)
+        const draft = loadDraft()
+        if (draft) {
+          // Restore step
+          if (draft.step > 1) {
+            setStep(draft.step)
+          }
+
+          // Apply draft values (only for fields not already set from DB)
+          const d = draft.data
+          if (d.fullName && (!profile?.full_name || profile.full_name === 'Pending')) setValue('fullName', d.fullName)
+          if (d.phoneNumber && !profile?.phone_e164) setValue('phoneNumber', d.phoneNumber)
+          if (d.dateOfBirth && !profile?.date_of_birth) setValue('dateOfBirth', d.dateOfBirth)
+          if (d.nationalId) setValue('nationalId', d.nationalId)
+          if (d.streetAddress) setValue('streetAddress', d.streetAddress)
+          if (d.city) setValue('city', d.city)
+          if (d.postalCode) setValue('postalCode', d.postalCode)
+          if (d.employmentStatus) setValue('employmentStatus', d.employmentStatus)
+          if (d.employerName) setValue('employerName', d.employerName)
+          if (d.monthlyIncomeRange) setValue('monthlyIncomeRange', d.monthlyIncomeRange)
+          if (d.incomeSource) setValue('incomeSource', d.incomeSource)
+          if (d.emergencyContactName) setValue('emergencyContactName', d.emergencyContactName)
+          if (d.emergencyContactPhone) setValue('emergencyContactPhone', d.emergencyContactPhone)
+          if (d.emergencyContactRelationship) setValue('emergencyContactRelationship', d.emergencyContactRelationship)
+          if (d.nextOfKinName) setValue('nextOfKinName', d.nextOfKinName)
+          if (d.nextOfKinPhone) setValue('nextOfKinPhone', d.nextOfKinPhone)
+          if (d.nextOfKinRelationship) setValue('nextOfKinRelationship', d.nextOfKinRelationship)
+          if (d.bankName) setValue('bankName', d.bankName)
+          if (d.bankAccountNumber) setValue('bankAccountNumber', d.bankAccountNumber)
+          if (d.bankAccountName) setValue('bankAccountName', d.bankAccountName)
+          if (d.linkedinUrl) setValue('linkedinUrl', d.linkedinUrl)
+          if (d.facebookUrl) setValue('facebookUrl', d.facebookUrl)
+          if (d.referrerPhone) setValue('referrerPhone', d.referrerPhone)
+          if (d.consent) setValue('consent', d.consent)
+        }
+      } catch (err) {
+        console.error('Error checking profile:', err)
+      } finally {
+        setIsCheckingProfile(false)
+      }
+    }
+
+    checkProfileAndLoadData()
+  }, [supabase, router, setValue, loadDraft])
 
   const onSubmit = async (data: BorrowerOnboardingInput) => {
     // Save form data and move to photo verification step
@@ -322,6 +469,9 @@ export default function BorrowerOnboardingPage() {
 
       console.log('Document uploaded successfully:', docData)
 
+      // Clear draft on successful completion
+      clearDraft()
+
       // Success! Redirect to pending verification page
       router.push('/b/pending-verification')
     } catch (err) {
@@ -330,6 +480,18 @@ export default function BorrowerOnboardingPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Show loading while checking profile status
+  if (isCheckingProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading your profile...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

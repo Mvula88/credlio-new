@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table,
@@ -42,6 +43,7 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
+  AlertCircle,
   TrendingUp,
   FileText,
   Loader2,
@@ -244,6 +246,10 @@ export default function LoansPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'pending_signatures':
+        return <Badge className="bg-purple-100 text-purple-800 animate-pulse">✍️ Sign Agreement</Badge>
+      case 'pending_disbursement':
+        return <Badge className="bg-orange-100 text-orange-800 animate-pulse">💸 Send Money</Badge>
       case 'active':
         return <Badge className="bg-green-100 text-green-800">Active</Badge>
       case 'completed':
@@ -255,6 +261,15 @@ export default function LoansPage() {
       default:
         return <Badge variant="outline">{status}</Badge>
     }
+  }
+
+  // Get loans that need action
+  const getPendingSignaturesLoans = () => {
+    return loans.filter(l => l.status === 'pending_signatures')
+  }
+
+  const getPendingDisbursementLoans = () => {
+    return loans.filter(l => l.status === 'pending_disbursement')
   }
 
   const formatCurrency = (amountMinor: number) => {
@@ -460,6 +475,33 @@ export default function LoansPage() {
           </div>
         </div>
       </div>
+
+      {/* Action Required Banners */}
+      {getPendingSignaturesLoans().length > 0 && (
+        <Alert className="border-purple-300 bg-purple-50">
+          <AlertCircle className="h-5 w-5 text-purple-600" />
+          <AlertTitle className="text-purple-800 font-bold">
+            Step 1: Sign Loan Agreement
+          </AlertTitle>
+          <AlertDescription className="text-purple-700">
+            You have {getPendingSignaturesLoans().length} loan(s) waiting for signatures.
+            Click on the loan to download, sign, and upload the loan agreement. Both you and the borrower must sign before proceeding.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {getPendingDisbursementLoans().length > 0 && (
+        <Alert className="border-orange-300 bg-orange-50">
+          <AlertCircle className="h-5 w-5 text-orange-600" />
+          <AlertTitle className="text-orange-800 font-bold">
+            Step 2: Send Money to Borrower
+          </AlertTitle>
+          <AlertDescription className="text-orange-700">
+            You have {getPendingDisbursementLoans().length} loan(s) with signed agreements.
+            Send the money to the borrower, then click on the loan to upload proof of payment.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">

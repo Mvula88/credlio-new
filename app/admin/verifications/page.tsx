@@ -26,6 +26,16 @@ import {
   Loader2
 } from 'lucide-react'
 
+// Decode base64 national ID for display
+function decodeNationalId(encoded: string | null): string | null {
+  if (!encoded) return null
+  try {
+    return Buffer.from(encoded, 'base64').toString('utf-8')
+  } catch {
+    return null
+  }
+}
+
 interface VerificationItem {
   id: string
   borrower_id: string
@@ -35,6 +45,7 @@ interface VerificationItem {
   borrower_email: string | null
   borrower_country: string
   borrower_country_name: string
+  national_id: string | null
   verification_status: 'pending' | 'approved' | 'rejected'
   selfie_uploaded: boolean
   selfie_hash: string | null
@@ -91,6 +102,7 @@ export default function AdminVerificationsPage() {
             user_id,
             country_code,
             phone_e164,
+            national_id_encrypted,
             countries!borrowers_country_code_fkey (
               code,
               name
@@ -141,6 +153,7 @@ export default function AdminVerificationsPage() {
           borrower_email: email || null,
           borrower_country: item.borrowers.country_code || 'N/A',
           borrower_country_name: item.borrowers.countries?.name || 'Unknown',
+          national_id: decodeNationalId(item.borrowers.national_id_encrypted),
           verification_status: item.verification_status,
           selfie_uploaded: item.selfie_uploaded,
           selfie_hash: item.selfie_hash,
@@ -186,12 +199,13 @@ export default function AdminVerificationsPage() {
       filtered = filtered.filter(v => v.borrower_country === selectedCountry)
     }
 
-    // Filter by search term
+    // Filter by search term (name, email, or national ID)
     if (searchTerm.trim()) {
       const search = searchTerm.toLowerCase()
       filtered = filtered.filter(v =>
         v.borrower_name.toLowerCase().includes(search) ||
-        (v.borrower_email && v.borrower_email.toLowerCase().includes(search))
+        (v.borrower_email && v.borrower_email.toLowerCase().includes(search)) ||
+        (v.national_id && v.national_id.toLowerCase().includes(search))
       )
     }
 
@@ -373,8 +387,8 @@ export default function AdminVerificationsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Borrower</TableHead>
+                  <TableHead>National ID</TableHead>
                   <TableHead>Phone</TableHead>
-                  <TableHead>Email</TableHead>
                   <TableHead>Country</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Documents</TableHead>
@@ -387,10 +401,10 @@ export default function AdminVerificationsPage() {
                 {filteredVerifications.map((verification) => (
                   <TableRow key={verification.id}>
                     <TableCell className="font-medium">{verification.borrower_name}</TableCell>
-                    <TableCell>{verification.borrower_phone}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {verification.borrower_email || '-'}
+                    <TableCell className="font-mono text-sm">
+                      {verification.national_id || <span className="text-muted-foreground">-</span>}
                     </TableCell>
+                    <TableCell>{verification.borrower_phone}</TableCell>
                     <TableCell>
                       <Badge variant="outline">{verification.borrower_country_name}</Badge>
                     </TableCell>

@@ -54,10 +54,17 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
   const [messageCount, setMessageCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
+  // Prevent hydration mismatch with Radix UI
   useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (!mounted) return
     loadNotifications()
     loadUnreadCounts()
 
@@ -305,6 +312,20 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
       default:
         return '/messages'
     }
+  }
+
+  // Prevent hydration mismatch - show placeholder until mounted
+  if (!mounted) {
+    return (
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" className="relative">
+          <MessageSquare className="h-5 w-5" />
+        </Button>
+        <Button variant="ghost" size="icon" className="relative">
+          <Bell className="h-5 w-5" />
+        </Button>
+      </div>
+    )
   }
 
   return (
