@@ -368,23 +368,40 @@ export default function LoanRequestsPage() {
     }
   }
 
-  const calculateMonthlyPayment = (principalMinor: number, rate: number, months: number) => {
+  // Typical extra rate per month (lenders usually charge more for longer terms)
+  const EXTRA_RATE_PER_MONTH = 2 // 2% extra per additional month
+
+  const calculateMonthlyPayment = (principalMinor: number, baseRate: number, months: number) => {
     // Convert minor units to major for calculation
     const principal = currencyInfo ? principalMinor / Math.pow(10, currencyInfo.minorUnits) : principalMinor / 100
 
-    const monthlyRate = rate / 100 / 12
-    if (monthlyRate === 0) {
-      const payment = principal / months
-      // Convert back to minor units
-      return currencyInfo ? Math.round(payment * Math.pow(10, currencyInfo.minorUnits)) : Math.round(payment * 100)
-    }
+    // Interest increases with term length:
+    // Total Rate = Base Rate + (Extra Rate × (months - 1))
+    // For 1 month: just base rate
+    // For 6 months: base rate + 2% × 5 = base rate + 10%
+    const totalRate = baseRate + (EXTRA_RATE_PER_MONTH * Math.max(0, months - 1))
 
-    const payment = principal *
-      (monthlyRate * Math.pow(1 + monthlyRate, months)) /
-      (Math.pow(1 + monthlyRate, months) - 1)
+    // Simple interest calculation:
+    // Interest = Principal × Total Rate%
+    // Total = Principal + Interest
+    // Monthly Payment = Total / Months
+    const interest = principal * (totalRate / 100)
+    const total = principal + interest
+    const payment = total / months
 
     // Convert back to minor units
     return currencyInfo ? Math.round(payment * Math.pow(10, currencyInfo.minorUnits)) : Math.round(payment * 100)
+  }
+
+  const calculateTotalInterest = (principalMinor: number, baseRate: number, months: number) => {
+    const principal = currencyInfo ? principalMinor / Math.pow(10, currencyInfo.minorUnits) : principalMinor / 100
+    const totalRate = baseRate + (EXTRA_RATE_PER_MONTH * Math.max(0, months - 1))
+    const interest = principal * (totalRate / 100)
+    return currencyInfo ? Math.round(interest * Math.pow(10, currencyInfo.minorUnits)) : Math.round(interest * 100)
+  }
+
+  const calculateTotalRate = (baseRate: number, months: number) => {
+    return baseRate + (EXTRA_RATE_PER_MONTH * Math.max(0, months - 1))
   }
 
   const formatCurrency = (amountMinor: number) => {
@@ -755,18 +772,58 @@ export default function LoanRequestsPage() {
                 </div>
 
                 {amount && termMonths && maxInterestRate && currencyInfo && (
-                  <Alert>
-                    <Calculator className="h-4 w-4" />
-                    <AlertDescription>
-                      Estimated monthly payment: {' '}
-                      <strong>
-                        {formatCurrency(calculateMonthlyPayment(
-                          Math.round(amount * Math.pow(10, currencyInfo.minorUnits)),
-                          maxInterestRate,
-                          termMonths
-                        ))}
-                      </strong>
-                      {' '}(at maximum {maxInterestRate}% interest rate)
+                  <Alert className="bg-blue-50 border-blue-200">
+                    <Calculator className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="space-y-2">
+                      <div className="text-sm text-gray-600">
+                        <strong>Estimated Loan Breakdown:</strong>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>Principal:</div>
+                        <div className="font-medium">{formatCurrency(Math.round(amount * Math.pow(10, currencyInfo.minorUnits)))}</div>
+
+                        <div>Base Rate:</div>
+                        <div className="font-medium">{maxInterestRate}%</div>
+
+                        <div>Term Extra (+2%/month):</div>
+                        <div className="font-medium">+{(EXTRA_RATE_PER_MONTH * Math.max(0, termMonths - 1))}%</div>
+
+                        <div>Total Interest Rate:</div>
+                        <div className="font-medium text-orange-600">{calculateTotalRate(maxInterestRate, termMonths)}%</div>
+
+                        <div>Total Interest:</div>
+                        <div className="font-medium text-orange-600">
+                          {formatCurrency(calculateTotalInterest(
+                            Math.round(amount * Math.pow(10, currencyInfo.minorUnits)),
+                            maxInterestRate,
+                            termMonths
+                          ))}
+                        </div>
+
+                        <div className="font-semibold border-t pt-1">Total to Pay:</div>
+                        <div className="font-bold text-blue-700 border-t pt-1">
+                          {formatCurrency(
+                            Math.round(amount * Math.pow(10, currencyInfo.minorUnits)) +
+                            calculateTotalInterest(
+                              Math.round(amount * Math.pow(10, currencyInfo.minorUnits)),
+                              maxInterestRate,
+                              termMonths
+                            )
+                          )}
+                        </div>
+
+                        <div className="font-semibold">Monthly Payment:</div>
+                        <div className="font-bold text-green-700">
+                          {formatCurrency(calculateMonthlyPayment(
+                            Math.round(amount * Math.pow(10, currencyInfo.minorUnits)),
+                            maxInterestRate,
+                            termMonths
+                          ))} × {termMonths}
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Note: Actual rate may vary based on lender's offer. Longer terms typically have higher rates.
+                      </p>
                     </AlertDescription>
                   </Alert>
                 )}
