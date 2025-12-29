@@ -421,8 +421,11 @@ export default function RepaymentsPage() {
             <Wallet className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Active Loans</h3>
             <p className="text-gray-600 mb-4">You don't have any active loans requiring repayments.</p>
+            <p className="text-sm text-gray-500 mb-4">
+              Looking for completed loans? Your full repayment history is available on the My Loans page.
+            </p>
             <Button onClick={() => router.push('/b/loans')}>
-              View Loan History
+              View My Loans
             </Button>
           </CardContent>
         </Card>
