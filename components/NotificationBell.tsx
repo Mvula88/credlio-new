@@ -58,13 +58,11 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
   const router = useRouter()
   const supabase = createClient()
 
-  // Prevent hydration mismatch with Radix UI
+  // Initialize component and load data
   useEffect(() => {
     setMounted(true)
-  }, [])
 
-  useEffect(() => {
-    if (!mounted) return
+    // Load notifications immediately
     loadNotifications()
     loadUnreadCounts()
 
@@ -124,6 +122,7 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
   const loadNotifications = async () => {
     try {
       setLoading(true)
+
       // Exclude message notifications - those go to the message icon
       // Filter by target_role to show only notifications for the current context (lender/borrower/admin)
       const { data, error } = await supabase
