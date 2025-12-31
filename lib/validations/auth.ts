@@ -40,7 +40,7 @@ export const borrowerOnboardingSchema = z.object({
 
   // Employment/Income Information
   employmentStatus: z.enum(['employed', 'self_employed', 'unemployed', 'student', 'retired'], {
-    errorMap: () => ({ message: 'Please select your employment status' }),
+    message: 'Please select your employment status',
   }),
 
   employerName: z.string()
@@ -48,7 +48,7 @@ export const borrowerOnboardingSchema = z.object({
     .optional(),
 
   monthlyIncomeRange: z.enum(['0-1000', '1001-5000', '5001-10000', '10001-25000', '25001-50000', '50001+'], {
-    errorMap: () => ({ message: 'Please select your income range' }),
+    message: 'Please select your income range',
   }),
 
   incomeSource: z.string()
@@ -156,7 +156,7 @@ export const lenderProfileSchema = z.object({
     .max(50, 'ID number is too long'),
 
   idType: z.enum(['national_id', 'passport', 'business_registration', 'drivers_license'], {
-    errorMap: () => ({ message: 'Please select an ID type' }),
+    message: 'Please select an ID type',
   }),
 
   city: z.string()
@@ -164,7 +164,7 @@ export const lenderProfileSchema = z.object({
     .max(100, 'City name is too long'),
 
   lendingPurpose: z.enum(['personal', 'business', 'ngo', 'cooperative', 'microfinance', 'other'], {
-    errorMap: () => ({ message: 'Please select your lending purpose' }),
+    message: 'Please select your lending purpose',
   }),
 
   // ID PHOTO VERIFICATION - Handled separately via camera capture

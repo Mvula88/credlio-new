@@ -207,7 +207,7 @@ export default function SubscriptionPage() {
       // Redirect to Stripe Checkout
       const stripe = await stripePromise
       if (stripe) {
-        const { error } = await stripe.redirectToCheckout({ sessionId })
+        const { error } = await (stripe as any).redirectToCheckout({ sessionId })
         if (error) {
           console.error('Stripe error:', error)
         }
@@ -340,7 +340,7 @@ export default function SubscriptionPage() {
             <CardContent className="space-y-6">
               {/* Pricing */}
               <div>
-                {plan.custom ? (
+                {(plan as any).custom ? (
                   <div>
                     <p className="text-3xl font-bold">Custom</p>
                     <p className="text-gray-600">Contact sales</p>
@@ -355,9 +355,9 @@ export default function SubscriptionPage() {
                         /{billingPeriod === 'monthly' ? 'month' : 'year'}
                       </span>
                     </div>
-                    {billingPeriod === 'yearly' && plan.priceYearly > 0 && (
+                    {billingPeriod === 'yearly' && (plan.priceYearly || 0) > 0 && (
                       <p className="text-sm text-gray-600 mt-1">
-                        ${(plan.priceYearly / 12).toFixed(2)}/month billed annually
+                        ${((plan.priceYearly || 0) / 12).toFixed(2)}/month billed annually
                       </p>
                     )}
                   </div>
@@ -382,7 +382,7 @@ export default function SubscriptionPage() {
             </CardContent>
 
             <CardFooter>
-              {plan.custom ? (
+              {(plan as any).custom ? (
                 <Button className="w-full" variant="outline">
                   Contact Sales
                   <ChevronRight className="ml-2 h-4 w-4" />

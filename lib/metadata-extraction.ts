@@ -119,13 +119,14 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
     const loadingTask = pdfjsLib.getDocument(arrayBuffer)
     const pdf = await loadingTask.promise
     const metadata = await pdf.getMetadata()
+    const info = metadata.info as any
 
     // Parse dates
-    const creationDate = metadata.info.CreationDate
-      ? parsePDFDate(metadata.info.CreationDate)
+    const creationDate = info.CreationDate
+      ? parsePDFDate(info.CreationDate)
       : undefined
-    const modificationDate = metadata.info.ModDate
-      ? parsePDFDate(metadata.info.ModDate)
+    const modificationDate = info.ModDate
+      ? parsePDFDate(info.ModDate)
       : undefined
 
     // Check if modified
@@ -138,8 +139,8 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
     }
 
     // Check creator software
-    const creator = metadata.info.Creator || ''
-    const producer = metadata.info.Producer || ''
+    const creator = info.Creator || ''
+    const producer = info.Producer || ''
     const suspiciousCreator = checkSuspiciousCreator(creator, producer)
 
     if (suspiciousCreator) {
@@ -166,23 +167,23 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
     }
 
     // Check if minimal/no metadata (could be scrubbed)
-    if (!creator && !producer && !metadata.info.Author) {
+    if (!creator && !producer && !info.Author) {
       riskFactors.push('Missing metadata - may have been scrubbed')
       riskScore += 20
     }
 
     return {
-      title: metadata.info.Title,
-      author: metadata.info.Author,
-      subject: metadata.info.Subject,
-      keywords: metadata.info.Keywords,
+      title: info.Title,
+      author: info.Author,
+      subject: info.Subject,
+      keywords: info.Keywords,
       creator: creator,
       producer: producer,
       creationDate,
       modificationDate,
       pageCount: pdf.numPages,
       fileSize: file.size,
-      pdfVersion: metadata.info.PDFFormatVersion,
+      pdfVersion: info.PDFFormatVersion,
       wasModified,
       suspiciousCreator,
       dateMismatch,

@@ -1,12 +1,13 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Mail, CheckCircle } from 'lucide-react'
 
-export default function ConfirmEmailPage() {
+function ConfirmEmailPageContent() {
   const searchParams = useSearchParams()
   const email = searchParams.get('email')
 
@@ -77,5 +78,13 @@ export default function ConfirmEmailPage() {
         </Card>
       </div>
     </div>
+  )
+}
+
+export default function ConfirmEmailPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
+      <ConfirmEmailPageContent />
+    </Suspense>
   )
 }

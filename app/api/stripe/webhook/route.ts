@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
             .update({
               subscription_status: subscription.status,
               subscription_id: subscription.id,
-              subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString()
+              subscription_period_end: new Date(((subscription as any).current_period_end || 0) * 1000).toISOString()
             })
             .eq('user_id', customer.metadata.user_id)
         }
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
             .from('profiles')
             .update({
               subscription_status: 'canceled',
-              subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString()
+              subscription_period_end: new Date(((subscription as any).current_period_end || 0) * 1000).toISOString()
             })
             .eq('user_id', customer.metadata.user_id)
         }

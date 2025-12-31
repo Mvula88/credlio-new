@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { loadStripe } from '@stripe/stripe-js'
@@ -80,7 +80,7 @@ const PLANS = [
   }
 ]
 
-export default function BillingPage() {
+function BillingPageContent() {
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [currentPlan, setCurrentPlan] = useState<string>('BASIC')
@@ -157,7 +157,7 @@ export default function BillingPage() {
         throw new Error('Stripe failed to load')
       }
 
-      const { error } = await stripe.redirectToCheckout({
+      const { error } = await (stripe as any).redirectToCheckout({
         sessionId: data.sessionId
       })
 
@@ -411,5 +411,13 @@ export default function BillingPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function BillingPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div></div>}>
+      <BillingPageContent />
+    </Suspense>
   )
 }

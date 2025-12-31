@@ -57,7 +57,15 @@ export async function POST(req: NextRequest) {
       `)
       .eq('status', 'unpaid')
       .not('due_date', 'is', null)
-      .lt('due_date', sevenDaysAgoStr)
+      .lt('due_date', sevenDaysAgoStr) as { data: Array<{
+        id: string
+        borrower_id: string
+        lender_id: string
+        due_date: string
+        status: string
+        borrower: { id: string; full_name: string; user_id: string | null } | null
+        lender: { user_id: string } | null
+      }> | null, error: any }
 
     if (fetchError) {
       console.error('[CRON] Error fetching overdue reports:', fetchError)
@@ -113,16 +121,18 @@ export async function POST(req: NextRequest) {
         }
 
         // Create notification for lender
-        const { error: lenderNotifError } = await supabase.rpc('create_notification', {
-          p_user_id: report.lender.user_id,
-          p_type: 'payment_due',
-          p_title: 'Report Marked Overdue',
-          p_message: `Report for ${report.borrower?.full_name || 'borrower'} has been automatically marked as overdue.`,
-          p_link: '/l/reports'
-        })
+        if (report.lender?.user_id) {
+          const { error: lenderNotifError } = await supabase.rpc('create_notification', {
+            p_user_id: report.lender.user_id,
+            p_type: 'payment_due',
+            p_title: 'Report Marked Overdue',
+            p_message: `Report for ${report.borrower?.full_name || 'borrower'} has been automatically marked as overdue.`,
+            p_link: '/l/reports'
+          })
 
-        if (!lenderNotifError) {
-          notificationsCreated++
+          if (!lenderNotifError) {
+            notificationsCreated++
+          }
         }
 
       } catch (error: any) {

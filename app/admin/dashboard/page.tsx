@@ -803,7 +803,7 @@ export default function AdminDashboard() {
     return []
   }
 
-  const generateRiskDistribution = () => []
+  const generateRiskDistribution = (): { name: string; value: number; color: string }[] => []
 
   const generateLoanMetrics = () => {
     return []

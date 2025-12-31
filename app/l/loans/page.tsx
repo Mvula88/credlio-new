@@ -101,8 +101,8 @@ export default function LoansPage() {
 
   const loadLoans = async () => {
     try {
-      // Get both user and session
-      const { data: { user, session } } = await supabase.auth.getUser()
+      // Get user
+      const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         console.error('No user found')
         router.push('/l/login')
@@ -679,27 +679,27 @@ export default function LoansPage() {
             </TabsList>
 
             <TabsContent value="all" className="space-y-4">
-              <LoanTable loans={loans} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} />
+              <LoanTable loans={loans} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} isSchedulePaid={isSchedulePaid} />
             </TabsContent>
 
             <TabsContent value="active" className="space-y-4">
-              <LoanTable loans={loans.filter(l => l.status === 'active')} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} />
+              <LoanTable loans={loans.filter(l => l.status === 'active')} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} isSchedulePaid={isSchedulePaid} />
             </TabsContent>
 
             <TabsContent value="due-today" className="space-y-4">
-              <LoanTable loans={getDueTodayLoans()} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} showDueSchedule />
+              <LoanTable loans={getDueTodayLoans()} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} isSchedulePaid={isSchedulePaid} showDueSchedule />
             </TabsContent>
 
             <TabsContent value="overdue" className="space-y-4">
-              <LoanTable loans={getOverdueLoans()} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} showDueSchedule />
+              <LoanTable loans={getOverdueLoans()} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} isSchedulePaid={isSchedulePaid} showDueSchedule />
             </TabsContent>
 
             <TabsContent value="completed" className="space-y-4">
-              <LoanTable loans={loans.filter(l => l.status === 'completed')} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} />
+              <LoanTable loans={loans.filter(l => l.status === 'completed')} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} isSchedulePaid={isSchedulePaid} />
             </TabsContent>
 
             <TabsContent value="defaulted" className="space-y-4">
-              <LoanTable loans={loans.filter(l => l.status === 'defaulted')} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} />
+              <LoanTable loans={loans.filter(l => l.status === 'defaulted')} formatCurrency={formatCurrency} getStatusBadge={getStatusBadge} calculateProgress={calculateProgress} getNextPayment={getNextPayment} router={router} onRecordPayment={setSelectedSchedule} isOverdue={isOverdue} isDueToday={isDueToday} isSchedulePaid={isSchedulePaid} />
             </TabsContent>
           </Tabs>
         </CardContent>
@@ -786,7 +786,7 @@ export default function LoansPage() {
   )
 }
 
-function LoanTable({ loans, formatCurrency, getStatusBadge, calculateProgress, getNextPayment, router, onRecordPayment, isOverdue, isDueToday, showDueSchedule }: any) {
+function LoanTable({ loans, formatCurrency, getStatusBadge, calculateProgress, getNextPayment, router, onRecordPayment, isOverdue, isDueToday, isSchedulePaid, showDueSchedule }: any) {
   if (loans.length === 0) {
     return (
       <div className="text-center py-12">

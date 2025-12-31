@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
@@ -57,7 +57,7 @@ const CURRENCIES: Record<string, { code: string, symbol: string, name: string }>
   CI: { code: 'XOF', symbol: 'CFA', name: 'West African CFA Franc' },
 }
 
-export default function NewLoanPage() {
+function NewLoanPageContent() {
   const [loading, setLoading] = useState(false)
   const [searchLoading, setSearchLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -364,7 +364,7 @@ export default function NewLoanPage() {
         console.error('Loan error KEYS:', errorKeys)
         console.error('Loan error entries:', Object.entries(loanError))
 
-        const errorMessage = loanError.message || loanError.error || errorStr || 'Unknown error'
+        const errorMessage = loanError.message || (loanError as any).error || errorStr || 'Unknown error'
 
         if (errorMessage.includes('already have an active loan')) {
           setError('This borrower already has an active loan. They must repay it before taking a new one.')
@@ -866,5 +866,13 @@ export default function NewLoanPage() {
         )}
       </form>
     </div>
+  )
+}
+
+export default function NewLoanPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
+      <NewLoanPageContent />
+    </Suspense>
   )
 }

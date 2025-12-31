@@ -49,7 +49,7 @@ import {
 } from 'lucide-react'
 import { format, isPast } from 'date-fns'
 import { RadialBarChart, RadialBar, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
-import { Flame, Star, Clock, MessageSquare, Sparkles } from 'lucide-react'
+import { Flame, Star, Clock, MessageSquare, Sparkles, FileText } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { differenceInMonths, differenceInYears } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'

@@ -873,7 +873,7 @@ export default function LenderReportsPage() {
   const filteredReports = reports.filter(report => {
     const matchesStatus = statusFilter === 'all' || report.status === statusFilter
     // ONLY search by National ID (hashed) for security
-    const matchesSearch = !searchHash || report.borrower.national_id_hash === searchHash
+    const matchesSearch = !searchHash || (report.borrower as any).national_id_hash === searchHash
     return matchesStatus && matchesSearch
   })
 

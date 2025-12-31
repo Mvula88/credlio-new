@@ -164,6 +164,11 @@ export default function MarketplacePage() {
       // CRITICAL: Only show loan requests from the SAME COUNTRY as the lender
       // Get loan requests from borrowers with full verification details
       // Use explicit foreign key since there are two relationships between loan_requests and loan_offers
+      if (!profile?.country_code) {
+        console.error('No country code found for lender')
+        return
+      }
+
       const { data: requests, error: requestsError } = await supabase
         .from('loan_requests')
         .select(`

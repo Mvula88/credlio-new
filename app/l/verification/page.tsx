@@ -136,7 +136,7 @@ export default function VerificationPage() {
         })
       )
 
-      setRecentBorrowers(borrowersWithVerification)
+      setRecentBorrowers(borrowersWithVerification as any)
     } catch (error) {
       console.error('Error loading recent borrowers:', error)
     } finally {
@@ -198,7 +198,7 @@ export default function VerificationPage() {
         documents_verified: verifiedCount,
         total_documents: totalCount,
         risk_score: avgRiskScore
-      })
+      } as any)
 
     } catch (error: any) {
       console.error('Search error:', error)

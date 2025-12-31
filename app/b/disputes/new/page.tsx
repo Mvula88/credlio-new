@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,7 @@ const DISPUTE_TYPES = [
   { value: 'other', label: 'Other Issue' },
 ]
 
-export default function NewDisputePage() {
+function NewDisputePageContent() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -387,5 +387,13 @@ export default function NewDisputePage() {
         </Card>
       </div>
     </div>
+  )
+}
+
+export default function NewDisputePage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
+      <NewDisputePageContent />
+    </Suspense>
   )
 }
