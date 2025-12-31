@@ -1,12 +1,20 @@
 import Stripe from 'stripe'
 
-export const stripe = new Stripe(
-  process.env.STRIPE_SECRET_KEY!,
-  {
-    apiVersion: '2025-10-29.clover',
-    typescript: true,
+// Lazy initialization to avoid build-time errors when env vars aren't available
+let _stripe: Stripe | null = null
+
+export function getStripe(): Stripe {
+  if (!_stripe) {
+    _stripe = new Stripe(
+      process.env.STRIPE_SECRET_KEY!,
+      {
+        apiVersion: '2025-10-29.clover',
+        typescript: true,
+      }
+    )
   }
-)
+  return _stripe
+}
 
 export const SUBSCRIPTION_PLANS = {
   borrower_basic: {
@@ -92,7 +100,7 @@ export async function createCustomer(
   name: string,
   metadata: Record<string, string>
 ) {
-  return await stripe.customers.create({
+  return await getStripe().customers.create({
     email,
     name,
     metadata
@@ -104,7 +112,7 @@ export async function createSubscription(
   priceId: string,
   trialDays?: number
 ) {
-  return await stripe.subscriptions.create({
+  return await getStripe().subscriptions.create({
     customer: customerId,
     items: [{ price: priceId }],
     trial_period_days: trialDays,
@@ -114,13 +122,13 @@ export async function createSubscription(
 }
 
 export async function cancelSubscription(subscriptionId: string) {
-  return await stripe.subscriptions.update(subscriptionId, {
+  return await getStripe().subscriptions.update(subscriptionId, {
     cancel_at_period_end: true
   })
 }
 
 export async function reactivateSubscription(subscriptionId: string) {
-  return await stripe.subscriptions.update(subscriptionId, {
+  return await getStripe().subscriptions.update(subscriptionId, {
     cancel_at_period_end: false
   })
 }
@@ -129,9 +137,9 @@ export async function updateSubscription(
   subscriptionId: string,
   newPriceId: string
 ) {
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId)
-  
-  return await stripe.subscriptions.update(subscriptionId, {
+  const subscription = await getStripe().subscriptions.retrieve(subscriptionId)
+
+  return await getStripe().subscriptions.update(subscriptionId, {
     items: [{
       id: subscription.items.data[0].id,
       price: newPriceId
@@ -145,7 +153,7 @@ export async function createPaymentIntent(
   currency: string,
   metadata: Record<string, string>
 ) {
-  return await stripe.paymentIntents.create({
+  return await getStripe().paymentIntents.create({
     amount: amount * 100, // Convert to cents
     currency,
     metadata,
@@ -162,7 +170,7 @@ export async function createCheckoutSession(
   cancelUrl: string,
   metadata?: Record<string, string>
 ) {
-  return await stripe.checkout.sessions.create({
+  return await getStripe().checkout.sessions.create({
     customer: customerId,
     line_items: [
       {
@@ -184,26 +192,26 @@ export async function createPortalSession(
   customerId: string,
   returnUrl: string
 ) {
-  return await stripe.billingPortal.sessions.create({
+  return await getStripe().billingPortal.sessions.create({
     customer: customerId,
     return_url: returnUrl,
   })
 }
 
 export async function getSubscription(subscriptionId: string) {
-  return await stripe.subscriptions.retrieve(subscriptionId, {
+  return await getStripe().subscriptions.retrieve(subscriptionId, {
     expand: ['customer', 'items.data.price.product']
   })
 }
 
 export async function getCustomer(customerId: string) {
-  return await stripe.customers.retrieve(customerId, {
+  return await getStripe().customers.retrieve(customerId, {
     expand: ['subscriptions']
   })
 }
 
 export async function createSetupIntent(customerId: string) {
-  return await stripe.setupIntents.create({
+  return await getStripe().setupIntents.create({
     customer: customerId,
     payment_method_types: ['card'],
     usage: 'off_session'
@@ -214,12 +222,12 @@ export async function attachPaymentMethod(
   paymentMethodId: string,
   customerId: string
 ) {
-  await stripe.paymentMethods.attach(paymentMethodId, {
+  await getStripe().paymentMethods.attach(paymentMethodId, {
     customer: customerId
   })
-  
+
   // Set as default payment method
-  await stripe.customers.update(customerId, {
+  await getStripe().customers.update(customerId, {
     invoice_settings: {
       default_payment_method: paymentMethodId
     }
@@ -233,7 +241,7 @@ export async function processLoanRepayment(
   loanId: string,
   paymentMethodId: string
 ) {
-  return await stripe.paymentIntents.create({
+  return await getStripe().paymentIntents.create({
     amount: amount * 100,
     currency,
     customer: borrowerId,
@@ -254,7 +262,7 @@ export async function createPayout(
   destinationAccountId: string,
   metadata: Record<string, string>
 ) {
-  return await stripe.transfers.create({
+  return await getStripe().transfers.create({
     amount: amount * 100,
     currency,
     destination: destinationAccountId,
@@ -267,7 +275,7 @@ export async function verifyWebhookSignature(
   signature: string,
   endpointSecret: string
 ): Promise<Stripe.Event> {
-  return stripe.webhooks.constructEvent(
+  return getStripe().webhooks.constructEvent(
     payload,
     signature,
     endpointSecret

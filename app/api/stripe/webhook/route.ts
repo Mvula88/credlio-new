@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
-import { stripe, verifyWebhookSignature } from '@/lib/stripe/server'
+import { getStripe, verifyWebhookSignature } from '@/lib/stripe/server'
 import Stripe from 'stripe'
 
 export async function POST(req: NextRequest) {
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
         const subscription = event.data.object as Stripe.Subscription
         
         // Get customer
-        const customer = await stripe.customers.retrieve(subscription.customer as string)
+        const customer = await getStripe().customers.retrieve(subscription.customer as string)
         
         if ('metadata' in customer && customer.metadata?.user_id) {
           await supabase
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
         const subscription = event.data.object as Stripe.Subscription
         
         // Get customer
-        const customer = await stripe.customers.retrieve(subscription.customer as string)
+        const customer = await getStripe().customers.retrieve(subscription.customer as string)
         
         if ('metadata' in customer && customer.metadata?.user_id) {
           await supabase
