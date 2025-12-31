@@ -33,7 +33,6 @@ import {
   Check,
   Clock,
   Ban,
-  Hash,
   FileCheck,
   Calculator,
   MapPin,
@@ -458,7 +457,7 @@ export default function BorrowersPage() {
 
       // Validate inputs
       if (!riskReason || !proofHash) {
-        toast.error('Please provide reason and proof document hash')
+        toast.error('Please provide reason and upload proof document')
         return
       }
 
@@ -542,7 +541,7 @@ export default function BorrowersPage() {
     const hashArray = Array.from(new Uint8Array(hashBuffer))
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
     setProofHash(hashHex)
-    toast.success('Document hash computed: ' + hashHex.substring(0, 16) + '...')
+    toast.success('Document verified and ready to submit')
   }
 
 
@@ -1293,30 +1292,24 @@ export default function BorrowersPage() {
             </div>
             
             <div>
-              <Label>Proof Document Hash *</Label>
+              <Label>Proof Document *</Label>
               <div className="space-y-2">
                 <Input
-                  value={proofHash}
-                  onChange={(e) => setProofHash(e.target.value)}
-                  placeholder="SHA-256 hash of proof document"
+                  type="file"
+                  accept=".pdf,.jpg,.png"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) computeDocumentHash(file)
+                  }}
+                  className="text-sm"
                 />
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="file"
-                    accept=".pdf,.jpg,.png"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) computeDocumentHash(file)
-                    }}
-                    className="text-sm"
-                  />
-                  <Badge variant="secondary">
-                    <Hash className="h-3 w-3 mr-1" />
-                    Compute Hash
+                {proofHash && (
+                  <Badge variant="secondary" className="text-green-600">
+                    Document verified
                   </Badge>
-                </div>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  Upload document to compute hash. File never leaves your device.
+                  Upload proof document (PDF, JPG, PNG). File is processed securely.
                 </p>
               </div>
             </div>

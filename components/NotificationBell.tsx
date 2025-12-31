@@ -389,9 +389,10 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
                 {notifications.map((notification) => (
                   <div
                     key={notification.id}
-                    className={`p-4 hover:bg-gray-50 transition-colors relative ${
+                    className={`p-4 hover:bg-gray-50 transition-colors relative cursor-pointer ${
                       !notification.read ? 'bg-blue-50' : ''
                     } ${getPriorityColor(notification.priority)}`}
+                    onClick={() => handleNotificationClick(notification)}
                   >
                     <div className="flex items-start space-x-3">
                       <div className="mt-1">{getNotificationIcon(notification.type)}</div>
@@ -414,19 +415,22 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
                             })}
                           </p>
                           {notification.link && (
-                            <button
-                              onClick={() => handleNotificationClick(notification)}
-                              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                            >
+                            <span className="text-xs text-blue-600 flex items-center gap-1">
                               View
                               <ExternalLink className="h-3 w-3" />
-                            </button>
+                            </span>
                           )}
                           {notification.action_link && notification.action_label && (
                             <Link
                               href={notification.action_link}
                               className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                              onClick={() => setIsOpen(false)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (!notification.read) {
+                                  markAsRead(notification.id)
+                                }
+                                setIsOpen(false)
+                              }}
                             >
                               {notification.action_label}
                               <ExternalLink className="h-3 w-3" />

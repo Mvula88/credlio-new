@@ -102,7 +102,6 @@ export async function POST(request: NextRequest) {
       .from('countries')
       .select('code')
       .eq('code', country)
-      .eq('is_active', true)
       .single()
 
     if (countryError || !countryData) {

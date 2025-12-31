@@ -159,19 +159,40 @@ export default function BorrowerOverviewPage() {
             }
           }
 
-          const { data: payments } = await supabase
-            .from('repayment_events')
-            .select(`
-              *,
-              loans(
-                currency
-              )
-            `)
-            .eq('loans.borrower_id', borrowerData.id)
-            .order('created_at', { ascending: false })
-            .limit(6)
+          // Get paid repayment schedules as payment history
+          const { data: allLoans } = await supabase
+            .from('loans')
+            .select('id, currency')
+            .eq('borrower_id', borrowerData.id)
 
-          setRecentPayments(payments || [])
+          const loanIds = allLoans?.map(l => l.id) || []
+
+          if (loanIds.length > 0) {
+            const { data: paidSchedules } = await supabase
+              .from('repayment_schedules')
+              .select('*')
+              .in('loan_id', loanIds)
+              .eq('status', 'paid')
+              .order('due_date', { ascending: false })
+              .limit(6)
+
+            const paymentHistory = (paidSchedules || []).map(schedule => {
+              const loan = allLoans?.find(l => l.id === schedule.loan_id)
+              return {
+                id: schedule.id,
+                amount_paid_minor: schedule.amount,
+                created_at: schedule.updated_at || schedule.due_date,
+                payment_date: schedule.due_date,
+                currency: loan?.currency,
+                method: 'bank_transfer',
+                status: 'completed'
+              }
+            })
+
+            setRecentPayments(paymentHistory)
+          } else {
+            setRecentPayments([])
+          }
         }
       }
     } catch (error) {

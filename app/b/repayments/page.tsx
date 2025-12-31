@@ -48,7 +48,8 @@ import {
   Upload,
   Camera,
   XCircle,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { format, addDays, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, parseISO, subMonths } from 'date-fns'
@@ -550,42 +551,68 @@ export default function RepaymentsPage() {
                     <p className="text-sm text-gray-500">No upcoming payments</p>
                   ) : (
                     <div className="space-y-4">
-                      {upcomingPayments.slice(0, 5).map((payment, index) => (
-                        <div key={payment.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-                          <div className="flex items-center space-x-4">
-                            <div className={`p-3 rounded-full ${index === 0 ? 'bg-blue-100' : 'bg-gray-100'}`}>
-                              <CalendarIcon className={`h-6 w-6 ${index === 0 ? 'text-blue-600' : 'text-gray-600'}`} />
+                      {upcomingPayments.slice(0, 5).map((payment, index) => {
+                        const isOverdue = differenceInDays(new Date(payment.due_date), new Date()) < 0
+                        return (
+                          <div key={payment.id} className={`p-4 border rounded-lg hover:bg-gray-50 ${isOverdue ? 'border-red-300 bg-red-50' : ''}`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-4">
+                                <div className={`p-3 rounded-full ${isOverdue ? 'bg-red-100' : index === 0 ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                                  <CalendarIcon className={`h-6 w-6 ${isOverdue ? 'text-red-600' : index === 0 ? 'text-blue-600' : 'text-gray-600'}`} />
+                                </div>
+                                <div>
+                                  <p className="font-semibold">
+                                    Payment #{payment.payment_number || index + paymentStats?.completedPayments + 1}
+                                  </p>
+                                  <p className="text-sm text-gray-600">
+                                    Due on {format(new Date(payment.due_date), 'MMMM dd, yyyy')}
+                                  </p>
+                                  <p className={`text-sm font-medium ${isOverdue ? 'text-red-600' : 'text-blue-600'}`}>
+                                    {getDaysUntilDue(payment.due_date)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-2xl font-bold">
+                                  {formatCurrency(payment.amount)}
+                                </p>
+                                <div className="flex items-center space-x-2 mt-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleMakePayment(payment)}
+                                  >
+                                    Pay Now
+                                  </Button>
+                                  <Button size="sm" variant="outline">
+                                    <Bell className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-semibold">
-                                Payment #{payment.payment_number || index + paymentStats?.completedPayments + 1}
-                              </p>
-                              <p className="text-sm text-gray-600">
-                                Due on {format(new Date(payment.due_date), 'MMMM dd, yyyy')}
-                              </p>
-                              <p className="text-sm font-medium text-blue-600">
-                                {getDaysUntilDue(payment.due_date)}
-                              </p>
-                            </div>
+                            {/* Show lender notes for overdue payments */}
+                            {isOverdue && payment.lender_notes && (
+                              <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                                <p className="text-sm font-medium text-orange-800">Lender's Note:</p>
+                                <p className="text-sm text-orange-700">{payment.lender_notes}</p>
+                                {payment.lender_notes_updated_at && (
+                                  <p className="text-xs text-orange-500 mt-1">
+                                    Updated {format(new Date(payment.lender_notes_updated_at), 'MMM dd, yyyy')}
+                                  </p>
+                                )}
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  className="text-orange-700 p-0 h-auto mt-2"
+                                  onClick={() => router.push(`/b/disputes/new?type=payment_not_updated&loan=${activeLoan?.id}`)}
+                                >
+                                  <AlertTriangle className="h-3 w-3 mr-1" />
+                                  Dispute this if you believe you've paid
+                                </Button>
+                              </div>
+                            )}
                           </div>
-                          <div className="text-right">
-                            <p className="text-2xl font-bold">
-                              {formatCurrency(payment.amount)}
-                            </p>
-                            <div className="flex items-center space-x-2 mt-2">
-                              <Button 
-                                size="sm"
-                                onClick={() => handleMakePayment(payment)}
-                              >
-                                Pay Now
-                              </Button>
-                              <Button size="sm" variant="outline">
-                                <Bell className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -695,7 +722,21 @@ export default function RepaymentsPage() {
                                   <Alert className="mt-2 border-red-200 bg-red-50">
                                     <AlertCircle className="h-4 w-4 text-red-600" />
                                     <AlertDescription className="text-red-800">
-                                      Rejected: {proof.rejection_reason}
+                                      <div className="flex items-center justify-between">
+                                        <span>Rejected: {proof.rejection_reason}</span>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="ml-2 text-orange-700 border-orange-300 hover:bg-orange-50"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            router.push(`/b/disputes/new?type=payment_not_updated&loan=${activeLoan?.id}&amount=${proof.amount}&reason=${encodeURIComponent(proof.rejection_reason || '')}`)
+                                          }}
+                                        >
+                                          <AlertTriangle className="h-3 w-3 mr-1" />
+                                          Dispute
+                                        </Button>
+                                      </div>
                                     </AlertDescription>
                                   </Alert>
                                 )}

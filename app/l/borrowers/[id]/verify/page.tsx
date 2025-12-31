@@ -408,7 +408,7 @@ export default function DocumentVerificationPage() {
         <Info className="h-4 w-4" />
         <AlertDescription>
           <strong>Privacy Note:</strong> Documents are analyzed for metadata only and NOT stored on our servers.
-          Only verification hashes and risk scores are saved.
+          Only verification data and risk scores are saved.
         </AlertDescription>
       </Alert>
 
@@ -773,7 +773,7 @@ function VideoVerificationSection({
           <Alert className="bg-green-50 border-green-200">
             <CheckCircle className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-900">
-              Video verification completed. Hash: {videoHash?.slice(0, 16)}...
+              Video verification completed successfully
             </AlertDescription>
           </Alert>
         )}

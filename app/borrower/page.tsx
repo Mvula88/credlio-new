@@ -139,7 +139,7 @@ export default function BorrowerLandingPage() {
               </div>
               <h3 className="text-lg font-semibold">Protected Identity</h3>
               <p className="text-gray-600 text-sm">
-                Your ID is encrypted with SHA-256. Privacy is guaranteed
+                Your ID is encrypted and stored securely. Privacy is guaranteed
               </p>
             </div>
           </div>

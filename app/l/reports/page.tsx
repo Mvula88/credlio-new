@@ -156,6 +156,7 @@ export default function LenderReportsPage() {
   const [success, setSuccess] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('my-risky')
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [lenderCountry, setLenderCountry] = useState<string>('GH')
   const router = useRouter()
   const supabase = createClient()
 
@@ -239,11 +240,12 @@ export default function LenderReportsPage() {
       // Load borrowers for dropdown
       const { data: lender } = await supabase
         .from('lenders')
-        .select('user_id')
+        .select('user_id, country_code')
         .eq('user_id', user.id)
         .maybeSingle()
 
       if (lender) {
+        setLenderCountry(lender.country_code || 'GH')
         const { data: borrowerData } = await supabase
           .from('borrowers')
           .select('id, full_name, phone_e164, national_id_hash, country_code, user_id')
@@ -646,8 +648,8 @@ export default function LenderReportsPage() {
       // Upload proof file to Supabase Storage
       setUploadingRiskProof(true)
       const fileExt = riskProofFile.name.split('.').pop()
-      const fileName = `${user.id}/${selectedBorrowerForRisk.borrower_id}/${Date.now()}.${fileExt}`
-      const filePath = `risk-evidence/${fileName}`
+      const fileName = `${selectedBorrowerForRisk.borrower_id}/${Date.now()}.${fileExt}`
+      const filePath = `risk-flags/${user.id}/${fileName}`
 
       const { error: uploadError } = await supabase.storage
         .from('evidence')
@@ -671,22 +673,21 @@ export default function LenderReportsPage() {
 
       setUploadingRiskProof(false)
 
-      // Flag borrower with BOTH file URL and hash
-      const { error } = await supabase
-        .from('risk_flags')
-        .insert({
-          borrower_id: selectedBorrowerForRisk.borrower_id,
-          country_code: selectedBorrowerForRisk.country_code || 'GH',
-          origin: 'LENDER_REPORTED',
-          type: riskType,
-          reason: riskReason,
-          amount_at_issue_minor: riskAmount ? parseInt(riskAmount) * 100 : null,
-          proof_url: publicUrl,
-          proof_sha256: proofHash,
-          created_by: user.id,
-        })
+      // Flag borrower using the SECURITY DEFINER function
+      // This properly gets the lender's country from their profile
+      const { data: result, error } = await supabase.rpc('flag_borrower', {
+        p_borrower_id: selectedBorrowerForRisk.borrower_id,
+        p_type: riskType,
+        p_reason: riskReason,
+        p_amount_at_issue_minor: riskAmount ? parseInt(riskAmount) * 100 : null,
+        p_proof_url: publicUrl,
+        p_proof_sha256: proofHash,
+      })
 
       if (error) throw error
+      if (result && !result.success) {
+        throw new Error(result.error || 'Failed to flag borrower')
+      }
 
       toast.success('Borrower flagged successfully - other lenders will be warned')
       setShowRiskDialog(false)
@@ -731,8 +732,8 @@ export default function LenderReportsPage() {
       // Upload proof file to Supabase Storage
       setUploadingQuickProof(true)
       const fileExt = quickReportProofFile.name.split('.').pop()
-      const fileName = `${user.id}/quick-report/${Date.now()}.${fileExt}`
-      const filePath = `risk-evidence/${fileName}`
+      const fileName = `quick-report/${Date.now()}.${fileExt}`
+      const filePath = `risk-flags/${user.id}/${fileName}`
 
       const { error: uploadError } = await supabase.storage
         .from('evidence')
@@ -767,22 +768,21 @@ export default function LenderReportsPage() {
 
       if (registerError) throw registerError
 
-      // Then, flag them as risky with BOTH file URL and hash
-      const { error: flagError } = await supabase
-        .from('risk_flags')
-        .insert({
-          borrower_id: borrowerId,
-          country_code: 'GH', // Will be updated from borrower data
-          origin: 'LENDER_REPORTED',
-          type: quickReportData.riskType,
-          reason: quickReportData.reason,
-          amount_at_issue_minor: quickReportData.amount ? parseInt(quickReportData.amount) * 100 : null,
-          proof_url: publicUrl,
-          proof_sha256: proofHash,
-          created_by: user.id,
-        })
+      // Then, flag them as risky using the SECURITY DEFINER function
+      // This properly gets the lender's country from their profile
+      const { data: flagResult, error: flagError } = await supabase.rpc('flag_borrower', {
+        p_borrower_id: borrowerId,
+        p_type: quickReportData.riskType,
+        p_reason: quickReportData.reason,
+        p_amount_at_issue_minor: quickReportData.amount ? parseInt(quickReportData.amount) * 100 : null,
+        p_proof_url: publicUrl,
+        p_proof_sha256: proofHash,
+      })
 
       if (flagError) throw flagError
+      if (flagResult && !flagResult.success) {
+        throw new Error(flagResult.error || 'Failed to flag borrower')
+      }
 
       toast.success('⚠️ Defaulter registered and flagged! Other lenders will be warned.')
       setShowQuickReportDialog(false)
@@ -1134,8 +1134,7 @@ export default function LenderReportsPage() {
             <Globe className="h-4 w-4 text-purple-600" />
             <AlertDescription className="text-purple-900">
               <strong>Cross-Lender Intelligence:</strong> Search for credit history across ALL lenders on the platform.
-              <span className="ml-1 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">Currently FREE - Will be a paid feature</span>
-            </AlertDescription>
+                          </AlertDescription>
           </Alert>
 
           {/* Search Card */}
@@ -1477,11 +1476,12 @@ export default function LenderReportsPage() {
                           />
                         </div>
                         <div>
-                          <Label>National ID (if known)</Label>
+                          <Label>National ID *</Label>
                           <Input
                             value={quickReportData.nationalId}
                             onChange={(e) => setQuickReportData({...quickReportData, nationalId: e.target.value})}
-                            placeholder="Leave blank if unknown"
+                            placeholder="Enter National ID number"
+                            required
                           />
                         </div>
                       </div>
@@ -1496,11 +1496,12 @@ export default function LenderReportsPage() {
                           />
                         </div>
                         <div>
-                          <Label>Date of Birth (if known)</Label>
+                          <Label>Date of Birth *</Label>
                           <Input
                             type="date"
                             value={quickReportData.dateOfBirth}
                             onChange={(e) => setQuickReportData({...quickReportData, dateOfBirth: e.target.value})}
+                            required
                           />
                         </div>
                       </div>

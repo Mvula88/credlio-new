@@ -138,7 +138,7 @@ export default function LenderLandingPage() {
               </div>
               <h3 className="text-lg font-semibold">Secure & Compliant</h3>
               <p className="text-gray-600 text-sm">
-                SHA-256 encryption with complete country data isolation
+                Bank-grade encryption with complete country data isolation
               </p>
             </div>
           </div>

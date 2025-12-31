@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, AlertCircle, AlertTriangle, Upload, X } from 'lucide-react'
 
 const DISPUTE_TYPES = [
+  { value: 'payment_not_updated', label: 'Payment Made But Not Updated by Lender' },
   { value: 'incorrect_loan_amount', label: 'Incorrect Loan Amount Reported' },
   { value: 'loan_never_existed', label: 'Loan Never Existed / Fake Entry' },
   { value: 'already_repaid', label: 'Loan Already Fully Repaid' },
@@ -32,7 +33,25 @@ export default function NewDisputePage() {
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([])
   const [uploadingEvidence, setUploadingEvidence] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
+
+  // Pre-fill form from URL parameters (when coming from rejected payment proof)
+  useEffect(() => {
+    const type = searchParams.get('type')
+    const loan = searchParams.get('loan')
+    const amount = searchParams.get('amount')
+    const reason = searchParams.get('reason')
+
+    if (type) setDisputeType(type)
+    if (loan) setLoanId(loan)
+
+    // Pre-fill description for payment disputes
+    if (type === 'payment_not_updated' && amount) {
+      const prefillDescription = `I made a payment of ${amount} but my lender has not updated my payment status.${reason ? `\n\nLender's rejection reason: "${reason}"\n\nI believe this rejection is incorrect because: ` : '\n\nDetails of my payment:\n- Payment date:\n- Payment method:\n- Reference number:'}`
+      setDescription(prefillDescription)
+    }
+  }, [searchParams])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -61,10 +80,10 @@ export default function NewDisputePage() {
         return
       }
 
-      // Get borrower ID
+      // Get borrower ID and country_code
       const { data: borrower, error: borrowerError } = await supabase
         .from('borrowers')
-        .select('id')
+        .select('id, country_code')
         .eq('user_id', user.id)
         .single()
 
@@ -83,6 +102,11 @@ export default function NewDisputePage() {
           description: description,
           status: 'open',
           priority: disputeType === 'identity_theft' || disputeType === 'harassment' ? 'high' : 'medium',
+          country_code: borrower.country_code,
+          created_by: user.id,
+          filed_by: 'borrower',
+          dispute_type: disputeType,
+          title: DISPUTE_TYPES.find(t => t.value === disputeType)?.label || disputeType,
         })
         .select()
         .single()

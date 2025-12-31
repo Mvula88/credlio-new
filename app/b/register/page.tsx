@@ -14,11 +14,13 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, AlertCircle, User, Info, Globe, CheckCircle } from 'lucide-react'
+import { Loader2, AlertCircle, User, Info, Globe, CheckCircle, Eye, EyeOff } from 'lucide-react'
 
 export default function BorrowerRegisterPage() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [countries, setCountries] = useState<{ code: string; name: string }[]>([])
   const [loadingCountries, setLoadingCountries] = useState(true)
   const [detectedCountry, setDetectedCountry] = useState<{ code: string; name: string; ip: string } | null>(null)
@@ -176,21 +178,8 @@ export default function BorrowerRegisterPage() {
         return
       }
 
-      // Sign in the user (new account)
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      })
-
-      if (signInError) {
-        setError('Account created! Please sign in to continue.')
-        // Redirect to login page after a moment
-        setTimeout(() => router.push('/b/login'), 2000)
-        return
-      }
-
-      // Redirect to onboarding to complete profile
-      router.push('/b/onboarding')
+      // Show success message - user needs to confirm email first
+      router.push('/b/register/confirm-email?email=' + encodeURIComponent(data.email))
     } catch (err) {
       console.error('Registration error:', err)
       setError('An unexpected error occurred. Please try again.')
@@ -235,7 +224,7 @@ export default function BorrowerRegisterPage() {
                 <AlertTitle>Important</AlertTitle>
                 <AlertDescription>
                   After registration, you'll complete your profile with your national ID
-                  (which will be securely hashed) and other verification details.
+                  and other verification details.
                 </AlertDescription>
               </Alert>
 
@@ -288,12 +277,22 @@ export default function BorrowerRegisterPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="new-password"
-                  {...register('password')}
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    {...register('password')}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
                 {errors.password && (
                   <p className="text-sm text-red-500">{errors.password.message}</p>
                 )}
@@ -301,12 +300,22 @@ export default function BorrowerRegisterPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  {...register('confirmPassword')}
-                />
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    {...register('confirmPassword')}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
                 {errors.confirmPassword && (
                   <p className="text-sm text-red-500">{errors.confirmPassword.message}</p>
                 )}

@@ -196,21 +196,8 @@ export default function LenderRegisterPage() {
         return
       }
 
-      // Sign in the user (new account)
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      })
-
-      if (signInError) {
-        setError('Account created! Please sign in to continue.')
-        // Redirect to login page after a moment
-        setTimeout(() => router.push('/l/login'), 2000)
-        return
-      }
-
-      // Redirect to profile completion
-      router.push('/l/complete-profile')
+      // Show success message - user needs to confirm email first
+      router.push('/l/register/confirm-email?email=' + encodeURIComponent(data.email))
     } catch (err) {
       console.error('Registration error:', err)
       setError('An unexpected error occurred. Please try again.')

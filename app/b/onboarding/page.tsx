@@ -629,7 +629,7 @@ export default function BorrowerOnboardingPage() {
                       placeholder="Enter your national ID number"
                       {...register('nationalId')}
                     />
-                    <p className="text-xs text-gray-500">Will be immediately hashed for security</p>
+                    <p className="text-xs text-gray-500">Stored securely and protected</p>
                     {errors.nationalId && (
                       <p className="text-sm text-red-500">{errors.nationalId.message}</p>
                     )}

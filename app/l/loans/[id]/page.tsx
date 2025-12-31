@@ -45,7 +45,8 @@ import {
   HandCoins,
   Receipt,
   Eye,
-  Image
+  Image,
+  FileEdit
 } from 'lucide-react'
 import { format, isPast, differenceInDays } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
@@ -99,6 +100,9 @@ export default function LoanDetailPage() {
   const [reviewingProof, setReviewingProof] = useState<any>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [processingProofReview, setProcessingProofReview] = useState(false)
+  const [editingScheduleNotes, setEditingScheduleNotes] = useState<any>(null)
+  const [scheduleNotes, setScheduleNotes] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const disbursementFileRef = useRef<HTMLInputElement>(null)
 
@@ -727,6 +731,38 @@ export default function LoanDetailPage() {
       toast.error(error.message || 'Failed to reject payment proof')
     } finally {
       setProcessingProofReview(false)
+    }
+  }
+
+  const handleSaveScheduleNotes = async () => {
+    if (!editingScheduleNotes || !scheduleNotes.trim()) {
+      toast.error('Please provide a reason')
+      return
+    }
+
+    try {
+      setSavingNotes(true)
+      const { data, error } = await supabase.rpc('update_payment_lender_notes', {
+        p_schedule_id: editingScheduleNotes.id,
+        p_notes: scheduleNotes.trim()
+      })
+
+      if (error) throw new Error(error.message)
+
+      const result = data as { success: boolean; error?: string; message?: string }
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save notes')
+      }
+
+      toast.success('Notes saved successfully')
+      setEditingScheduleNotes(null)
+      setScheduleNotes('')
+      loadLoanDetails()
+    } catch (error: any) {
+      console.error('Error saving notes:', error)
+      toast.error(error.message || 'Failed to save notes')
+    } finally {
+      setSavingNotes(false)
     }
   }
 
@@ -2126,20 +2162,41 @@ export default function LoanDetailPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {status !== 'paid' && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleMarkAsPaid(schedule)}
-                            >
-                              <Check className="h-3 w-3 mr-1" />
-                              Mark as Paid
-                            </Button>
-                          )}
-                          {status === 'paid' && (schedule.paid_at || getSchedulePaidAt(schedule)) && (
-                            <span className="text-sm text-muted-foreground">
-                              Paid {format(new Date(schedule.paid_at || getSchedulePaidAt(schedule)), 'MMM dd')}
-                            </span>
+                          <div className="flex items-center gap-2">
+                            {status !== 'paid' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleMarkAsPaid(schedule)}
+                              >
+                                <Check className="h-3 w-3 mr-1" />
+                                Mark as Paid
+                              </Button>
+                            )}
+                            {isOverdue && status !== 'paid' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                                onClick={() => {
+                                  setEditingScheduleNotes(schedule)
+                                  setScheduleNotes(schedule.lender_notes || '')
+                                }}
+                              >
+                                <FileEdit className="h-3 w-3 mr-1" />
+                                {schedule.lender_notes ? 'Edit Notes' : 'Add Notes'}
+                              </Button>
+                            )}
+                            {status === 'paid' && (schedule.paid_at || getSchedulePaidAt(schedule)) && (
+                              <span className="text-sm text-muted-foreground">
+                                Paid {format(new Date(schedule.paid_at || getSchedulePaidAt(schedule)), 'MMM dd')}
+                              </span>
+                            )}
+                          </div>
+                          {schedule.lender_notes && (
+                            <p className="text-xs text-orange-700 mt-1 max-w-xs truncate" title={schedule.lender_notes}>
+                              Note: {schedule.lender_notes}
+                            </p>
                           )}
                         </TableCell>
                       </TableRow>
@@ -2582,6 +2639,54 @@ export default function LoanDetailPage() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lender Notes Dialog for Overdue Payments */}
+      <Dialog open={!!editingScheduleNotes} onOpenChange={() => { setEditingScheduleNotes(null); setScheduleNotes(''); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Why Hasn't This Payment Been Updated?</DialogTitle>
+            <DialogDescription>
+              Please explain why this overdue payment hasn't been marked as paid. This note will be visible to the borrower and may be reviewed in case of a dispute.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {editingScheduleNotes && (
+              <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg text-sm">
+                <p><strong>Installment:</strong> #{editingScheduleNotes.installment_no}</p>
+                <p><strong>Amount Due:</strong> {formatCurrency(editingScheduleNotes.amount_due_minor || 0, loan?.country_code)}</p>
+                <p><strong>Due Date:</strong> {format(new Date(editingScheduleNotes.due_date), 'MMM d, yyyy')}</p>
+                <p className="text-red-600 font-medium">
+                  {differenceInDays(new Date(), new Date(editingScheduleNotes.due_date))} days overdue
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Reason *</Label>
+              <Textarea
+                value={scheduleNotes}
+                onChange={(e) => setScheduleNotes(e.target.value)}
+                placeholder="e.g., Borrower claims they paid but no proof received yet, Borrower requested extension, Investigating disputed payment, etc."
+                rows={4}
+              />
+              <p className="text-xs text-muted-foreground">
+                Be specific about why this payment hasn't been recorded. This helps in case of disputes.
+              </p>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => { setEditingScheduleNotes(null); setScheduleNotes(''); }}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveScheduleNotes}
+                disabled={savingNotes || !scheduleNotes.trim()}
+              >
+                {savingNotes ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Save Notes
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
