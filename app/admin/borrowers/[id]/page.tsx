@@ -630,9 +630,7 @@ export default function AdminBorrowerProfilePage() {
                     endAngle={-270}
                   >
                     <RadialBar
-                      minAngle={15}
                       background
-                      clockWise
                       dataKey="value"
                       cornerRadius={10}
                     />
