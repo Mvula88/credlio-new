@@ -1,20 +1,19 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
-// Create service role client to bypass RLS
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-)
-
 export async function POST(request: NextRequest) {
   try {
+    // Create service role client inside handler to avoid build-time errors
+    const supabaseAdmin = createClient(
+      process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
     const {
       borrowerId,
       userId,
