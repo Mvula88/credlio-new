@@ -96,7 +96,7 @@ export default function VerificationDetailPage() {
       setDocuments(documentsData || [])
 
       // Get signed URL for selfie image if it exists
-      const selfieDoc = documentsData?.find(d => d.document_type === 'selfie_with_id')
+      const selfieDoc = documentsData?.find((d: any) => d.document_type === 'selfie_with_id')
       if (selfieDoc?.file_url) {
         const { data: signedUrlData, error: signedUrlError } = await supabase
           .storage
