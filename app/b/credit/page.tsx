@@ -214,7 +214,7 @@ export default function CreditScorePage() {
 
       // Count late payments in this month
       let latePaymentsInMonth = 0
-      loans.forEach(loan => {
+      loans.forEach((loan: any) => {
         const events = loan.repayment_events || []
         events.forEach((event: any) => {
           const eventDate = new Date(event.created_at)
