@@ -249,8 +249,8 @@ export default function MarketplacePage() {
 
       // Keep offer amounts in minor units and filter out withdrawn offers
       const formattedOffers = offers
-        ?.filter(o => o.status !== 'withdrawn') // Hide withdrawn/cancelled offers
-        ?.map(o => ({
+        ?.filter((o: any) => o.status !== 'withdrawn') // Hide withdrawn/cancelled offers
+        ?.map((o: any) => ({
         ...o,
         amount_minor: o.amount_minor, // Keep in minor units
         interest_rate: o.apr_bps / 100,
