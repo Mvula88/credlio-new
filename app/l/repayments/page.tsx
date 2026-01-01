@@ -200,13 +200,13 @@ export default function RepaymentsPage() {
 
       // Calculate comprehensive stats
       const now = new Date()
-      const paid = schedulesData?.filter(s => s.status === 'paid') || []
-      const pending = schedulesData?.filter(s => s.status === 'pending' || s.status === 'partial') || []
-      const overdue = pending.filter(s => new Date(s.due_date) < now)
-      const early = paid.filter(s => s.is_early_payment)
+      const paid = schedulesData?.filter((s: any) => s.status === 'paid') || []
+      const pending = schedulesData?.filter((s: any) => s.status === 'pending' || s.status === 'partial') || []
+      const overdue = pending.filter((s: any) => new Date(s.due_date) < now)
+      const early = paid.filter((s: any) => s.is_early_payment)
 
       // Calculate late payments (paid after due date)
-      const late = paid.filter(s => {
+      const late = paid.filter((s: any) => {
         if (!s.paid_at) return false
         return new Date(s.paid_at) > new Date(s.due_date)
       })
@@ -215,23 +215,23 @@ export default function RepaymentsPage() {
       let totalDaysEarly = 0
       let totalDaysLate = 0
 
-      early.forEach(s => {
+      early.forEach((s: any) => {
         if (s.paid_at) {
           const days = differenceInDays(new Date(s.due_date), new Date(s.paid_at))
           totalDaysEarly += Math.max(0, days)
         }
       })
 
-      late.forEach(s => {
+      late.forEach((s: any) => {
         if (s.paid_at) {
           const days = differenceInDays(new Date(s.paid_at), new Date(s.due_date))
           totalDaysLate += Math.max(0, days)
         }
       })
 
-      const totalCollected = schedulesData?.reduce((sum, s) => sum + (s.paid_amount_minor || 0), 0) || 0
-      const pendingAmount = pending.reduce((sum, s) => sum + ((s.amount_due_minor || 0) - (s.paid_amount_minor || 0)), 0)
-      const overdueAmount = overdue.reduce((sum, s) => sum + ((s.amount_due_minor || 0) - (s.paid_amount_minor || 0)), 0)
+      const totalCollected = schedulesData?.reduce((sum: number, s: any) => sum + (s.paid_amount_minor || 0), 0) || 0
+      const pendingAmount = pending.reduce((sum: number, s: any) => sum + ((s.amount_due_minor || 0) - (s.paid_amount_minor || 0)), 0)
+      const overdueAmount = overdue.reduce((sum: number, s: any) => sum + ((s.amount_due_minor || 0) - (s.paid_amount_minor || 0)), 0)
 
       setStats({
         totalCollected,
