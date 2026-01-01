@@ -145,7 +145,7 @@ export default function DocumentVerificationPage() {
       if (verificationsData && verificationsData.length > 0) {
         // Update documents with existing verifications
         setDocuments(prev => prev.map(doc => {
-          const existing = verificationsData.find(v => v.document_type === doc.type)
+          const existing = verificationsData.find((v: any) => v.document_type === doc.type)
           if (existing) {
             return {
               ...doc,
