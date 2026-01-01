@@ -78,11 +78,11 @@ export default function KYCVerificationPage() {
       // Calculate stats
       const today = new Date().toISOString().split('T')[0]
       const totalCount = verificationsData?.length || 0
-      const approvedCount = verificationsData?.filter(v => v.verification_status === 'approved').length || 0
-      const pendingCount = verificationsData?.filter(v => v.verification_status === 'pending').length || 0
-      const rejectedCount = verificationsData?.filter(v => v.verification_status === 'rejected').length || 0
-      const bannedCount = verificationsData?.filter(v => v.verification_status === 'banned').length || 0
-      const todayApprovedCount = verificationsData?.filter(v =>
+      const approvedCount = verificationsData?.filter((v: any) => v.verification_status === 'approved').length || 0
+      const pendingCount = verificationsData?.filter((v: any) => v.verification_status === 'pending').length || 0
+      const rejectedCount = verificationsData?.filter((v: any) => v.verification_status === 'rejected').length || 0
+      const bannedCount = verificationsData?.filter((v: any) => v.verification_status === 'banned').length || 0
+      const todayApprovedCount = verificationsData?.filter((v: any) =>
         v.verification_status === 'approved' &&
         v.verified_at &&
         v.verified_at.startsWith(today)
