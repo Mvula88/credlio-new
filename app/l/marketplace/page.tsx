@@ -219,7 +219,7 @@ export default function MarketplacePage() {
       }
 
       // Keep amounts in minor units, convert only interest rates
-      const formattedRequests = requests?.map(r => ({
+      const formattedRequests = requests?.map((r: any) => ({
         ...r,
         amount_minor: r.amount_minor, // Keep in minor units
         max_interest_rate: r.max_apr_bps / 100,
