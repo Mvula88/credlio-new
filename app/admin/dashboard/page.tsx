@@ -224,10 +224,10 @@ export default function AdminDashboard() {
       .select('on_time_rate, evidence_rate, total_loans, total_reports')
 
     const avgOnTimeRate = lenderScores && lenderScores.length > 0
-      ? Math.round(lenderScores.reduce((sum: number, l) => sum + parseFloat(l.on_time_rate), 0) / lenderScores.length)
+      ? Math.round(lenderScores.reduce((sum: number, l: any) => sum + parseFloat(l.on_time_rate), 0) / lenderScores.length)
       : 0
 
-    const totalLoansOriginated = lenderScores?.reduce((sum: number, l) => sum + l.total_loans, 0) || 0
+    const totalLoansOriginated = lenderScores?.reduce((sum: number, l: any) => sum + l.total_loans, 0) || 0
 
     // LOAN METRICS
     const { data: loans } = await supabase
@@ -235,17 +235,17 @@ export default function AdminDashboard() {
       .select('principal_minor, status, apr_bps, term_months')
 
     // Keep in MINOR units for consistent formatting
-    const totalLoanVolume = loans?.reduce((sum: number, loan) => sum + (loan.principal_minor || 0), 0) || 0
-    const activeLoans = loans?.filter(l => l.status === 'active').length || 0
-    const completedLoans = loans?.filter(l => l.status === 'completed').length || 0
-    const defaultedLoans = loans?.filter(l => l.status === 'defaulted').length || 0
+    const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
+    const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
+    const completedLoans = loans?.filter((l: any) => l.status === 'completed').length || 0
+    const defaultedLoans = loans?.filter((l: any) => l.status === 'defaulted').length || 0
     const totalLoans = loans?.length || 0
     const defaultRate = totalLoans > 0 ? (defaultedLoans / totalLoans) * 100 : 0
 
     // avgLoanSize in minor units
     const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
     const avgAPR = loans && loans.length > 0
-      ? Math.round(loans.reduce((sum: number, l) => sum + l.apr_bps, 0) / loans.length / 100)
+      ? Math.round(loans.reduce((sum: number, l: any) => sum + l.apr_bps, 0) / loans.length / 100)
       : 0
 
     // PAYMENT METRICS
@@ -338,10 +338,10 @@ export default function AdminDashboard() {
       .is('resolved_at', null)
 
     const riskFlagsCount = {
-      payment_default: riskFlagsByType?.filter(r => r.type === 'PAYMENT_DEFAULT').length || 0,
-      fraud_suspected: riskFlagsByType?.filter(r => r.type === 'FRAUD_SUSPECTED').length || 0,
-      identity_mismatch: riskFlagsByType?.filter(r => r.type === 'IDENTITY_MISMATCH').length || 0,
-      duplicate_account: riskFlagsByType?.filter(r => r.type === 'DUPLICATE_ACCOUNT').length || 0,
+      payment_default: riskFlagsByType?.filter((r: any) => r.type === 'PAYMENT_DEFAULT').length || 0,
+      fraud_suspected: riskFlagsByType?.filter((r: any) => r.type === 'FRAUD_SUSPECTED').length || 0,
+      identity_mismatch: riskFlagsByType?.filter((r: any) => r.type === 'IDENTITY_MISMATCH').length || 0,
+      duplicate_account: riskFlagsByType?.filter((r: any) => r.type === 'DUPLICATE_ACCOUNT').length || 0,
     }
 
     // SUSPICIOUS ACTIVITY METRICS
@@ -481,9 +481,9 @@ export default function AdminDashboard() {
           .eq('country_code', country.code)
 
         const totalLoans = loans?.length || 0
-        const activeLoans = loans?.filter(l => l.status === 'active').length || 0
+        const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
         // Keep in MINOR units for consistent formatting
-        const totalLoanVolume = loans?.reduce((sum: number, loan) => sum + (loan.principal_minor || 0), 0) || 0
+        const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
 
         // Get risk flags by country
         const { count: openRiskFlags } = await supabase
