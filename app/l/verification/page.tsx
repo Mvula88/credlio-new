@@ -109,17 +109,17 @@ export default function VerificationPage() {
             .select('id, status, risk_score')
             .eq('borrower_id', borrower.id)
 
-          const verifiedCount = verifications?.filter(v => v.status === 'verified').length || 0
+          const verifiedCount = verifications?.filter((v: any) => v.status === 'verified').length || 0
           const totalCount = verifications?.length || 0
           const avgRiskScore = verifications && verifications.length > 0
-            ? Math.round(verifications.reduce((sum, v) => sum + (v.risk_score || 0), 0) / verifications.length)
+            ? Math.round(verifications.reduce((sum: number, v: any) => sum + (v.risk_score || 0), 0) / verifications.length)
             : null
 
           let status = 'not_started'
           if (totalCount > 0) {
             if (verifiedCount >= 4) {
               status = 'complete'
-            } else if (verifications?.some(v => v.status === 'flagged')) {
+            } else if (verifications?.some((v: any) => v.status === 'flagged')) {
               status = 'flagged'
             } else {
               status = 'in_progress'
