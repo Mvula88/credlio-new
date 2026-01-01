@@ -53,7 +53,7 @@ export function RoleSwitcher() {
           return
         }
 
-        const rolesList = userRoles?.map(r => r.role) || []
+        const rolesList = userRoles?.map((r: any) => r.role) || []
         setRoles(rolesList)
 
         // Detect current role from URL

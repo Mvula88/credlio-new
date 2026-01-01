@@ -62,7 +62,7 @@ export default function LenderLoginPage() {
         return
       }
 
-      const roles = userRoles?.map(r => r.role) || []
+      const roles = userRoles?.map((r: any) => r.role) || []
 
       if (roles.length === 0) {
         setError('No roles found for this account. Please register first.')
