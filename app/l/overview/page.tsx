@@ -343,19 +343,19 @@ export default function LenderOverviewPage() {
         const monthStart = startOfMonth(monthDate)
         const monthEnd = endOfMonth(monthDate)
 
-        const monthLoans = allLoans?.filter(l => {
+        const monthLoans = allLoans?.filter((l: any) => {
           const created = new Date(l.created_at)
           return created >= monthStart && created <= monthEnd
         }) || []
 
-        const monthDisbursed = monthLoans.reduce((sum, l) => sum + (l.principal_minor || 0), 0)
+        const monthDisbursed = monthLoans.reduce((sum: number, l: any) => sum + (l.principal_minor || 0), 0)
 
-        const monthRepayments = repaymentEvents?.filter(e => {
+        const monthRepayments = repaymentEvents?.filter((e: any) => {
           const paid = new Date(e.paid_at)
           return paid >= monthStart && paid <= monthEnd
         }) || []
 
-        const monthCollected = monthRepayments.reduce((sum, e) => sum + (e.amount_paid_minor || 0), 0)
+        const monthCollected = monthRepayments.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
 
         monthlyStats.push({
           month: format(monthDate, 'MMM'),
@@ -369,24 +369,24 @@ export default function LenderOverviewPage() {
       // Get recent repayments with borrower info
       let recentRepayments: any[] = []
       if (repaymentEvents.length > 0) {
-        const recentScheduleIds = repaymentEvents.slice(0, 5).map(e => e.schedule_id)
+        const recentScheduleIds = repaymentEvents.slice(0, 5).map((e: any) => e.schedule_id)
 
         const { data: schedulesWithLoans } = await supabase
           .from('repayment_schedules')
           .select('id, loan_id')
           .in('id', recentScheduleIds)
 
-        const recentLoanIds = [...new Set(schedulesWithLoans?.map(s => s.loan_id) || [])]
+        const recentLoanIds = [...new Set(schedulesWithLoans?.map((s: any) => s.loan_id) || [])]
 
         const { data: loansWithBorrowers } = await supabase
           .from('loans')
           .select('id, borrower_id, borrowers(full_name)')
           .in('id', recentLoanIds)
 
-        const loanMap = new Map(loansWithBorrowers?.map(l => [l.id, l]) || [])
-        const scheduleToLoanMap = new Map(schedulesWithLoans?.map(s => [s.id, s.loan_id]) || [])
+        const loanMap = new Map(loansWithBorrowers?.map((l: any) => [l.id, l]) || [])
+        const scheduleToLoanMap = new Map(schedulesWithLoans?.map((s: any) => [s.id, s.loan_id]) || [])
 
-        recentRepayments = repaymentEvents.slice(0, 5).map(event => {
+        recentRepayments = repaymentEvents.slice(0, 5).map((event: any) => {
           const loanId = scheduleToLoanMap.get(event.schedule_id)
           const loan = loanId ? loanMap.get(loanId) : null
           return {
