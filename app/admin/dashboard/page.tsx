@@ -224,10 +224,10 @@ export default function AdminDashboard() {
       .select('on_time_rate, evidence_rate, total_loans, total_reports')
 
     const avgOnTimeRate = lenderScores && lenderScores.length > 0
-      ? Math.round(lenderScores.reduce((sum, l) => sum + parseFloat(l.on_time_rate), 0) / lenderScores.length)
+      ? Math.round(lenderScores.reduce((sum: number, l) => sum + parseFloat(l.on_time_rate), 0) / lenderScores.length)
       : 0
 
-    const totalLoansOriginated = lenderScores?.reduce((sum, l) => sum + l.total_loans, 0) || 0
+    const totalLoansOriginated = lenderScores?.reduce((sum: number, l) => sum + l.total_loans, 0) || 0
 
     // LOAN METRICS
     const { data: loans } = await supabase
@@ -235,7 +235,7 @@ export default function AdminDashboard() {
       .select('principal_minor, status, apr_bps, term_months')
 
     // Keep in MINOR units for consistent formatting
-    const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0
+    const totalLoanVolume = loans?.reduce((sum: number, loan) => sum + (loan.principal_minor || 0), 0) || 0
     const activeLoans = loans?.filter(l => l.status === 'active').length || 0
     const completedLoans = loans?.filter(l => l.status === 'completed').length || 0
     const defaultedLoans = loans?.filter(l => l.status === 'defaulted').length || 0
@@ -245,7 +245,7 @@ export default function AdminDashboard() {
     // avgLoanSize in minor units
     const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
     const avgAPR = loans && loans.length > 0
-      ? Math.round(loans.reduce((sum, l) => sum + l.apr_bps, 0) / loans.length / 100)
+      ? Math.round(loans.reduce((sum: number, l) => sum + l.apr_bps, 0) / loans.length / 100)
       : 0
 
     // PAYMENT METRICS
@@ -483,7 +483,7 @@ export default function AdminDashboard() {
         const totalLoans = loans?.length || 0
         const activeLoans = loans?.filter(l => l.status === 'active').length || 0
         // Keep in MINOR units for consistent formatting
-        const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0
+        const totalLoanVolume = loans?.reduce((sum: number, loan) => sum + (loan.principal_minor || 0), 0) || 0
 
         // Get risk flags by country
         const { count: openRiskFlags } = await supabase
