@@ -165,7 +165,7 @@ export default function BorrowerOverviewPage() {
             .select('id, currency')
             .eq('borrower_id', borrowerData.id)
 
-          const loanIds = allLoans?.map(l => l.id) || []
+          const loanIds = allLoans?.map((l: any) => l.id) || []
 
           if (loanIds.length > 0) {
             const { data: paidSchedules } = await supabase
@@ -176,8 +176,8 @@ export default function BorrowerOverviewPage() {
               .order('due_date', { ascending: false })
               .limit(6)
 
-            const paymentHistory = (paidSchedules || []).map(schedule => {
-              const loan = allLoans?.find(l => l.id === schedule.loan_id)
+            const paymentHistory = (paidSchedules || []).map((schedule: any) => {
+              const loan = allLoans?.find((l: any) => l.id === schedule.loan_id)
               return {
                 id: schedule.id,
                 amount_paid_minor: schedule.amount,
