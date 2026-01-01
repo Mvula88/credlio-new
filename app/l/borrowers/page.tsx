@@ -150,7 +150,7 @@ export default function BorrowersPage() {
       // Group by borrower and calculate stats for THIS lender only
       const borrowerMap = new Map()
 
-      loansData?.forEach(loan => {
+      loansData?.forEach((loan: any) => {
         const borrowerId = loan.borrower_id
         const borrower = loan.borrowers as any
 
