@@ -136,7 +136,7 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
       if (error) throw error
 
       setNotifications(data || [])
-      const unread = data?.filter(n => !n.read).length || 0
+      const unread = data?.filter((n: any) => !n.read).length || 0
       setUnreadCount(unread)
     } catch (error) {
       console.error('Error loading notifications:', error)
