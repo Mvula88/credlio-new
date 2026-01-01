@@ -132,7 +132,7 @@ export default function LenderAffordabilityPage() {
 
       // Get unique borrowers
       const borrowerMap = new Map<string, Borrower>()
-      loansData?.forEach(loan => {
+      loansData?.forEach((loan: any) => {
         const borrower = loan.borrowers as any
         if (borrower && !borrowerMap.has(borrower.id)) {
           borrowerMap.set(borrower.id, {
