@@ -253,7 +253,7 @@ export default function AdminDashboard() {
       .from('repayment_schedules')
       .select('id, due_date, amount_due_minor')
 
-    const overduePayments = schedules?.filter(s => new Date(s.due_date) < new Date()).length || 0
+    const overduePayments = schedules?.filter((s: any) => new Date(s.due_date) < new Date()).length || 0
 
     const { count: totalRepayments } = await supabase
       .from('repayment_events')
@@ -322,7 +322,7 @@ export default function AdminDashboard() {
     let goodBorrowers = 0
     let poorBorrowers = 0
 
-    Object.values(borrowerPaymentHealth).forEach(health => {
+    Object.values(borrowerPaymentHealth).forEach((health: any) => {
       if (health.total > 0) {
         const score = Math.round((health.onTime / health.total) * 100)
         if (score >= 80) excellentBorrowers++
@@ -557,7 +557,7 @@ export default function AdminDashboard() {
         .order('created_at', { ascending: false })
         .limit(10)
 
-      fraudSignals?.forEach(signal => {
+      fraudSignals?.forEach((signal: any) => {
         alerts.push({
           id: signal.id,
           type: 'fraud_signal',
@@ -630,7 +630,7 @@ export default function AdminDashboard() {
         .order('created_at', { ascending: false })
         .limit(10)
 
-      riskFlags?.forEach(flag => {
+      riskFlags?.forEach((flag: any) => {
         let severity = 'low'
         if (flag.severity === 'critical') severity = 'critical'
         else if (flag.severity === 'high') severity = 'high'
@@ -656,7 +656,7 @@ export default function AdminDashboard() {
 
       // Group by borrower_id
       const requestsByBorrower: { [key: string]: any[] } = {}
-      recentRequests?.forEach(req => {
+      recentRequests?.forEach((req: any) => {
         if (!requestsByBorrower[req.borrower_id]) {
           requestsByBorrower[req.borrower_id] = []
         }
@@ -724,13 +724,13 @@ export default function AdminDashboard() {
       .limit(5)
 
     const activities = [
-      ...(recentUsers?.map(u => ({
+      ...(recentUsers?.map((u: any) => ({
         type: 'user_signup',
         description: `New ${u.role} registered: ${u.full_name}`,
         timestamp: u.created_at,
         icon: Users
       })) || []),
-      ...(recentLoans?.map(l => ({
+      ...(recentLoans?.map((l: any) => ({
         type: 'loan_created',
         description: `Loan approved: $${l.principal_amount}`,
         timestamp: l.created_at,
