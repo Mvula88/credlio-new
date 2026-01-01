@@ -388,7 +388,7 @@ export default function LenderOverviewPage() {
 
         recentRepayments = repaymentEvents.slice(0, 5).map((event: any) => {
           const loanId = scheduleToLoanMap.get(event.schedule_id)
-          const loan = loanId ? loanMap.get(loanId) : null
+          const loan: any = loanId ? loanMap.get(loanId) : null
           return {
             ...event,
             amount_minor: event.amount_paid_minor,
