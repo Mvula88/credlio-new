@@ -172,16 +172,16 @@ export default function BorrowerLoansPage() {
           loansError,
           borrowerId: linkData.borrower_id,
           loansCount: loansData?.length || 0,
-          statuses: loansData?.map(l => l.status) || []
+          statuses: loansData?.map((l: any) => l.status) || []
         })
 
         if (loansData && loansData.length > 0) {
           // Count pending offers
-          const pendingOffers = loansData.filter(l => l.status === 'pending_offer')
+          const pendingOffers = loansData.filter((l: any) => l.status === 'pending_offer')
           setPendingOffersCount(pendingOffers.length)
 
           // Filter out pending offers, declined, and cancelled for the main loans view
-          const activeLoans = loansData.filter(l =>
+          const activeLoans = loansData.filter((l: any) =>
             l.status !== 'pending_offer' &&
             l.status !== 'declined' &&
             l.status !== 'cancelled'
@@ -190,8 +190,8 @@ export default function BorrowerLoansPage() {
 
           // Prefer selecting an active loan, then pending_signatures, then any other
           setSelectedLoan(
-            activeLoans.find(l => l.status === 'active') ||
-            activeLoans.find(l => l.status === 'pending_signatures') ||
+            activeLoans.find((l: any) => l.status === 'active') ||
+            activeLoans.find((l: any) => l.status === 'pending_signatures') ||
             activeLoans[0]
           )
 
@@ -364,35 +364,35 @@ export default function BorrowerLoansPage() {
   const calculateLoanStats = (loansData: any[]) => {
     // Only count actually disbursed loans (not pending_offer or pending_signatures)
     const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
-    const disbursedLoans = loansData.filter(l => disbursedStatuses.includes(l.status))
+    const disbursedLoans = loansData.filter((l: any) => disbursedStatuses.includes(l.status))
 
     // Keep in minor units (cents) - formatCurrency will convert to major
-    const totalBorrowed = disbursedLoans.reduce((sum, loan) => {
+    const totalBorrowed = disbursedLoans.reduce((sum: number, loan: any) => {
       const principal = loan.principal_minor || (loan.principal_amount ? loan.principal_amount * 100 : 0)
       return sum + principal
     }, 0)
 
     // total_repaid_minor is in cents - use it directly or convert total_repaid from major
-    const totalRepaid = loansData.reduce((sum, loan) => {
+    const totalRepaid = loansData.reduce((sum: number, loan: any) => {
       const repaid = loan.total_repaid_minor || (loan.total_repaid ? loan.total_repaid * 100 : 0)
       return sum + repaid
     }, 0)
 
-    const activeLoansCount = loansData.filter(l => l.status === 'active').length
-    const completedLoans = loansData.filter(l => l.status === 'completed').length
+    const activeLoansCount = loansData.filter((l: any) => l.status === 'active').length
+    const completedLoans = loansData.filter((l: any) => l.status === 'completed').length
 
-    const totalInterestPaid = loansData.reduce((sum, loan) => {
+    const totalInterestPaid = loansData.reduce((sum: number, loan: any) => {
       const paid = loan.repayment_events?.reduce((s: number, e: any) =>
         e.status === 'completed' ? s + (e.interest_amount || 0) : s, 0) || 0
       return sum + paid
     }, 0)
 
     // Calculate average APR safely - use total_interest_percent, apr_bps, or interest_rate
-    const loansWithRates = disbursedLoans.filter(l =>
+    const loansWithRates = disbursedLoans.filter((l: any) =>
       l.total_interest_percent || l.apr_bps || l.interest_rate || l.base_rate_percent
     )
     const avgAPR = loansWithRates.length > 0
-      ? loansWithRates.reduce((sum, loan) => {
+      ? loansWithRates.reduce((sum: number, loan: any) => {
           const rate = loan.total_interest_percent ||
                        (loan.apr_bps ? loan.apr_bps / 100 : 0) ||
                        loan.interest_rate ||
