@@ -70,7 +70,7 @@ export default function DisputesPage() {
 
       // Fetch related data separately for each dispute
       const disputesWithDetails = await Promise.all(
-        (data || []).map(async (dispute) => {
+        (data || []).map(async (dispute: any) => {
           const enrichedDispute: any = { ...dispute }
 
           // Get loan info if loan_id exists

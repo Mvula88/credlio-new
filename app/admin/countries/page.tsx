@@ -52,7 +52,7 @@ export default function CountriesPage() {
 
       // Get statistics for each country
       const countryStats = await Promise.all(
-        countriesData.map(async (country) => {
+        countriesData.map(async (country: any) => {
           // Get users by country
           const { count: totalUsers } = await supabase
             .from('profiles')
@@ -78,9 +78,9 @@ export default function CountriesPage() {
             .eq('country_code', country.code)
 
           const totalLoans = loans?.length || 0
-          const activeLoans = loans?.filter(l => l.status === 'active').length || 0
+          const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
           // Keep in MINOR units for consistent formatting
-          const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0
+          const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
 
           // Get risk flags by country
           const { count: openRiskFlags } = await supabase
@@ -109,7 +109,7 @@ export default function CountriesPage() {
           let freemiumUsers = 0
 
           if (lenderUsers && lenderUsers.length > 0) {
-            const userIds = lenderUsers.map(l => l.user_id)
+            const userIds = lenderUsers.map((l: any) => l.user_id)
 
             // Get active subscriptions for these users
             const { data: subscriptions } = await supabase
@@ -118,8 +118,8 @@ export default function CountriesPage() {
               .in('user_id', userIds)
               .eq('status', 'active')
 
-            proSubscribers = subscriptions?.filter(s => s.tier === 'pro').length || 0
-            proPlusSubscribers = subscriptions?.filter(s => s.tier === 'pro_plus').length || 0
+            proSubscribers = subscriptions?.filter((s: any) => s.tier === 'pro').length || 0
+            proPlusSubscribers = subscriptions?.filter((s: any) => s.tier === 'pro_plus').length || 0
             freemiumUsers = (totalLenders || 0) - proSubscribers - proPlusSubscribers
           }
 

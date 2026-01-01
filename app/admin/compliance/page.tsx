@@ -84,8 +84,8 @@ export default function CompliancePage() {
         .select('id, user_id, business_name, email')
 
       // Create combined list with compliance info
-      const lendersWithCompliance = allLenders?.map(lender => {
-        const compliance = complianceData?.find(c => c.lender_id === lender.user_id)
+      const lendersWithCompliance = allLenders?.map((lender: any) => {
+        const compliance = complianceData?.find((c: any) => c.lender_id === lender.user_id)
         return {
           ...lender,
           compliance: compliance || {

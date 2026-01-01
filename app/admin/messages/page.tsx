@@ -102,7 +102,7 @@ export default function AdminMessagesPage() {
 
       // Get additional info for each thread
       const threadsWithInfo = await Promise.all(
-        (threadData || []).map(async (thread) => {
+        (threadData || []).map(async (thread: any) => {
           // Get flagged message count
           const { count: flaggedCount } = await supabase
             .from('messages')

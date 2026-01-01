@@ -147,7 +147,7 @@ export default function CountryAdminPage() {
       `)
       .eq('country_code', code)
 
-    const scores = borrowerScores?.map(b => b.borrower_scores).flat().filter(Boolean) || []
+    const scores = borrowerScores?.map((b: any) => b.borrower_scores).flat().filter(Boolean) || []
     const avgCreditScore = scores.length > 0
       ? Math.round(scores.reduce((sum: number, s: any) => sum + s.score, 0) / scores.length)
       : 0
@@ -172,14 +172,14 @@ export default function CountryAdminPage() {
       .eq('country_code', code)
 
     const totalLoans = loans?.length || 0
-    const activeLoans = loans?.filter(l => l.status === 'active').length || 0
-    const completedLoans = loans?.filter(l => l.status === 'completed').length || 0
-    const defaultedLoans = loans?.filter(l => l.status === 'defaulted').length || 0
+    const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
+    const completedLoans = loans?.filter((l: any) => l.status === 'completed').length || 0
+    const defaultedLoans = loans?.filter((l: any) => l.status === 'defaulted').length || 0
     // Keep in MINOR units for consistent formatting
-    const totalLoanVolume = loans?.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0) || 0
+    const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
     const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
     const avgAPR = loans && loans.length > 0
-      ? Math.round(loans.reduce((sum, l) => sum + l.apr_bps, 0) / loans.length / 100)
+      ? Math.round(loans.reduce((sum: number, l: any) => sum + l.apr_bps, 0) / loans.length / 100)
       : 0
     const defaultRate = totalLoans > 0 ? (defaultedLoans / totalLoans) * 100 : 0
 
@@ -207,7 +207,7 @@ export default function CountryAdminPage() {
       `)
       .eq('loans.country_code', code)
 
-    const overduePayments = schedules?.filter(s => new Date(s.due_date) < new Date()).length || 0
+    const overduePayments = schedules?.filter((s: any) => new Date(s.due_date) < new Date()).length || 0
     const totalScheduledPayments = schedules?.length || 0
 
     setStats({
@@ -247,7 +247,7 @@ export default function CountryAdminPage() {
       .limit(10)
 
     // Add a display field for the email column
-    const usersWithDisplay = (data || []).map(profile => ({
+    const usersWithDisplay = (data || []).map((profile: any) => ({
       ...profile,
       email: profile.user_id.slice(0, 8) + '...' // Show part of user_id as placeholder
     }))

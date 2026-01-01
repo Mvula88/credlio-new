@@ -142,7 +142,7 @@ export default function AdminDashboard() {
           .select('role')
           .eq('user_id', user.id)
 
-        const roles = userRoles?.map(r => r.role) || []
+        const roles = userRoles?.map((r: any) => r.role) || []
         isAdmin = roles.includes('admin')
       }
 
@@ -196,7 +196,7 @@ export default function AdminDashboard() {
       .select('score')
 
     const avgCreditScore = borrowerScores && borrowerScores.length > 0
-      ? Math.round(borrowerScores.reduce((sum, b) => sum + b.score, 0) / borrowerScores.length)
+      ? Math.round(borrowerScores.reduce((sum: number, b: any) => sum + b.score, 0) / borrowerScores.length)
       : 0
 
     const { count: borrowersWithActiveLoans } = await supabase
@@ -455,7 +455,7 @@ export default function AdminDashboard() {
 
     // Get statistics for each country
     const countryData = await Promise.all(
-      countries.map(async (country) => {
+      countries.map(async (country: any) => {
         // Get users by country
         const { count: totalUsers } = await supabase
           .from('profiles')
@@ -585,7 +585,7 @@ export default function AdminDashboard() {
 
       // Enrich flagged messages with sender info
       const enrichedMessages = await Promise.all(
-        (flaggedMessages || []).map(async (msg) => {
+        (flaggedMessages || []).map(async (msg: any) => {
           let senderName = 'Unknown'
 
           if (msg.sender_type === 'borrower' && msg.message_threads?.borrower_id) {
