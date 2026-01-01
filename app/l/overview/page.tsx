@@ -251,7 +251,7 @@ export default function LenderOverviewPage() {
         .eq('created_by_lender', finalLender.user_id)
 
       if (borrowerData && borrowerData.length > 0) {
-        const borrowerIds = borrowerData.map(b => b.id)
+        const borrowerIds = borrowerData.map((b: any) => b.id)
         const { data: scores } = await supabase
           .from('borrower_scores')
           .select('score, borrower_id')
@@ -267,21 +267,21 @@ export default function LenderOverviewPage() {
           { name: 'Poor (<650)', value: 0, color: '#ef4444' },
         ]
 
-        borrowerScores.forEach(s => {
+        borrowerScores.forEach((s: any) => {
           if (s.score >= 750) distribution[0].value++
           else if (s.score >= 700) distribution[1].value++
           else if (s.score >= 650) distribution[2].value++
           else distribution[3].value++
         })
 
-        setBorrowerScoreDistribution(distribution.filter(d => d.value > 0))
+        setBorrowerScoreDistribution(distribution.filter((d: any) => d.value > 0))
       }
 
       // Calculate metrics
-      const activeLoans = allLoans?.filter(l => l.status === 'active') || []
-      const completedLoans = allLoans?.filter(l => l.status === 'completed') || []
-      const defaultedLoans = allLoans?.filter(l => l.status === 'defaulted') || []
-      const pendingLoans = allLoans?.filter(l => l.status === 'pending' || l.status === 'offered') || []
+      const activeLoans = allLoans?.filter((l: any) => l.status === 'active') || []
+      const completedLoans = allLoans?.filter((l: any) => l.status === 'completed') || []
+      const defaultedLoans = allLoans?.filter((l: any) => l.status === 'defaulted') || []
+      const pendingLoans = allLoans?.filter((l: any) => l.status === 'pending' || l.status === 'offered') || []
 
       // Loans by status for pie chart
       const statusData = [
@@ -289,17 +289,17 @@ export default function LenderOverviewPage() {
         { name: 'Completed', value: completedLoans.length, color: '#22c55e' },
         { name: 'Pending', value: pendingLoans.length, color: '#eab308' },
         { name: 'Defaulted', value: defaultedLoans.length, color: '#ef4444' },
-      ].filter(d => d.value > 0)
+      ].filter((d: any) => d.value > 0)
       setLoansByStatus(statusData)
 
       // Keep values in MINOR units - only count actually disbursed loans
       const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
-      const disbursedLoans = allLoans?.filter(loan => disbursedStatuses.includes(loan.status)) || []
-      const totalDisbursed = disbursedLoans.reduce((sum, loan) => sum + (loan.principal_minor || 0), 0)
-      const totalDue = disbursedLoans.reduce((sum, loan) => sum + (loan.total_amount_minor || loan.principal_minor || 0), 0)
-      const totalRepaid = repaymentEvents?.reduce((sum, event) => sum + (event.amount_paid_minor || 0), 0) || 0
+      const disbursedLoans = allLoans?.filter((loan: any) => disbursedStatuses.includes(loan.status)) || []
+      const totalDisbursed = disbursedLoans.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0)
+      const totalDue = disbursedLoans.reduce((sum: number, loan: any) => sum + (loan.total_amount_minor || loan.principal_minor || 0), 0)
+      const totalRepaid = repaymentEvents?.reduce((sum: number, event: any) => sum + (event.amount_paid_minor || 0), 0) || 0
       const outstanding = totalDue - totalRepaid
-      const overdueAmount = overdueSchedules?.reduce((sum, sched) => sum + (sched.amount_due_minor || 0), 0) || 0
+      const overdueAmount = overdueSchedules?.reduce((sum: number, sched: any) => sum + (sched.amount_due_minor || 0), 0) || 0
 
       // Calculate payment metrics
       let onTimePayments = 0
