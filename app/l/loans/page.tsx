@@ -228,10 +228,10 @@ export default function LoansPage() {
       // Calculate stats - convert from minor units to major units
       const statsData = {
         total: loanData?.length || 0,
-        active: loanData?.filter(l => l.status === 'active').length || 0,
-        completed: loanData?.filter(l => l.status === 'completed').length || 0,
-        defaulted: loanData?.filter(l => l.status === 'defaulted').length || 0,
-        totalDisbursed: loanData?.filter(l => ['active', 'completed', 'defaulted', 'written_off'].includes(l.status)).reduce((sum, l) => sum + (l.principal_minor || 0), 0) || 0,
+        active: loanData?.filter((l: any) => l.status === 'active').length || 0,
+        completed: loanData?.filter((l: any) => l.status === 'completed').length || 0,
+        defaulted: loanData?.filter((l: any) => l.status === 'defaulted').length || 0,
+        totalDisbursed: loanData?.filter((l: any) => ['active', 'completed', 'defaulted', 'written_off'].includes(l.status)).reduce((sum: number, l: any) => sum + (l.principal_minor || 0), 0) || 0,
         totalRepaid: 0, // This would need to be calculated from repayment_events
         dueToday,
         overdue,
