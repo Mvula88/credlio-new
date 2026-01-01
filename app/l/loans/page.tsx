@@ -178,7 +178,7 @@ export default function LoansPage() {
 
       // Now get repayment schedules with their events separately for each loan
       const loansWithSchedules = await Promise.all(
-        (loanData || []).map(async (loan) => {
+        (loanData || []).map(async (loan: any) => {
           const { data: schedules } = await supabase
             .from('repayment_schedules')
             .select('id, due_date, amount_due_minor, installment_no, principal_minor, interest_minor, status, paid_amount_minor, paid_at, is_early_payment, repayment_events(id, amount_paid_minor, paid_at)')
