@@ -208,7 +208,7 @@ export default function LenderOverviewPage() {
         .eq('created_by_lender', finalLender.user_id)
 
       // Get loan IDs for related queries
-      const loanIds = allLoans?.map(l => l.id) || []
+      const loanIds = allLoans?.map((l: any) => l.id) || []
 
       // Get repayment data if there are loans
       let repaymentEvents: any[] = []
