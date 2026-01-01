@@ -268,7 +268,7 @@ export default function BorrowersPage() {
       // Group by borrower and count lenders
       const borrowerMap = new Map()
       
-      flags?.forEach(flag => {
+      flags?.forEach((flag: any) => {
         const borrowerId = flag.borrower_id
         if (!borrowerMap.has(borrowerId)) {
           borrowerMap.set(borrowerId, {
