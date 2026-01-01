@@ -213,7 +213,7 @@ export default function LoanRequestsPage() {
       }
 
       // Keep amounts in minor units but convert interest rates
-      const formattedRequests = requests?.map(r => ({
+      const formattedRequests = requests?.map((r: any) => ({
         ...r,
         amount_minor: r.amount_minor, // Keep in minor units for formatCurrency
         max_interest_rate: r.max_apr_bps / 100, // Convert basis points to percentage
@@ -227,7 +227,7 @@ export default function LoanRequestsPage() {
       setMyRequests(formattedRequests || requests || [])
 
       // Get all offers for my requests
-      const allOffers = formattedRequests?.flatMap(r => r.loan_offers || []) || []
+      const allOffers = formattedRequests?.flatMap((r: any) => r.loan_offers || []) || []
       setOffers(allOffers)
 
       // Load loan request templates
