@@ -225,7 +225,7 @@ export default function LenderOverviewPage() {
         allSchedules = schedules || []
 
         // Get repayment events for these schedules
-        const scheduleIds = schedules?.map(s => s.id) || []
+        const scheduleIds = schedules?.map((s: any) => s.id) || []
         if (scheduleIds.length > 0) {
           const { data: events } = await supabase
             .from('repayment_events')
@@ -237,8 +237,8 @@ export default function LenderOverviewPage() {
         }
 
         // Calculate overdue schedules
-        const paidScheduleIds = new Set(repaymentEvents.map(e => e.schedule_id))
-        overdueSchedules = (schedules || []).filter(s =>
+        const paidScheduleIds = new Set(repaymentEvents.map((e: any) => e.schedule_id))
+        overdueSchedules = (schedules || []).filter((s: any) =>
           !paidScheduleIds.has(s.id) && new Date(s.due_date) < new Date()
         )
       }
