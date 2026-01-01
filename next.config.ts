@@ -3,6 +3,13 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // Turbopack is enabled via --turbo flag in dev command
+
+  // Remove console.logs in production builds for security
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production' ? {
+      exclude: ['error', 'warn'], // Keep error and warn for debugging production issues
+    } : false,
+  },
 };
 
 // Sentry temporarily disabled due to Next.js 15 compatibility issues
