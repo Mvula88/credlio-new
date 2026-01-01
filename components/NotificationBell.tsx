@@ -76,7 +76,7 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
           schema: 'public',
           table: 'notifications'
         },
-        (payload) => {
+        (payload: any) => {
           console.log('Notification change:', payload)
           loadNotifications()
           loadUnreadCounts()
