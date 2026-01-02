@@ -41,7 +41,7 @@ export default function BorrowerForgotPasswordPage() {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         data.email,
         {
-          redirectTo: `${window.location.origin}/b/reset-password`,
+          redirectTo: `${window.location.origin}/auth/callback?type=recovery&next=/b/reset-password`,
         }
       )
 

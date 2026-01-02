@@ -41,7 +41,7 @@ export default function LenderForgotPasswordPage() {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         data.email,
         {
-          redirectTo: `${window.location.origin}/l/reset-password`,
+          redirectTo: `${window.location.origin}/auth/callback?type=recovery&next=/l/reset-password`,
         }
       )
 
