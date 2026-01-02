@@ -240,9 +240,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate and send email verification link
+    // Generate and send email verification link using magiclink type
     const { error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'signup',
+      type: 'magiclink',
       email: email,
       options: {
         redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://credlio.com'}/auth/callback?type=signup&next=/l/overview`,
