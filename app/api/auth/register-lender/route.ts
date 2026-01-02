@@ -19,7 +19,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create admin client with service role key
+    // Create regular client for signUp (sends verification email automatically)
+    const supabaseAuth = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+
+    // Create admin client with service role key for database operations
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -111,16 +117,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create auth user
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    // Create auth user using signUp (automatically sends verification email)
+    const { data: authData, error: authError } = await supabaseAuth.auth.signUp({
       email,
       password,
-      email_confirm: false, // Require email verification for security
-      app_metadata: {
-        app_role: 'lender',
-        country_code: country, // Use the country selected by the user
-        tier: 'BASIC',
-      },
+      options: {
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://credlio.com'}/auth/callback?type=signup&next=/l/overview`,
+        data: {
+          app_role: 'lender',
+          country_code: country,
+          tier: 'BASIC',
+        }
+      }
     })
 
     if (authError) {
@@ -240,19 +248,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate and send email verification link using magiclink type
-    const { error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: email,
-      options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://credlio.com'}/auth/callback?type=signup&next=/l/overview`,
-      }
-    })
-
-    if (linkError) {
-      console.error('Failed to generate verification link:', linkError)
-      // Don't fail registration, just log it - user can request resend
-    }
+    // Email verification is automatically sent by signUp()
 
     return NextResponse.json(
       {
