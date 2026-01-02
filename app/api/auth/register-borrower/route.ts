@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // Skip email verification for smoother onboarding
+      email_confirm: false, // Require email verification for security
       user_metadata: {
         app_role: 'borrower',
       },
@@ -200,12 +200,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Generate and send email verification link
+    const { error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'signup',
+      email: email,
+      options: {
+        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://credlio.com'}/auth/callback?type=signup&next=/b/onboarding`,
+      }
+    })
+
+    if (linkError) {
+      console.error('Failed to generate verification link:', linkError)
+      // Don't fail registration, just log it - user can request resend
+    }
+
     return NextResponse.json(
       {
         success: true,
         userId: authData.user.id,
         email: authData.user.email,
-        message: 'Account created successfully. Please complete onboarding.'
+        message: 'Account created successfully. Please check your email to verify your account.'
       },
       { status: 200 }
     )

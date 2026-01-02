@@ -240,12 +240,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Generate and send email verification link
+    const { error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'signup',
+      email: email,
+      options: {
+        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://credlio.com'}/auth/callback?type=signup&next=/l/overview`,
+      }
+    })
+
+    if (linkError) {
+      console.error('Failed to generate verification link:', linkError)
+      // Don't fail registration, just log it - user can request resend
+    }
+
     return NextResponse.json(
       {
         success: true,
         userId: authData.user.id,
         email: authData.user.email,
-        message: 'Account created successfully. All records initialized.'
+        message: 'Account created successfully. Please check your email to verify your account.'
       },
       { status: 200 }
     )
