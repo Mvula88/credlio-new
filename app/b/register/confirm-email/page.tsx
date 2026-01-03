@@ -50,7 +50,7 @@ function ConfirmEmailPageContent() {
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                <p>After confirming, you'll be taken to complete your profile</p>
+                <p>After confirming, you can sign in from any device</p>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />

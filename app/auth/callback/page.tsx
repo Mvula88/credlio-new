@@ -36,8 +36,10 @@ export default function AuthCallback() {
         })
 
         if (!error) {
-          // Redirect based on type or user role
-          await redirectBasedOnRole(supabase, type)
+          // If tokens came from hash, it's an email confirmation (unless explicitly recovery)
+          // Treat null/undefined type as signup confirmation
+          const effectiveType = type || 'signup'
+          await redirectBasedOnRole(supabase, effectiveType)
           return
         }
       }
@@ -67,13 +69,9 @@ export default function AuthCallback() {
             return
           }
 
-          // Use next param if provided, otherwise redirect based on role
-          if (next !== '/') {
-            router.push(next)
-            return
-          }
-
-          await redirectBasedOnRole(supabase, queryType)
+          // For signup confirmation, show success page (treat null as signup)
+          const effectiveType = queryType || 'signup'
+          await redirectBasedOnRole(supabase, effectiveType)
           return
         }
       }
@@ -82,15 +80,18 @@ export default function AuthCallback() {
       const tokenHash = urlParams.get('token_hash')
       const tokenType = urlParams.get('type')
 
-      if (tokenHash && tokenType) {
+      if (tokenHash) {
         setStatus('Verifying token...')
+        const verifyType = tokenType || 'signup'
         const { error } = await supabase.auth.verifyOtp({
-          type: tokenType as any,
+          type: verifyType as any,
           token_hash: tokenHash,
         })
 
         if (!error) {
-          await redirectBasedOnRole(supabase, tokenType)
+          // Treat as signup unless explicitly recovery
+          const effectiveType = tokenType === 'recovery' ? 'recovery' : 'signup'
+          await redirectBasedOnRole(supabase, effectiveType)
           return
         }
       }
