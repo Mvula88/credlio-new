@@ -77,6 +77,25 @@ export default function LenderLoginPage() {
         return
       }
 
+      // Check if profile is complete before redirecting to dashboard
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('onboarding_completed')
+        .eq('user_id', authData.user.id)
+        .single()
+
+      const { data: lender } = await supabase
+        .from('lenders')
+        .select('id, id_photo_url')
+        .eq('user_id', authData.user.id)
+        .single()
+
+      // If profile not complete or ID photo not uploaded, go to complete-profile
+      if (!profile?.onboarding_completed || !lender?.id_photo_url) {
+        router.push('/l/complete-profile')
+        return
+      }
+
       // Redirect to lender dashboard
       router.push('/l/overview')
     } catch (err) {
