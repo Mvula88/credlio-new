@@ -151,3 +151,25 @@ export function getCurrencyByCountry(countryCode: string): CurrencyInfo | undefi
     (currency) => currency.countryCode === countryCode
   )
 }
+
+/**
+ * Simple currency formatter for admin pages
+ * ALWAYS assumes amount is in minor units (cents) and converts to major units
+ * Use this when you have the symbol but not the full CurrencyInfo
+ *
+ * @param amountMinor - Amount in minor units (cents)
+ * @param symbol - Currency symbol (e.g., 'N$', '₦', 'R')
+ * @param minorUnits - Number of decimal places (default 2 for most currencies)
+ */
+export function formatMinorToMajor(
+  amountMinor: number,
+  symbol: string = '$',
+  minorUnits: number = 2
+): string {
+  const majorAmount = amountMinor / Math.pow(10, minorUnits)
+  const formatted = majorAmount.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })
+  return `${symbol}${formatted}`
+}

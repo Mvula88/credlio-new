@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { formatMinorToMajor } from '@/lib/utils/currency'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -319,10 +320,9 @@ export default function CountryAdminPage() {
     setGrowthData(months)
   }
 
+  // Use centralized currency utility - always converts from minor units
   const formatCurrency = (amountMinor: number) => {
-    // Convert from minor units (cents) to major units
-    const amount = amountMinor / 100
-    return `${country?.currencySymbol || '$'}${amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+    return formatMinorToMajor(amountMinor, country?.currencySymbol || '$')
   }
 
   const getStatusBadge = (status: string) => {
