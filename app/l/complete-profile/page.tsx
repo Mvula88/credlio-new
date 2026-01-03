@@ -342,20 +342,34 @@ export default function CompleteProfilePage() {
         return
       }
 
-      // Check for duplicate lender
-      const { data: duplicateCheck } = await supabase.rpc('check_duplicate_lender', {
-        p_id_number: data.idNumber,
-        p_contact_number: data.phoneNumber,
-        p_email: user.email,
-        p_user_id: user.id
-      })
+      // Check for duplicate ID number directly in lenders table
+      const { data: existingLender, error: duplicateError } = await supabase
+        .from('lenders')
+        .select('id, user_id')
+        .eq('id_number', data.idNumber)
+        .neq('user_id', user.id)
+        .maybeSingle()
 
-      if (duplicateCheck && duplicateCheck.length > 0) {
-        const duplicate = duplicateCheck[0]
-        if (duplicate.confidence_score >= 90) {
-          setError(`This ${duplicate.duplicate_type.replace('_', ' ')} is already registered. Please contact support if this is an error.`)
-          return
-        }
+      if (duplicateError) {
+        console.error('Duplicate check error:', duplicateError)
+      }
+
+      if (existingLender) {
+        setError('This ID number is already registered with another account. Each person can only have one lender account. Please contact support if you believe this is an error.')
+        return
+      }
+
+      // Also check for duplicate phone number
+      const { data: existingPhone } = await supabase
+        .from('lenders')
+        .select('id, user_id')
+        .eq('contact_number', data.phoneNumber)
+        .neq('user_id', user.id)
+        .maybeSingle()
+
+      if (existingPhone) {
+        setError('This phone number is already registered with another lender account. Please use a different phone number or contact support.')
+        return
       }
 
       // Upload ID photo to Supabase Storage
@@ -438,11 +452,16 @@ export default function CompleteProfilePage() {
       // Clear draft on successful submission
       clearDraft()
 
-      // Redirect to dashboard
-      router.push('/l/overview')
-    } catch (err) {
-      setError('An unexpected error occurred. Please try again.')
-    } finally {
+      // Show success message before redirect
+      setUploadProgress('Profile completed! Redirecting to dashboard...')
+
+      // Small delay to show success message, then redirect
+      setTimeout(() => {
+        router.push('/l/overview')
+      }, 1000)
+    } catch (err: any) {
+      console.error('Profile completion error:', err)
+      setError(`An unexpected error occurred: ${err?.message || 'Please try again.'}`)
       setIsLoading(false)
     }
   }
@@ -734,8 +753,18 @@ export default function CompleteProfilePage() {
           <Card className="bg-green-50 border-green-200">
             <CardContent className="pt-6">
               <p className="text-sm text-green-800">
-                <strong>✅ FREE FOREVER</strong> - No business registration or payment required to start lending.
+                <strong>FREE TO USE</strong> - No business registration or payment required to use Credlio.
                 Perfect for personal lenders, informal cash loans, and small-scale lending operations.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-amber-50 border-amber-200">
+            <CardContent className="pt-6">
+              <p className="text-sm text-amber-800">
+                <strong>Legal Compliance Notice:</strong> It is YOUR responsibility to ensure that your lending activities comply with all applicable laws and regulations in your country.
+                This may include obtaining necessary licenses, registering with financial authorities, adhering to interest rate caps, and following consumer protection laws.
+                Credlio is a record-keeping platform only and does not provide legal or financial advice. Consult with a legal professional if unsure about your obligations.
               </p>
             </CardContent>
           </Card>
@@ -743,7 +772,7 @@ export default function CompleteProfilePage() {
           <Card className="bg-blue-50 border-blue-200">
             <CardContent className="pt-6">
               <p className="text-sm text-blue-800">
-                <strong>🔒 Your Privacy Matters:</strong> Your ID photo and personal information are encrypted and stored securely.
+                <strong>Your Privacy Matters:</strong> Your ID photo and personal information are encrypted and stored securely.
                 Only accessible by admins in fraud investigations. We never share your data with third parties.
               </p>
             </CardContent>
