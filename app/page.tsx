@@ -8,10 +8,13 @@ import {
   LogIn,
   UserPlus
 } from 'lucide-react'
+import AuthHashRedirect from '@/components/AuthHashRedirect'
 
 export default function LenderLandingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+      {/* Client component to detect and redirect auth hash fragments */}
+      <AuthHashRedirect />
       {/* Navigation */}
       <nav className="border-b bg-white/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
