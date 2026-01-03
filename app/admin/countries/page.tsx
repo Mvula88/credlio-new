@@ -65,6 +65,13 @@ export default function CountriesPage() {
             .select('*', { count: 'exact', head: true })
             .eq('country_code', country.code)
 
+          // Get borrowers without accounts (registered by lenders)
+          const { count: unregisteredBorrowers } = await supabase
+            .from('borrowers')
+            .select('*', { count: 'exact', head: true })
+            .eq('country_code', country.code)
+            .is('user_id', null)
+
           // Get lenders by country
           const { count: totalLenders } = await supabase
             .from('lenders')
@@ -138,6 +145,7 @@ export default function CountriesPage() {
             currencySymbol: currencyData?.currency_symbol || '$',
             totalUsers: totalUsers || 0,
             totalBorrowers: totalBorrowers || 0,
+            unregisteredBorrowers: unregisteredBorrowers || 0,
             totalLenders: totalLenders || 0,
             totalLoans,
             activeLoans,
@@ -372,6 +380,9 @@ export default function CountriesPage() {
                     <span className="text-xs text-green-600 font-medium">Borrowers</span>
                   </div>
                   <div className="text-xl font-bold text-green-700">{country.totalBorrowers}</div>
+                  {country.unregisteredBorrowers > 0 && (
+                    <div className="text-xs text-orange-600 mt-0.5">{country.unregisteredBorrowers} no account</div>
+                  )}
                 </div>
 
                 <div className="p-3 bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-lg">
