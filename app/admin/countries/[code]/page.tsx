@@ -398,7 +398,7 @@ export default function CountryAdminPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Card className="tech-card hover-lift border-none">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Total Users</CardTitle>
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Total Accounts</CardTitle>
                 <div className="p-2.5 bg-gradient-to-br from-blue-500/10 to-blue-500/5 rounded-xl">
                   <Users className="h-5 w-5 text-blue-600" />
                 </div>
@@ -406,7 +406,7 @@ export default function CountryAdminPage() {
               <CardContent>
                 <span className="text-3xl font-bold text-blue-600">{stats.totalUsers}</span>
                 <div className="mt-1.5 text-sm text-muted-foreground font-medium">
-                  {stats.borrowerUsers} borrowers • {stats.lenderUsers} lenders
+                  {stats.totalBorrowers} borrowers • {stats.totalLenders} lenders
                 </div>
               </CardContent>
             </Card>
