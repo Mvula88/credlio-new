@@ -69,7 +69,7 @@ export default function CountriesPage() {
           const { count: totalLenders } = await supabase
             .from('lenders')
             .select('*', { count: 'exact', head: true })
-            .eq('country_code', country.code)
+            .eq('country', country.code)
 
           // Get loans by country
           const { data: loans } = await supabase
