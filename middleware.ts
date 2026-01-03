@@ -4,21 +4,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
 
-  // If there's a code parameter at root, redirect to auth callback
-  if (pathname === '/' && searchParams.has('code')) {
-    const code = searchParams.get('code')
+  // If there's a code or token_hash parameter at root, redirect to auth callback
+  // This handles both PKCE flow (code) and email confirmation links (token_hash)
+  if (pathname === '/' && (searchParams.has('code') || searchParams.has('token_hash'))) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/callback'
-    url.searchParams.set('code', code!)
-    url.searchParams.set('type', 'recovery')
-    return NextResponse.redirect(url)
-  }
-
-  // If there's a token_hash parameter at root, redirect to auth callback (email confirmation links)
-  if (pathname === '/' && searchParams.has('token_hash')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/auth/callback'
-    // Keep all existing search params (token_hash, type, next, etc.)
+    // All search params (code, token_hash, type, next, etc.) are preserved automatically
     return NextResponse.redirect(url)
   }
 

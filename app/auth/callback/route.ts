@@ -11,19 +11,49 @@ export async function GET(request: Request) {
 
   const supabase = await createClient()
 
+  // Helper function to determine redirect based on user role
+  async function getRedirectUrl(defaultNext: string): Promise<string> {
+    // If recovery type, redirect to reset password
+    if (type === 'recovery') {
+      return defaultNext.includes('/b/') ? '/b/reset-password' : '/l/reset-password'
+    }
+
+    // If specific next URL provided, use it
+    if (defaultNext !== '/') {
+      return defaultNext
+    }
+
+    // Otherwise, check user's role and redirect to appropriate dashboard
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const { data: roles } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+
+      const userRoles = roles?.map(r => r.role) || []
+
+      // Check app_role from user metadata as fallback
+      const appRole = user.user_metadata?.app_role
+
+      if (userRoles.includes('borrower') || appRole === 'borrower') {
+        return '/b/onboarding'
+      }
+      if (userRoles.includes('lender') || appRole === 'lender') {
+        return '/l/overview'
+      }
+    }
+
+    return defaultNext
+  }
+
   // Handle code exchange (PKCE flow)
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      // Handle password reset - redirect to the appropriate reset password page
-      if (type === 'recovery') {
-        const resetPage = next.includes('/b/') ? '/b/reset-password' : '/l/reset-password'
-        return NextResponse.redirect(`${origin}${resetPage}`)
-      }
-
-      // Handle email confirmation or other auth flows
-      return NextResponse.redirect(`${origin}${next}`)
+      const redirectUrl = await getRedirectUrl(next)
+      return NextResponse.redirect(`${origin}${redirectUrl}`)
     }
   }
 
@@ -35,16 +65,8 @@ export async function GET(request: Request) {
     })
 
     if (!error) {
-      // Successfully verified - redirect to appropriate page
-      if (type === 'signup' || type === 'email') {
-        // Email confirmed - redirect to next or default page
-        return NextResponse.redirect(`${origin}${next}`)
-      }
-      if (type === 'recovery') {
-        const resetPage = next.includes('/b/') ? '/b/reset-password' : '/l/reset-password'
-        return NextResponse.redirect(`${origin}${resetPage}`)
-      }
-      return NextResponse.redirect(`${origin}${next}`)
+      const redirectUrl = await getRedirectUrl(next)
+      return NextResponse.redirect(`${origin}${redirectUrl}`)
     }
   }
 
