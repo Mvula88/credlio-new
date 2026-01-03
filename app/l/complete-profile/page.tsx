@@ -46,7 +46,8 @@ export default function CompleteProfilePage() {
   const router = useRouter()
   const supabase = createClient()
 
-  // Live camera capture states
+  // Refs
+  const errorRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [cameraActive, setCameraActive] = useState(false)
@@ -306,6 +307,13 @@ export default function CompleteProfilePage() {
     }
   }, [stream])
 
+  // Auto-scroll to error when it appears
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [error])
+
   const onSubmit = async (data: LenderProfileInput) => {
     try {
       console.log('Form submitted with data:', data)
@@ -509,21 +517,7 @@ export default function CompleteProfilePage() {
           </CardHeader>
 
           <form onSubmit={handleSubmit(onSubmit)}>
-            <CardContent className="space-y-4 max-h-[600px] overflow-y-auto">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              {uploadProgress && (
-                <Alert>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <AlertDescription>{uploadProgress}</AlertDescription>
-                </Alert>
-              )}
-
+            <CardContent className="space-y-4">
               {/* REQUIRED SECTION - Personal Identity */}
               <div className="space-y-4 p-4 bg-green-50 rounded-lg border border-green-200">
                 <h3 className="font-semibold text-green-900 text-sm">Required Information - Quick & Simple</h3>
@@ -743,7 +737,24 @@ export default function CompleteProfilePage() {
               </div>
             </CardContent>
 
-            <CardFooter>
+            <CardFooter className="flex flex-col gap-4">
+              {/* Error and Progress Messages - Visible near submit button */}
+              {error && (
+                <div ref={errorRef} className="w-full">
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                </div>
+              )}
+
+              {uploadProgress && (
+                <Alert className="w-full">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <AlertDescription>{uploadProgress}</AlertDescription>
+                </Alert>
+              )}
+
               <Button
                 type="submit"
                 className="w-full"

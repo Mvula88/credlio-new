@@ -56,6 +56,7 @@ export default function BorrowerOnboardingPage() {
   const [cameraActive, setCameraActive] = useState(false)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
+  const errorRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const router = useRouter()
@@ -219,6 +220,13 @@ export default function BorrowerOnboardingPage() {
     checkProfileAndLoadData()
   }, [supabase, router, setValue, loadDraft])
 
+  // Auto-scroll to error when it appears
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [error])
+
   const onSubmit = async (data: BorrowerOnboardingInput) => {
     // Save form data and move to photo verification step
     setFormData(data)
@@ -304,6 +312,7 @@ export default function BorrowerOnboardingPage() {
 
       if (userError || !user) {
         setError('Session expired. Please login again.')
+        setIsLoading(false)
         router.push('/b/login')
         return
       }
@@ -317,6 +326,7 @@ export default function BorrowerOnboardingPage() {
 
       if (profileError || !profile) {
         setError('Profile not found. Please contact support.')
+        setIsLoading(false)
         return
       }
 
@@ -342,6 +352,7 @@ export default function BorrowerOnboardingPage() {
       if (updateError) {
         console.error('Profile update error:', updateError)
         setError('Failed to update profile. Please try again.')
+        setIsLoading(false)
         return
       }
 
@@ -385,6 +396,7 @@ export default function BorrowerOnboardingPage() {
 
       if (borrowerError) {
         setError(`Failed to complete registration: ${borrowerError.message}`)
+        setIsLoading(false)
         return
       }
 
@@ -412,6 +424,7 @@ export default function BorrowerOnboardingPage() {
 
       if (!linkData) {
         setError('Borrower record not found')
+        setIsLoading(false)
         return
       }
 
@@ -428,6 +441,7 @@ export default function BorrowerOnboardingPage() {
       if (storageError) {
         console.error('Storage upload error:', storageError)
         setError('Failed to upload photo: ' + storageError.message)
+        setIsLoading(false)
         return
       }
 
@@ -464,6 +478,7 @@ export default function BorrowerOnboardingPage() {
         console.error('Document upload error:', docError)
         console.error('Document upload error details:', JSON.stringify(docError, null, 2))
         setError('Failed to upload verification photo: ' + (docError.message || 'Unknown error'))
+        setIsLoading(false)
         return
       }
 
@@ -586,14 +601,7 @@ export default function BorrowerOnboardingPage() {
             </>
           ) : step === 2 ? (
             <form onSubmit={handleSubmit(onSubmit)}>
-              <CardContent className="space-y-4 max-h-[500px] overflow-y-auto">
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
-
+              <CardContent className="space-y-4">
                 {/* SECTION 1: Basic Identity */}
                 <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <h3 className="font-semibold text-blue-900 text-sm flex items-center gap-2">
@@ -1030,30 +1038,42 @@ export default function BorrowerOnboardingPage() {
                 )}
               </CardContent>
 
-              <CardFooter className="flex space-x-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => setStep(1)}
-                  disabled={isLoading}
-                >
-                  Back
-                </Button>
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={isLoading || !consent}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    'Continue to Photo'
-                  )}
-                </Button>
+              <CardFooter className="flex flex-col gap-4">
+                {/* Error Message - Visible near submit button */}
+                {error && (
+                  <div ref={errorRef} className="w-full">
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  </div>
+                )}
+
+                <div className="flex w-full space-x-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setStep(1)}
+                    disabled={isLoading}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={isLoading || !consent}
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Continue to Photo'
+                    )}
+                  </Button>
+                </div>
               </CardFooter>
             </form>
           ) : (
@@ -1062,7 +1082,7 @@ export default function BorrowerOnboardingPage() {
                 {/* Fraud Warning */}
                 <Alert variant="destructive" className="border-2 border-red-600">
                   <AlertTriangle className="h-5 w-5" />
-                  <AlertTitle className="font-bold">⚠️ WARNING: FRAUD IS A SERIOUS CRIME</AlertTitle>
+                  <AlertTitle className="font-bold">WARNING: FRAUD IS A SERIOUS CRIME</AlertTitle>
                   <AlertDescription className="text-xs mt-2">
                     <p className="mb-2">Submitting fake or altered documents will result in:</p>
                     <ul className="list-disc list-inside space-y-1">
@@ -1072,13 +1092,6 @@ export default function BorrowerOnboardingPage() {
                     </ul>
                   </AlertDescription>
                 </Alert>
-
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
 
                 {/* Instructions */}
                 <Alert className="bg-orange-50 border-orange-200">
@@ -1143,38 +1156,50 @@ export default function BorrowerOnboardingPage() {
                 </div>
               </CardContent>
 
-              <CardFooter className="flex space-x-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => {
-                    setStep(2)
-                    stopCamera()
-                    setCapturedImage(null)
-                  }}
-                  disabled={isLoading}
-                >
-                  Back
-                </Button>
-                <Button
-                  type="button"
-                  className="w-full bg-green-600 hover:bg-green-700"
-                  disabled={isLoading || !capturedImage}
-                  onClick={completeOnboarding}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle className="mr-2 h-4 w-4" />
-                      Complete Verification
-                    </>
-                  )}
-                </Button>
+              <CardFooter className="flex flex-col gap-4">
+                {/* Error Message - Visible near submit button */}
+                {error && (
+                  <div ref={errorRef} className="w-full">
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  </div>
+                )}
+
+                <div className="flex w-full space-x-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setStep(2)
+                      stopCamera()
+                      setCapturedImage(null)
+                    }}
+                    disabled={isLoading}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    type="button"
+                    className="w-full bg-green-600 hover:bg-green-700"
+                    disabled={isLoading || !capturedImage}
+                    onClick={completeOnboarding}
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Complete Verification
+                      </>
+                    )}
+                  </Button>
+                </div>
               </CardFooter>
             </>
           )}
