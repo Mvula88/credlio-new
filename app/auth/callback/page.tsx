@@ -107,13 +107,46 @@ export default function AuthCallback() {
     }
 
     async function redirectBasedOnRole(supabase: ReturnType<typeof createClient>, type: string | null) {
-      // Handle recovery type
+      // Handle recovery type - go directly to reset password
       if (type === 'recovery') {
         router.push('/l/reset-password')
         return
       }
 
-      // Get user and determine role
+      // For email confirmation (signup type), show success page
+      // This is more professional - user sees confirmation then signs in
+      if (type === 'signup' || type === 'email') {
+        // Get user role to customize the success page
+        const { data: { user } } = await supabase.auth.getUser()
+        let role = 'lender'
+
+        if (user) {
+          const appRole = user.user_metadata?.app_role
+          if (appRole === 'borrower') {
+            role = 'borrower'
+          } else {
+            // Check user_roles table
+            const { data: roles } = await supabase
+              .from('user_roles')
+              .select('role')
+              .eq('user_id', user.id)
+
+            const userRoles = roles?.map((r: { role: string }) => r.role) || []
+            if (userRoles.includes('borrower')) {
+              role = 'borrower'
+            }
+          }
+        }
+
+        // Sign out so user has to sign in properly (cleaner flow)
+        await supabase.auth.signOut()
+
+        // Show success page with sign in link
+        router.push(`/auth/email-confirmed?role=${role}`)
+        return
+      }
+
+      // For other types, get user and redirect based on role
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
