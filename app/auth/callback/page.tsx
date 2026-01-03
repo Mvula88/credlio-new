@@ -144,7 +144,26 @@ export default function AuthCallback() {
           return
         }
         if (userRoles.includes('lender') || appRole === 'lender') {
-          router.push('/l/overview')
+          // Check if lender profile is completed
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('onboarding_completed')
+            .eq('user_id', user.id)
+            .single()
+
+          // Also check if lender record exists with required fields
+          const { data: lender } = await supabase
+            .from('lenders')
+            .select('id, id_photo_url')
+            .eq('user_id', user.id)
+            .single()
+
+          // If profile not completed or lender record missing/incomplete, go to complete-profile
+          if (!profile?.onboarding_completed || !lender?.id_photo_url) {
+            router.push('/l/complete-profile')
+          } else {
+            router.push('/l/overview')
+          }
           return
         }
 
