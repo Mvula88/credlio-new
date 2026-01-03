@@ -150,7 +150,8 @@ export default function ProviderInfoPage() {
       }
 
       toast.success('Provider information saved successfully')
-      router.push('/l/overview')
+      // Force full page reload to refresh the ProfileCompletionBanner in the layout
+      window.location.href = '/l/overview'
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save provider information')
       console.error(error)

@@ -478,9 +478,9 @@ export default function CompleteProfilePage() {
       setUploadProgress('Profile completed! Redirecting to dashboard...')
       setIsLoading(false)
 
-      // Small delay to show success message, then redirect
+      // Small delay to show success message, then force full page reload to refresh the ProfileCompletionBanner
       setTimeout(() => {
-        router.push('/l/overview')
+        window.location.href = '/l/overview'
       }, 1000)
     } catch (err: any) {
       console.error('Profile completion error:', err)

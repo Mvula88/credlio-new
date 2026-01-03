@@ -39,7 +39,8 @@ export default function SettingsPage() {
           </div>
           <div className="space-y-2">
             <Label>Support Email</Label>
-            <Input type="email" defaultValue="support@credlio.com" />
+            <Input type="email" defaultValue={process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'support@credlio.com'} readOnly className="bg-muted" />
+            <p className="text-xs text-muted-foreground">Configure in .env file: NEXT_PUBLIC_SUPPORT_EMAIL</p>
           </div>
           <div className="space-y-2">
             <Label>Platform Status</Label>
