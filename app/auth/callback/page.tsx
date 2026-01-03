@@ -129,17 +129,32 @@ export default function AuthCallback() {
         const appRole = user.user_metadata?.app_role
 
         if (userRoles.includes('borrower') || appRole === 'borrower') {
-          router.push('/b/onboarding')
+          // Check if onboarding is completed
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('onboarding_completed')
+            .eq('user_id', user.id)
+            .single()
+
+          if (profile?.onboarding_completed) {
+            router.push('/b/overview')
+          } else {
+            router.push('/b/onboarding')
+          }
           return
         }
         if (userRoles.includes('lender') || appRole === 'lender') {
           router.push('/l/overview')
           return
         }
+
+        // User exists but no role found - redirect to a selection page or login
+        router.push('/l/login')
+        return
       }
 
-      // Default redirect
-      router.push('/')
+      // No user found - redirect to login
+      router.push('/l/login')
     }
 
     handleCallback()
