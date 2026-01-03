@@ -59,18 +59,17 @@ export default function CountriesPage() {
             .select('*', { count: 'exact', head: true })
             .eq('country_code', country.code)
 
-          // Get borrowers by country
-          const { count: totalBorrowers } = await supabase
+          // Get borrowers by country with their account links
+          const { data: borrowersData } = await supabase
             .from('borrowers')
-            .select('*', { count: 'exact', head: true })
+            .select('id, borrower_user_links(user_id)')
             .eq('country_code', country.code)
 
-          // Get borrowers without accounts (registered by lenders)
-          const { count: unregisteredBorrowers } = await supabase
-            .from('borrowers')
-            .select('*', { count: 'exact', head: true })
-            .eq('country_code', country.code)
-            .is('user_id', null)
+          const totalBorrowers = borrowersData?.length || 0
+          // Count borrowers without linked accounts (no entry in borrower_user_links)
+          const unregisteredBorrowers = borrowersData?.filter(
+            (b: any) => !b.borrower_user_links || b.borrower_user_links.length === 0
+          ).length || 0
 
           // Get lenders by country
           const { count: totalLenders } = await supabase
@@ -369,9 +368,10 @@ export default function CountriesPage() {
                 <div className="p-3 bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-lg">
                   <div className="flex items-center space-x-2 mb-1">
                     <Users className="h-4 w-4 text-blue-600" />
-                    <span className="text-xs text-blue-600 font-medium">Users</span>
+                    <span className="text-xs text-blue-600 font-medium">Accounts</span>
                   </div>
                   <div className="text-xl font-bold text-blue-700">{country.totalUsers}</div>
+                  <div className="text-xs text-blue-500 mt-0.5">Lenders + Borrowers</div>
                 </div>
 
                 <div className="p-3 bg-gradient-to-br from-green-50 to-green-100/50 rounded-lg">
