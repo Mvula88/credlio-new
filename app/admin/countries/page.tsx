@@ -205,7 +205,9 @@ export default function CountriesPage() {
     country.code.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const formatCurrency = (amount: number, symbol: string = '$') => {
+  const formatCurrency = (amountMinor: number, symbol: string = '$') => {
+    // Convert from minor units (cents) to major units
+    const amount = amountMinor / 100
     return `${symbol}${amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
   }
 

@@ -319,7 +319,9 @@ export default function CountryAdminPage() {
     setGrowthData(months)
   }
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amountMinor: number) => {
+    // Convert from minor units (cents) to major units
+    const amount = amountMinor / 100
     return `${country?.currencySymbol || '$'}${amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
   }
 
