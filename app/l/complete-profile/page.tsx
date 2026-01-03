@@ -323,11 +323,13 @@ export default function CompleteProfilePage() {
       if (userError) {
         console.error('Auth error:', userError)
         setError(`Authentication error: ${userError.message}. Please try refreshing the page or logging in again.`)
+        setIsLoading(false)
         return
       }
 
       if (!user) {
         setError('Your session has expired. Please log in again.')
+        setIsLoading(false)
         // Redirect to login after 2 seconds
         setTimeout(() => {
           router.push('/l/login')
@@ -339,6 +341,7 @@ export default function CompleteProfilePage() {
       const idPhotoFile = capturedFile
       if (!idPhotoFile) {
         setError('Please capture a photo of yourself holding your ID using the camera')
+        setIsLoading(false)
         return
       }
 
@@ -357,6 +360,7 @@ export default function CompleteProfilePage() {
       if (idExists === true) {
         setError('This ID number is already registered with another account. Each person can only have one lender account. Please contact support if you believe this is an error.')
         setUploadProgress('')
+        setIsLoading(false)
         return
       }
 
@@ -375,6 +379,7 @@ export default function CompleteProfilePage() {
       if (phoneExists === true) {
         setError('This phone number is already registered with another lender account. Please use a different phone number or contact support.')
         setUploadProgress('')
+        setIsLoading(false)
         return
       }
 
@@ -393,6 +398,7 @@ export default function CompleteProfilePage() {
       if (uploadError) {
         console.error('Photo upload error:', uploadError)
         setError(`Failed to upload ID photo: ${uploadError.message}`)
+        setIsLoading(false)
         return
       }
 
@@ -414,6 +420,7 @@ export default function CompleteProfilePage() {
       if (profileError) {
         console.error('Profile update error:', profileError)
         setError('Failed to update profile. Please try again.')
+        setIsLoading(false)
         return
       }
 
@@ -441,6 +448,7 @@ export default function CompleteProfilePage() {
       if (lenderError) {
         console.error('Failed to update lender:', lenderError)
         setError('Failed to update lender profile. Please try again.')
+        setIsLoading(false)
         return
       }
 
@@ -460,6 +468,7 @@ export default function CompleteProfilePage() {
 
       // Show success message before redirect
       setUploadProgress('Profile completed! Redirecting to dashboard...')
+      setIsLoading(false)
 
       // Small delay to show success message, then redirect
       setTimeout(() => {
@@ -468,6 +477,7 @@ export default function CompleteProfilePage() {
     } catch (err: any) {
       console.error('Profile completion error:', err)
       setError(`An unexpected error occurred: ${err?.message || 'Please try again.'}`)
+      setUploadProgress('')
       setIsLoading(false)
     }
   }
