@@ -58,9 +58,18 @@ export default function BorrowerLayout({
     router.push('/b/login')
   }
 
-  // Public pages that should not have sidebar
-  const publicPages = ['/b/login', '/b/register', '/b/onboarding', '/b/pending-verification', '/b/reupload-selfie', '/b/forgot-password', '/b/reset-password']
-  const isPublicPage = publicPages.includes(pathname)
+  // Public pages that should not have sidebar (includes all auth/onboarding pages)
+  const publicPages = [
+    '/b/login',
+    '/b/register',
+    '/b/register/confirm-email',
+    '/b/onboarding',
+    '/b/pending-verification',
+    '/b/reupload-selfie',
+    '/b/forgot-password',
+    '/b/reset-password'
+  ]
+  const isPublicPage = publicPages.some(page => pathname.startsWith(page))
 
   // If it's a public page, just render children without sidebar
   if (isPublicPage) {

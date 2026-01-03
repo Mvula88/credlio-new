@@ -101,9 +101,16 @@ export default function LenderLayout({
     router.push('/l/login')
   }
 
-  // Public pages that should not have sidebar
-  const publicPages = ['/l/login', '/l/register', '/l/forgot-password', '/l/reset-password', '/l/complete-profile']
-  const isPublicPage = publicPages.includes(pathname)
+  // Public pages that should not have sidebar (includes all auth/onboarding pages)
+  const publicPages = [
+    '/l/login',
+    '/l/register',
+    '/l/register/confirm-email',
+    '/l/forgot-password',
+    '/l/reset-password',
+    '/l/complete-profile'
+  ]
+  const isPublicPage = publicPages.some(page => pathname.startsWith(page))
 
   // If it's a public page, just render children without sidebar
   if (isPublicPage) {
