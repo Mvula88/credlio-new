@@ -342,33 +342,39 @@ export default function CompleteProfilePage() {
         return
       }
 
-      // Check for duplicate ID number directly in lenders table
-      const { data: existingLender, error: duplicateError } = await supabase
-        .from('lenders')
-        .select('id, user_id')
-        .eq('id_number', data.idNumber)
-        .neq('user_id', user.id)
-        .maybeSingle()
+      // Check for duplicate ID number using RPC (bypasses RLS)
+      setUploadProgress('Checking ID number...')
+      const { data: idExists, error: idCheckError } = await supabase.rpc('check_lender_id_exists', {
+        p_id_number: data.idNumber,
+        p_user_id: user.id
+      })
 
-      if (duplicateError) {
-        console.error('Duplicate check error:', duplicateError)
+      if (idCheckError) {
+        console.error('ID duplicate check error:', idCheckError)
+        // Don't block on error, but log it
       }
 
-      if (existingLender) {
+      if (idExists === true) {
         setError('This ID number is already registered with another account. Each person can only have one lender account. Please contact support if you believe this is an error.')
+        setUploadProgress('')
         return
       }
 
-      // Also check for duplicate phone number
-      const { data: existingPhone } = await supabase
-        .from('lenders')
-        .select('id, user_id')
-        .eq('contact_number', data.phoneNumber)
-        .neq('user_id', user.id)
-        .maybeSingle()
+      // Check for duplicate phone number using RPC (bypasses RLS)
+      setUploadProgress('Checking phone number...')
+      const { data: phoneExists, error: phoneCheckError } = await supabase.rpc('check_lender_phone_exists', {
+        p_phone_number: data.phoneNumber,
+        p_user_id: user.id
+      })
 
-      if (existingPhone) {
+      if (phoneCheckError) {
+        console.error('Phone duplicate check error:', phoneCheckError)
+        // Don't block on error, but log it
+      }
+
+      if (phoneExists === true) {
         setError('This phone number is already registered with another lender account. Please use a different phone number or contact support.')
+        setUploadProgress('')
         return
       }
 
