@@ -1,91 +1,15 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Mail, CheckCircle, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { Mail, CheckCircle } from 'lucide-react'
 
 function ConfirmEmailPageContent() {
   const searchParams = useSearchParams()
-  const router = useRouter()
   const email = searchParams.get('email')
-  const [checking, setChecking] = useState(false)
-  const [confirmed, setConfirmed] = useState(false)
-
-  // Auto-check for email confirmation every 3 seconds
-  useEffect(() => {
-    if (!email) return
-
-    const supabase = createClient()
-    let interval: NodeJS.Timeout
-
-    const checkConfirmation = async () => {
-      setChecking(true)
-
-      // Try to get session - if user confirmed from another device, session might exist
-      const { data: { session } } = await supabase.auth.getSession()
-
-      if (session?.user?.email_confirmed_at) {
-        setConfirmed(true)
-        clearInterval(interval)
-        // Redirect to onboarding after brief delay
-        setTimeout(() => {
-          router.push('/b/onboarding')
-        }, 1500)
-        return
-      }
-
-      // Also try signing in silently to check if email was confirmed
-      // This won't work without password, but we can use getUser if there's a session
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user?.email_confirmed_at) {
-        setConfirmed(true)
-        clearInterval(interval)
-        setTimeout(() => {
-          router.push('/b/onboarding')
-        }, 1500)
-        return
-      }
-
-      setChecking(false)
-    }
-
-    // Check immediately
-    checkConfirmation()
-
-    // Then check every 3 seconds
-    interval = setInterval(checkConfirmation, 3000)
-
-    return () => clearInterval(interval)
-  }, [email, router])
-
-  if (confirmed) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 px-4 py-12">
-        <div className="w-full max-w-md">
-          <Card>
-            <CardHeader className="text-center space-y-4">
-              <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-                <CheckCircle className="h-8 w-8 text-green-600" />
-              </div>
-              <div>
-                <CardTitle className="text-2xl">Email Confirmed!</CardTitle>
-                <CardDescription className="mt-2">
-                  Redirecting you to complete your profile...
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="flex justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 px-4 py-12">
@@ -119,13 +43,6 @@ function ConfirmEmailPageContent() {
               </div>
             )}
 
-            {checking && (
-              <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Waiting for confirmation...</span>
-              </div>
-            )}
-
             <div className="space-y-3 text-sm text-gray-600">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
@@ -133,7 +50,7 @@ function ConfirmEmailPageContent() {
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                <p>This page will automatically redirect when confirmed</p>
+                <p>After confirming, you'll be taken to complete your profile</p>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
