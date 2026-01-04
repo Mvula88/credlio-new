@@ -43,7 +43,6 @@ import { Badge } from '@/components/ui/badge'
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
   { name: 'Countries', href: '/admin/countries', icon: Globe },
-  { name: 'User Management', href: '/admin/users', icon: Users },
   { name: 'Borrowers', href: '/admin/borrowers', icon: User },
   { name: 'Lenders', href: '/admin/lenders', icon: Building2 },
   { name: 'Verifications', href: '/admin/verifications', icon: UserCheck },
