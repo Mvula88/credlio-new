@@ -146,7 +146,8 @@ export default function CountriesPage() {
 
           // Calculate launch period status
           const launchEndsAt = country.launch_period_ends_at ? new Date(country.launch_period_ends_at) : null
-          const isPaused = country.launch_paused_at !== null
+          // Use !! to handle undefined/null properly - only true if column exists AND has a value
+          const isPaused = !!country.launch_paused_at
           const isEndedPermanently = country.launch_ended_permanently === true
           const isInLaunchPeriod = !isPaused && !isEndedPermanently && launchEndsAt && launchEndsAt > new Date()
 
