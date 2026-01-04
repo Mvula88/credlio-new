@@ -177,6 +177,7 @@ export default function CountryAdminPage() {
     const completedLoans = loans?.filter((l: any) => l.status === 'completed').length || 0
     const defaultedLoans = loans?.filter((l: any) => l.status === 'defaulted').length || 0
     const cancelledLoans = loans?.filter((l: any) => l.status === 'cancelled').length || 0
+    const pendingLoans = loans?.filter((l: any) => l.status === 'pending' || l.status === 'offered').length || 0
     // Keep in MINOR units for consistent formatting
     const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
     const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
@@ -200,16 +201,17 @@ export default function CountryAdminPage() {
       .eq('country_code', code)
       .not('resolved_at', 'is', null)
 
-    // PAYMENT METRICS
+    // PAYMENT METRICS - exclude cancelled loans from payment calculations
     const { data: schedules } = await supabase
       .from('repayment_schedules')
       .select(`
         id,
         due_date,
         amount_due_minor,
-        loans!inner(country_code)
+        loans!inner(country_code, status)
       `)
       .eq('loans.country_code', code)
+      .neq('loans.status', 'cancelled')
 
     const overduePayments = schedules?.filter((s: any) => new Date(s.due_date) < new Date()).length || 0
     const totalScheduledPayments = schedules?.length || 0
@@ -227,6 +229,7 @@ export default function CountryAdminPage() {
       completedLoans,
       defaultedLoans,
       cancelledLoans,
+      pendingLoans,
       totalLoanVolume,
       avgLoanSize,
       avgAPR,
@@ -352,6 +355,7 @@ export default function CountryAdminPage() {
   }
 
   const loanStatusData = [
+    { name: 'Pending', value: stats.pendingLoans, color: '#eab308' },
     { name: 'Active', value: stats.activeLoans, color: '#3b82f6' },
     { name: 'Completed', value: stats.completedLoans, color: '#10b981' },
     { name: 'Defaulted', value: stats.defaultedLoans, color: '#ef4444' },
@@ -428,8 +432,11 @@ export default function CountryAdminPage() {
               </CardHeader>
               <CardContent>
                 <span className="text-3xl font-bold text-green-600">{stats.totalLoans}</span>
-                <div className="mt-1.5 text-sm text-muted-foreground font-medium">
-                  {stats.activeLoans} active • {stats.completedLoans} completed • {stats.cancelledLoans} cancelled
+                <div className="mt-1.5 text-xs text-muted-foreground font-medium">
+                  {stats.pendingLoans > 0 && <><span className="text-yellow-600">{stats.pendingLoans} pending</span> • </>}
+                  <span className="text-blue-600">{stats.activeLoans} active</span> •
+                  <span className="text-green-600"> {stats.completedLoans} completed</span> •
+                  <span className="text-gray-500"> {stats.cancelledLoans} cancelled</span>
                 </div>
               </CardContent>
             </Card>
