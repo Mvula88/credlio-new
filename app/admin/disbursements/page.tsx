@@ -35,7 +35,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 import { format } from 'date-fns'
-import { formatCurrency } from '@/lib/utils/currency'
+import { formatCurrencyByCountry } from '@/lib/utils/currency'
 
 type DisbursementStatus = 'all' | 'pending' | 'confirmed' | 'disputed'
 
@@ -250,7 +250,7 @@ export default function AdminDisbursementsPage() {
                       <TableCell>{d.loans?.borrowers?.full_name || 'N/A'}</TableCell>
                       <TableCell className="font-medium">
                         {d.lender_proof_amount
-                          ? formatCurrency(d.lender_proof_amount * 100, d.loans?.country_code)
+                          ? formatCurrencyByCountry(d.lender_proof_amount * 100, d.loans?.country_code)
                           : 'Not submitted'}
                       </TableCell>
                       <TableCell className="capitalize">
@@ -338,7 +338,7 @@ export default function AdminDisbursementsPage() {
               <div className="bg-blue-50 rounded-lg p-4">
                 <h4 className="font-semibold text-sm text-blue-900 mb-2">LOAN AMOUNT</h4>
                 <p className="text-2xl font-bold text-blue-900">
-                  {formatCurrency(selectedDisbursement.loans?.principal_minor || 0, selectedDisbursement.loans?.country_code)}
+                  {formatCurrencyByCountry(selectedDisbursement.loans?.principal_minor || 0, selectedDisbursement.loans?.country_code)}
                 </p>
                 <p className="text-sm text-blue-700">Loan Status: {selectedDisbursement.loans?.status}</p>
               </div>
@@ -351,7 +351,7 @@ export default function AdminDisbursementsPage() {
                     <div>
                       <span className="text-muted-foreground">Amount Sent:</span>
                       <p className="font-medium">
-                        {formatCurrency((selectedDisbursement.lender_proof_amount || 0) * 100, selectedDisbursement.loans?.country_code)}
+                        {formatCurrencyByCountry((selectedDisbursement.lender_proof_amount || 0) * 100, selectedDisbursement.loans?.country_code)}
                       </p>
                     </div>
                     <div>

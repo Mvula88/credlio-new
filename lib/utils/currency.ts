@@ -173,3 +173,30 @@ export function formatMinorToMajor(
   })
   return `${symbol}${formatted}`
 }
+
+/**
+ * Format currency by country code
+ * ALWAYS assumes amount is in minor units (cents) and converts to major units
+ * Use this when you have a country code instead of currency symbol
+ *
+ * @param amountMinor - Amount in minor units (cents)
+ * @param countryCode - Country code (e.g., 'NA', 'NG', 'ZA')
+ */
+export function formatCurrencyByCountry(
+  amountMinor: number,
+  countryCode?: string
+): string {
+  if (countryCode) {
+    const currency = getCurrencyByCountry(countryCode)
+    if (currency) {
+      const majorAmount = fromMinorUnits(amountMinor, currency.minorUnits)
+      const formatted = majorAmount.toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      })
+      return `${currency.symbol}${formatted}`
+    }
+  }
+  // Fallback to USD formatting
+  return formatMinorToMajor(amountMinor, '$', 2)
+}
