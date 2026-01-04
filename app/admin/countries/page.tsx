@@ -49,13 +49,21 @@ export default function CountriesPage() {
 
   const loadCountries = async () => {
     try {
-      // Get all countries with launch status
-      const { data: countriesData } = await supabase
+      // Get all countries with launch status (using * to handle schema differences)
+      const { data: countriesData, error: countriesError } = await supabase
         .from('countries')
-        .select('code, name, phone_prefix, is_launched, launch_period_ends_at, launch_paused_at, launch_days_remaining_when_paused, launch_ended_permanently, launch_count')
+        .select('*')
         .order('name')
 
-      if (!countriesData) return
+      if (countriesError) {
+        console.error('Error loading countries:', countriesError)
+        return
+      }
+
+      if (!countriesData || countriesData.length === 0) {
+        console.log('No countries found in database')
+        return
+      }
 
       // Get statistics for each country
       const countryStats = await Promise.all(
