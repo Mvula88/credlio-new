@@ -9,6 +9,26 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { toast } from 'sonner'
 import {
   Globe,
   ArrowLeft,
@@ -29,7 +49,14 @@ import {
   PieChart as PieChartIcon,
   Calendar,
   Download,
-  RefreshCw
+  RefreshCw,
+  CreditCard,
+  Wallet,
+  Banknote,
+  Search,
+  Loader2,
+  Mail,
+  Phone
 } from 'lucide-react'
 import { format, subDays, subMonths } from 'date-fns'
 import {
@@ -52,6 +79,19 @@ import {
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']
 
+interface NamibianLender {
+  user_id: string
+  full_name: string
+  email: string
+  phone: string
+  business_name: string
+  current_tier: string
+  subscription_status: string
+  subscription_end_date: string | null
+  payment_method: string | null
+  created_at: string
+}
+
 export default function CountryAdminPage() {
   const params = useParams()
   const countryCode = params?.code as string
@@ -65,6 +105,23 @@ export default function CountryAdminPage() {
   const [recentLoans, setRecentLoans] = useState<any[]>([])
   const [riskFlags, setRiskFlags] = useState<any[]>([])
   const [growthData, setGrowthData] = useState<any[]>([])
+
+  // Manual subscription state (Namibia only)
+  const [manualSubLenders, setManualSubLenders] = useState<NamibianLender[]>([])
+  const [manualSubSearch, setManualSubSearch] = useState('')
+  const [activateDialogOpen, setActivateDialogOpen] = useState(false)
+  const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false)
+  const [selectedLender, setSelectedLender] = useState<NamibianLender | null>(null)
+  const [processing, setProcessing] = useState(false)
+  const [activationForm, setActivationForm] = useState({
+    tier: 'PRO',
+    paymentMethod: 'cash',
+    paymentReference: '',
+    amountPaid: '',
+    durationMonths: '1',
+    notes: ''
+  })
+  const [deactivationReason, setDeactivationReason] = useState('')
 
   useEffect(() => {
     if (countryCode) {
@@ -105,7 +162,9 @@ export default function CountryAdminPage() {
         loadRecentUsers(),
         loadRecentLoans(),
         loadRiskFlags(),
-        loadGrowthData()
+        loadGrowthData(),
+        // Load manual subscription lenders only for Namibia
+        countryCode.toUpperCase() === 'NA' ? loadManualSubLenders() : Promise.resolve()
       ])
     } catch (error) {
       console.error('Error loading country data:', error)
@@ -326,6 +385,134 @@ export default function CountryAdminPage() {
 
     setGrowthData(months)
   }
+
+  // ============ MANUAL SUBSCRIPTION FUNCTIONS (Namibia Only) ============
+  const loadManualSubLenders = async () => {
+    try {
+      const { data, error } = await supabase.rpc('admin_get_namibian_lenders')
+      if (error) throw error
+      setManualSubLenders(data || [])
+    } catch (error: any) {
+      console.error('Error loading Namibian lenders:', error)
+    }
+  }
+
+  const handleActivateSubscription = async () => {
+    if (!selectedLender) return
+
+    try {
+      setProcessing(true)
+
+      const { data, error } = await supabase.rpc('admin_activate_subscription', {
+        p_lender_user_id: selectedLender.user_id,
+        p_tier: activationForm.tier,
+        p_payment_method: activationForm.paymentMethod,
+        p_payment_reference: activationForm.paymentReference || null,
+        p_amount_paid: activationForm.amountPaid ? parseFloat(activationForm.amountPaid) : null,
+        p_duration_months: parseInt(activationForm.durationMonths),
+        p_notes: activationForm.notes || null
+      })
+
+      if (error) throw error
+
+      toast.success(`${activationForm.tier} subscription activated for ${selectedLender.full_name}`)
+      setActivateDialogOpen(false)
+      setSelectedLender(null)
+      resetActivationForm()
+      loadManualSubLenders()
+    } catch (error: any) {
+      console.error('Error activating subscription:', error)
+      toast.error('Failed to activate: ' + error.message)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleDeactivateSubscription = async () => {
+    if (!selectedLender) return
+
+    try {
+      setProcessing(true)
+
+      const { data, error } = await supabase.rpc('admin_deactivate_subscription', {
+        p_lender_user_id: selectedLender.user_id,
+        p_reason: deactivationReason || null
+      })
+
+      if (error) throw error
+
+      toast.success(`Subscription deactivated for ${selectedLender.full_name}`)
+      setDeactivateDialogOpen(false)
+      setSelectedLender(null)
+      setDeactivationReason('')
+      loadManualSubLenders()
+    } catch (error: any) {
+      console.error('Error deactivating subscription:', error)
+      toast.error('Failed to deactivate: ' + error.message)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const resetActivationForm = () => {
+    setActivationForm({
+      tier: 'PRO',
+      paymentMethod: 'cash',
+      paymentReference: '',
+      amountPaid: '',
+      durationMonths: '1',
+      notes: ''
+    })
+  }
+
+  const openActivateDialog = (lender: NamibianLender) => {
+    setSelectedLender(lender)
+    resetActivationForm()
+    setActivateDialogOpen(true)
+  }
+
+  const openDeactivateDialog = (lender: NamibianLender) => {
+    setSelectedLender(lender)
+    setDeactivationReason('')
+    setDeactivateDialogOpen(true)
+  }
+
+  const filteredManualSubLenders = manualSubLenders.filter(lender =>
+    lender.full_name?.toLowerCase().includes(manualSubSearch.toLowerCase()) ||
+    lender.email?.toLowerCase().includes(manualSubSearch.toLowerCase()) ||
+    lender.phone?.includes(manualSubSearch) ||
+    lender.business_name?.toLowerCase().includes(manualSubSearch.toLowerCase())
+  )
+
+  const getTierBadge = (tier: string, status: string) => {
+    if (status === 'none' || !tier) {
+      return <Badge variant="outline" className="bg-gray-100">FREE</Badge>
+    }
+    if (status === 'cancelled') {
+      return <Badge variant="outline" className="bg-red-100 text-red-700">Cancelled</Badge>
+    }
+    if (tier === 'BUSINESS') {
+      return <Badge className="bg-purple-600">BUSINESS</Badge>
+    }
+    if (tier === 'PRO') {
+      return <Badge className="bg-blue-600">PRO</Badge>
+    }
+    return <Badge variant="outline">{tier}</Badge>
+  }
+
+  const getPaymentMethodIcon = (method: string | null) => {
+    switch (method) {
+      case 'cash':
+        return <Banknote className="h-4 w-4 text-green-600" />
+      case 'ewallet':
+        return <Wallet className="h-4 w-4 text-blue-600" />
+      case 'bank_transfer':
+        return <Building2 className="h-4 w-4 text-purple-600" />
+      default:
+        return <CreditCard className="h-4 w-4 text-gray-400" />
+    }
+  }
+  // ============ END MANUAL SUBSCRIPTION FUNCTIONS ============
 
   // Use centralized currency utility - always converts from minor units
   const formatCurrency = (amountMinor: number) => {
@@ -577,11 +764,17 @@ export default function CountryAdminPage() {
 
       {/* Detailed Tabs */}
       <Tabs defaultValue="users" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className={`grid w-full ${countryCode.toUpperCase() === 'NA' ? 'grid-cols-5' : 'grid-cols-4'}`}>
           <TabsTrigger value="users">Recent Users</TabsTrigger>
           <TabsTrigger value="loans">Recent Loans</TabsTrigger>
           <TabsTrigger value="risks">Risk Flags</TabsTrigger>
           <TabsTrigger value="lenders">Lenders</TabsTrigger>
+          {countryCode.toUpperCase() === 'NA' && (
+            <TabsTrigger value="manual-subs" className="flex items-center gap-1">
+              <CreditCard className="h-4 w-4" />
+              Manual Subs
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Recent Users Tab */}
@@ -744,7 +937,307 @@ export default function CountryAdminPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Manual Subscriptions Tab (Namibia Only) */}
+        {countryCode.toUpperCase() === 'NA' && (
+          <TabsContent value="manual-subs">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" />
+                  Manual Subscription Activation
+                </CardTitle>
+                <CardDescription>
+                  Activate subscriptions for lenders who pay via cash or e-wallet
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {/* Info Alert */}
+                <Alert className="mb-4 bg-blue-50 border-blue-200">
+                  <AlertTriangle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-blue-800">
+                    Use this to manually activate PRO or BUSINESS subscriptions for lenders who pay via cash, e-wallet, or bank transfer.
+                  </AlertDescription>
+                </Alert>
+
+                {/* Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <div className="text-2xl font-bold">{manualSubLenders.length}</div>
+                    <p className="text-sm text-muted-foreground">Total Lenders</p>
+                  </div>
+                  <div className="p-4 bg-green-50 rounded-lg">
+                    <div className="text-2xl font-bold text-green-600">
+                      {manualSubLenders.filter(l => l.subscription_status === 'active').length}
+                    </div>
+                    <p className="text-sm text-muted-foreground">Active Subs</p>
+                  </div>
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {manualSubLenders.filter(l => l.current_tier === 'PRO').length}
+                    </div>
+                    <p className="text-sm text-muted-foreground">PRO Users</p>
+                  </div>
+                  <div className="p-4 bg-purple-50 rounded-lg">
+                    <div className="text-2xl font-bold text-purple-600">
+                      {manualSubLenders.filter(l => l.current_tier === 'BUSINESS').length}
+                    </div>
+                    <p className="text-sm text-muted-foreground">BUSINESS Users</p>
+                  </div>
+                </div>
+
+                {/* Search */}
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, email, phone, or business..."
+                    value={manualSubSearch}
+                    onChange={(e) => setManualSubSearch(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                {/* Table */}
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Lender</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Current Plan</TableHead>
+                        <TableHead>Payment</TableHead>
+                        <TableHead>Expires</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredManualSubLenders.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                            {manualSubSearch ? 'No lenders match your search' : 'No Namibian lenders found'}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredManualSubLenders.map((lender) => (
+                          <TableRow key={lender.user_id}>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{lender.full_name}</div>
+                                {lender.business_name && (
+                                  <div className="text-sm text-muted-foreground">{lender.business_name}</div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm space-y-1">
+                                <div className="flex items-center gap-1">
+                                  <Mail className="h-3 w-3 text-muted-foreground" />
+                                  {lender.email}
+                                </div>
+                                {lender.phone && (
+                                  <div className="flex items-center gap-1">
+                                    <Phone className="h-3 w-3 text-muted-foreground" />
+                                    {lender.phone}
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {getTierBadge(lender.current_tier, lender.subscription_status)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                {getPaymentMethodIcon(lender.payment_method)}
+                                <span className="text-sm capitalize">
+                                  {lender.payment_method?.replace('_', ' ') || 'N/A'}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {lender.subscription_end_date ? (
+                                <div className="flex items-center gap-1 text-sm">
+                                  <Clock className="h-3 w-3 text-muted-foreground" />
+                                  {format(new Date(lender.subscription_end_date), 'MMM dd, yyyy')}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button size="sm" onClick={() => openActivateDialog(lender)}>
+                                  <CheckCircle className="h-4 w-4 mr-1" />
+                                  Activate
+                                </Button>
+                                {lender.subscription_status === 'active' && (
+                                  <Button size="sm" variant="destructive" onClick={() => openDeactivateDialog(lender)}>
+                                    <XCircle className="h-4 w-4 mr-1" />
+                                    Deactivate
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
+
+      {/* Activate Subscription Dialog */}
+      <Dialog open={activateDialogOpen} onOpenChange={setActivateDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Activate Subscription</DialogTitle>
+            <DialogDescription>
+              Manually activate a subscription for <strong>{selectedLender?.full_name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Subscription Tier</Label>
+              <Select
+                value={activationForm.tier}
+                onValueChange={(value) => setActivationForm(prev => ({ ...prev, tier: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PRO">PRO - N$99.99/month</SelectItem>
+                  <SelectItem value="BUSINESS">BUSINESS - N$179.99/month</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Payment Method</Label>
+              <Select
+                value={activationForm.paymentMethod}
+                onValueChange={(value) => setActivationForm(prev => ({ ...prev, paymentMethod: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="ewallet">E-Wallet (EasyWallet, etc.)</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Payment Reference (optional)</Label>
+              <Input
+                placeholder="e.g., receipt number, transfer ID"
+                value={activationForm.paymentReference}
+                onChange={(e) => setActivationForm(prev => ({ ...prev, paymentReference: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Amount Paid (NAD)</Label>
+              <Input
+                type="number"
+                placeholder="e.g., 99.99"
+                value={activationForm.amountPaid}
+                onChange={(e) => setActivationForm(prev => ({ ...prev, amountPaid: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Duration (months)</Label>
+              <Select
+                value={activationForm.durationMonths}
+                onValueChange={(value) => setActivationForm(prev => ({ ...prev, durationMonths: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 month</SelectItem>
+                  <SelectItem value="3">3 months</SelectItem>
+                  <SelectItem value="6">6 months</SelectItem>
+                  <SelectItem value="12">12 months</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Notes (optional)</Label>
+              <Textarea
+                placeholder="Any additional notes..."
+                value={activationForm.notes}
+                onChange={(e) => setActivationForm(prev => ({ ...prev, notes: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setActivateDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleActivateSubscription} disabled={processing}>
+              {processing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Activating...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Activate {activationForm.tier}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Deactivate Subscription Dialog */}
+      <Dialog open={deactivateDialogOpen} onOpenChange={setDeactivateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deactivate Subscription</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to deactivate the subscription for <strong>{selectedLender?.full_name}</strong>?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Reason for Deactivation (optional)</Label>
+              <Textarea
+                placeholder="e.g., refund requested, payment issue..."
+                value={deactivationReason}
+                onChange={(e) => setDeactivationReason(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeactivateDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeactivateSubscription} disabled={processing}>
+              {processing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Deactivating...
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Deactivate
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
