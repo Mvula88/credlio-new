@@ -25,15 +25,21 @@ import {
   Rocket,
   Crown,
   Clock,
-  Loader2
+  Loader2,
+  Pause,
+  Play,
+  RotateCcw,
+  XCircle,
+  Ban
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { format, formatDistanceToNow, differenceInDays } from 'date-fns'
 
 export default function CountriesPage() {
   const [loading, setLoading] = useState(true)
   const [countries, setCountries] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [launchingCountry, setLaunchingCountry] = useState<string | null>(null)
+  const [processingCountry, setProcessingCountry] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -46,7 +52,7 @@ export default function CountriesPage() {
       // Get all countries with launch status
       const { data: countriesData } = await supabase
         .from('countries')
-        .select('code, name, phone_prefix, is_launched, launch_period_ends_at')
+        .select('code, name, phone_prefix, is_launched, launch_period_ends_at, launch_paused_at, launch_days_remaining_when_paused, launch_ended_permanently, launch_count')
         .order('name')
 
       if (!countriesData) return
@@ -132,10 +138,29 @@ export default function CountriesPage() {
 
           // Calculate launch period status
           const launchEndsAt = country.launch_period_ends_at ? new Date(country.launch_period_ends_at) : null
-          const isInLaunchPeriod = launchEndsAt && launchEndsAt > new Date()
-          const launchDaysRemaining = launchEndsAt && isInLaunchPeriod
-            ? differenceInDays(launchEndsAt, new Date())
-            : 0
+          const isPaused = country.launch_paused_at !== null
+          const isEndedPermanently = country.launch_ended_permanently === true
+          const isInLaunchPeriod = !isPaused && !isEndedPermanently && launchEndsAt && launchEndsAt > new Date()
+
+          // Calculate days remaining
+          let launchDaysRemaining = 0
+          if (isPaused) {
+            launchDaysRemaining = country.launch_days_remaining_when_paused || 0
+          } else if (isInLaunchPeriod && launchEndsAt) {
+            launchDaysRemaining = Math.max(0, differenceInDays(launchEndsAt, new Date()))
+          }
+
+          // Determine launch status
+          let launchStatus: 'not_launched' | 'active' | 'paused' | 'expired' | 'ended_permanently' = 'not_launched'
+          if (isEndedPermanently) {
+            launchStatus = 'ended_permanently'
+          } else if (isPaused) {
+            launchStatus = 'paused'
+          } else if (isInLaunchPeriod) {
+            launchStatus = 'active'
+          } else if (country.is_launched) {
+            launchStatus = 'expired'
+          }
 
           return {
             code: country.code,
@@ -157,6 +182,10 @@ export default function CountriesPage() {
             launchPeriodEndsAt: country.launch_period_ends_at,
             isInLaunchPeriod,
             launchDaysRemaining,
+            launchStatus,
+            isPaused,
+            isEndedPermanently,
+            launchCount: country.launch_count || 0,
             // Subscription info
             proSubscribers,
             proPlusSubscribers,
@@ -173,31 +202,54 @@ export default function CountriesPage() {
     }
   }
 
-  // Launch a country with 14 days free Pro access
-  const launchCountry = async (countryCode: string) => {
+  // Launch control functions
+  const handleLaunchAction = async (countryCode: string, action: 'launch' | 'pause' | 'resume' | 'relaunch' | 'end') => {
     try {
-      setLaunchingCountry(countryCode)
+      setProcessingCountry(countryCode)
 
-      // Call the database function to set launch period
-      const { data, error } = await supabase.rpc('set_country_launch_period', {
-        p_country_code: countryCode,
-        p_days: 14
+      let rpcName = ''
+      let successMessage = ''
+
+      switch (action) {
+        case 'launch':
+          rpcName = 'admin_launch_country'
+          successMessage = 'Country launched! All lenders get free BUSINESS access for 14 days.'
+          break
+        case 'pause':
+          rpcName = 'admin_pause_launch'
+          successMessage = 'Launch paused. Days remaining have been frozen.'
+          break
+        case 'resume':
+          rpcName = 'admin_resume_launch'
+          successMessage = 'Launch resumed! Countdown continues.'
+          break
+        case 'relaunch':
+          rpcName = 'admin_relaunch_country'
+          successMessage = 'Country relaunched! 14-day countdown restarted.'
+          break
+        case 'end':
+          rpcName = 'admin_end_launch_permanently'
+          successMessage = 'Launch period ended permanently. No more free access.'
+          break
+      }
+
+      const { data, error } = await supabase.rpc(rpcName, {
+        p_country_code: countryCode
       })
 
       if (error) {
-        console.error('Error launching country:', error)
-        alert(`Failed to launch country: ${error.message}`)
+        console.error(`Error ${action}ing country:`, error)
+        toast.error(`Failed: ${error.message}`)
         return
       }
 
-      // Reload countries to get updated launch status
+      toast.success(successMessage)
       await loadCountries()
-      alert(`Country launched successfully! All lenders get free Pro access for 14 days.`)
-    } catch (error) {
-      console.error('Error launching country:', error)
-      alert('Failed to launch country. Please try again.')
+    } catch (error: any) {
+      console.error(`Error ${action}ing country:`, error)
+      toast.error(`Failed to ${action} country`)
     } finally {
-      setLaunchingCountry(null)
+      setProcessingCountry(null)
     }
   }
 
@@ -336,19 +388,38 @@ export default function CountriesPage() {
                 <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-2">
                     <CardTitle className="text-2xl">{country.name}</CardTitle>
-                    {country.isInLaunchPeriod ? (
+                    {country.launchStatus === 'active' && (
                       <Badge className="bg-orange-500 text-white">
                         <Rocket className="h-3 w-3 mr-1" />
-                        Launch Period
+                        Launching ({country.launchDaysRemaining}d)
                       </Badge>
-                    ) : country.isLaunched ? (
+                    )}
+                    {country.launchStatus === 'paused' && (
+                      <Badge className="bg-yellow-500 text-white">
+                        <Pause className="h-3 w-3 mr-1" />
+                        Paused ({country.launchDaysRemaining}d left)
+                      </Badge>
+                    )}
+                    {country.launchStatus === 'expired' && (
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                        <Clock className="h-3 w-3 mr-1" />
+                        Launch Expired
+                      </Badge>
+                    )}
+                    {country.launchStatus === 'ended_permanently' && (
                       <Badge variant="secondary" className="bg-green-100 text-green-700">
                         <CheckCircle className="h-3 w-3 mr-1" />
-                        Launched
+                        Live
                       </Badge>
-                    ) : (
+                    )}
+                    {country.launchStatus === 'not_launched' && (
                       <Badge variant="outline" className="text-gray-500">
                         Not Launched
+                      </Badge>
+                    )}
+                    {country.launchCount > 1 && (
+                      <Badge variant="outline" className="text-xs">
+                        #{country.launchCount}
                       </Badge>
                     )}
                   </div>
@@ -421,14 +492,30 @@ export default function CountriesPage() {
               </div>
 
               {/* Launch Period Info */}
-              {country.isInLaunchPeriod && (
-                <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              {(country.launchStatus === 'active' || country.launchStatus === 'paused') && (
+                <div className={`p-3 border rounded-lg ${
+                  country.launchStatus === 'paused'
+                    ? 'bg-yellow-50 border-yellow-200'
+                    : 'bg-orange-50 border-orange-200'
+                }`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <Clock className="h-4 w-4 text-orange-600" />
-                      <span className="text-xs text-orange-600 font-medium">Free Pro Access</span>
+                      {country.launchStatus === 'paused' ? (
+                        <Pause className="h-4 w-4 text-yellow-600" />
+                      ) : (
+                        <Clock className="h-4 w-4 text-orange-600" />
+                      )}
+                      <span className={`text-xs font-medium ${
+                        country.launchStatus === 'paused' ? 'text-yellow-600' : 'text-orange-600'
+                      }`}>
+                        {country.launchStatus === 'paused' ? 'Paused - Days Frozen' : 'Free BUSINESS Access'}
+                      </span>
                     </div>
-                    <div className="text-lg font-bold text-orange-600">{country.launchDaysRemaining} days left</div>
+                    <div className={`text-lg font-bold ${
+                      country.launchStatus === 'paused' ? 'text-yellow-600' : 'text-orange-600'
+                    }`}>
+                      {country.launchDaysRemaining} days {country.launchStatus === 'paused' ? 'frozen' : 'left'}
+                    </div>
                   </div>
                 </div>
               )}
@@ -470,34 +557,156 @@ export default function CountriesPage() {
                 </div>
               )}
 
-              {/* Launch Button or View Button */}
-              <div className="flex gap-2">
-                {!country.isLaunched && (
-                  <Button
-                    className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (confirm(`Launch ${country.name}? This will give all lenders in this country FREE Pro access for 14 days.`)) {
-                        launchCountry(country.code)
-                      }
-                    }}
-                    disabled={launchingCountry === country.code}
-                  >
-                    {launchingCountry === country.code ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Launching...
-                      </>
-                    ) : (
-                      <>
-                        <Rocket className="mr-2 h-4 w-4" />
-                        Launch Country
-                      </>
-                    )}
-                  </Button>
-                )}
+              {/* Launch Controls */}
+              <div className="space-y-2">
+                <div className="flex gap-2 flex-wrap">
+                  {/* Not launched - show Launch button */}
+                  {country.launchStatus === 'not_launched' && (
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (confirm(`Launch ${country.name}?\n\nThis will give all lenders FREE BUSINESS access for 14 days.`)) {
+                          handleLaunchAction(country.code, 'launch')
+                        }
+                      }}
+                      disabled={processingCountry === country.code}
+                    >
+                      {processingCountry === country.code ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Rocket className="mr-1 h-4 w-4" />
+                          Launch
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {/* Active launch - show Pause button */}
+                  {country.launchStatus === 'active' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 border-yellow-500 text-yellow-600 hover:bg-yellow-50"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleLaunchAction(country.code, 'pause')
+                      }}
+                      disabled={processingCountry === country.code}
+                    >
+                      {processingCountry === country.code ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Pause className="mr-1 h-4 w-4" />
+                          Pause
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {/* Paused - show Resume button */}
+                  {country.launchStatus === 'paused' && (
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleLaunchAction(country.code, 'resume')
+                      }}
+                      disabled={processingCountry === country.code}
+                    >
+                      {processingCountry === country.code ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Play className="mr-1 h-4 w-4" />
+                          Resume
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {/* Active or Paused - show Relaunch button */}
+                  {(country.launchStatus === 'active' || country.launchStatus === 'paused') && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (confirm(`Relaunch ${country.name}?\n\nThis will restart the 14-day countdown from day 1.`)) {
+                          handleLaunchAction(country.code, 'relaunch')
+                        }
+                      }}
+                      disabled={processingCountry === country.code}
+                    >
+                      {processingCountry === country.code ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <RotateCcw className="mr-1 h-4 w-4" />
+                          Relaunch
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {/* Expired - show Relaunch button */}
+                  {country.launchStatus === 'expired' && (
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (confirm(`Relaunch ${country.name}?\n\nThis will give all lenders FREE BUSINESS access for another 14 days.`)) {
+                          handleLaunchAction(country.code, 'relaunch')
+                        }
+                      }}
+                      disabled={processingCountry === country.code}
+                    >
+                      {processingCountry === country.code ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <RotateCcw className="mr-1 h-4 w-4" />
+                          Relaunch
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {/* Active, Paused, or Expired - show End Permanently button */}
+                  {(country.launchStatus === 'active' || country.launchStatus === 'paused' || country.launchStatus === 'expired') && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-red-500 text-red-600 hover:bg-red-50"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (confirm(`End launch permanently for ${country.name}?\n\n⚠️ This will:\n• Remove all free BUSINESS access\n• Cannot be undone\n• Lenders must subscribe to get premium features\n\nOnly do this when launch is successful!`)) {
+                          handleLaunchAction(country.code, 'end')
+                        }
+                      }}
+                      disabled={processingCountry === country.code}
+                    >
+                      {processingCountry === country.code ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Ban className="mr-1 h-4 w-4" />
+                          End Launch
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+
+                {/* View Admin Button */}
                 <Button
-                  className={`${country.isLaunched ? 'w-full' : 'flex-1'} bg-gradient-to-r from-primary to-secondary text-white`}
+                  className="w-full bg-gradient-to-r from-primary to-secondary text-white"
                   onClick={(e) => {
                     e.stopPropagation()
                     router.push(`/admin/countries/${country.code}`)
