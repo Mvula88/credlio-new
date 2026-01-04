@@ -24,18 +24,23 @@ const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
 
 const PLANS = [
   {
-    id: 'BASIC',
-    name: 'Basic (Free)',
+    id: 'FREE',
+    name: 'Free',
     price: 0,
     priceYearly: 0,
-    description: 'Start lending with registered borrowers',
+    description: 'Get started with basic lending',
     features: [
-      'Register and manage your own borrowers',
-      'Create loan offers',
-      'Track repayments',
-      'Basic analytics',
-      'Email support'
+      'Register up to 5 borrowers',
+      'Create up to 3 active loans',
+      'Basic repayment tracking',
+      'Email support',
+      'Mobile app access'
     ],
+    limits: {
+      borrowers: 5,
+      activeLoans: 3,
+      loanRequests: 0
+    },
     stripePriceIdMonthly: null,
     stripePriceIdYearly: null,
     popular: false
@@ -43,39 +48,51 @@ const PLANS = [
   {
     id: 'PRO',
     name: 'Pro',
-    price: 19.99,
-    priceYearly: 199.99,
-    description: 'Professional lending tools',
+    price: 9.99,
+    priceYearly: 99.99,
+    description: 'Unlimited lending, limited marketplace',
     features: [
-      'Everything in Basic',
-      'Advanced borrower analytics',
+      'Unlimited borrowers',
+      'Unlimited active loans',
+      'Advanced analytics & reports',
       'Risk assessment tools',
-      'Priority support',
-      'Export reports',
+      'Export to CSV/PDF',
+      'Priority email support',
       'API access'
     ],
+    limits: {
+      borrowers: -1, // unlimited
+      activeLoans: -1, // unlimited
+      loanRequests: 0 // no marketplace access
+    },
     stripePriceIdMonthly: process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY!,
     stripePriceIdYearly: process.env.NEXT_PUBLIC_STRIPE_PRO_YEARLY!,
     popular: false
   },
   {
-    id: 'PRO_PLUS',
-    name: 'Pro+',
-    price: 49.99,
-    priceYearly: 499.99,
-    description: 'Access marketplace and expand your portfolio',
+    id: 'BUSINESS',
+    name: 'Business',
+    price: 17.99,
+    priceYearly: 179.99,
+    description: 'Full access including loan marketplace',
     features: [
       'Everything in Pro',
-      'Access to loan marketplace',
-      'Browse all loan requests',
-      'Make competitive offers',
-      'Advanced filtering',
+      'Access loan marketplace',
+      'Unlimited loan requests',
+      'Browse & bid on borrower requests',
+      'Advanced borrower filtering',
       'Dedicated account manager',
       'Custom branding',
-      'Lower platform fees'
+      'Lower platform fees',
+      'Phone support'
     ],
-    stripePriceIdMonthly: process.env.NEXT_PUBLIC_STRIPE_PRO_PLUS_MONTHLY!,
-    stripePriceIdYearly: process.env.NEXT_PUBLIC_STRIPE_PRO_PLUS_YEARLY!,
+    limits: {
+      borrowers: -1,
+      activeLoans: -1,
+      loanRequests: -1 // unlimited
+    },
+    stripePriceIdMonthly: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_MONTHLY!,
+    stripePriceIdYearly: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_YEARLY!,
     popular: true
   }
 ]
@@ -83,7 +100,7 @@ const PLANS = [
 function BillingPageContent() {
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
-  const [currentPlan, setCurrentPlan] = useState<string>('BASIC')
+  const [currentPlan, setCurrentPlan] = useState<string>('FREE')
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly')
   const [subscription, setSubscription] = useState<any>(null)
   const [showSuccess, setShowSuccess] = useState(false)
@@ -119,9 +136,9 @@ function BillingPageContent() {
 
       if (sub) {
         setSubscription(sub)
-        setCurrentPlan(sub.tier || 'BASIC')
+        setCurrentPlan(sub.tier || 'FREE')
       } else {
-        setCurrentPlan('BASIC')
+        setCurrentPlan('FREE')
       }
     } catch (error) {
       console.error('Error loading subscription:', error)
@@ -131,7 +148,7 @@ function BillingPageContent() {
   }
 
   const handleUpgrade = async (planId: string) => {
-    if (planId === 'BASIC' || planId === currentPlan) return
+    if (planId === 'FREE' || planId === currentPlan) return
 
     try {
       setProcessing(true)
@@ -227,7 +244,7 @@ function BillingPageContent() {
       )}
 
       {/* Current Subscription */}
-      {currentPlan !== 'BASIC' && subscription && (
+      {currentPlan !== 'FREE' && subscription && (
         <Card>
           <CardHeader>
             <CardTitle>Current Subscription</CardTitle>
@@ -351,7 +368,7 @@ function BillingPageContent() {
                   <Button className="w-full" disabled>
                     Current Plan
                   </Button>
-                ) : plan.id === 'BASIC' ? (
+                ) : plan.id === 'FREE' ? (
                   <Button className="w-full" variant="outline" disabled>
                     Free Forever
                   </Button>
