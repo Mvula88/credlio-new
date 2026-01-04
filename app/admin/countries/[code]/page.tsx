@@ -176,13 +176,16 @@ export default function CountryAdminPage() {
     const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
     const completedLoans = loans?.filter((l: any) => l.status === 'completed').length || 0
     const defaultedLoans = loans?.filter((l: any) => l.status === 'defaulted').length || 0
+    const cancelledLoans = loans?.filter((l: any) => l.status === 'cancelled').length || 0
     // Keep in MINOR units for consistent formatting
     const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
     const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
     const avgAPR = loans && loans.length > 0
       ? Math.round(loans.reduce((sum: number, l: any) => sum + l.apr_bps, 0) / loans.length / 100)
       : 0
-    const defaultRate = totalLoans > 0 ? (defaultedLoans / totalLoans) * 100 : 0
+    // Exclude cancelled loans from default rate calculation (they were never active)
+    const processedLoans = totalLoans - cancelledLoans
+    const defaultRate = processedLoans > 0 ? (defaultedLoans / processedLoans) * 100 : 0
 
     // RISK METRICS
     const { count: openRiskFlags } = await supabase
@@ -223,6 +226,7 @@ export default function CountryAdminPage() {
       activeLoans,
       completedLoans,
       defaultedLoans,
+      cancelledLoans,
       totalLoanVolume,
       avgLoanSize,
       avgAPR,
@@ -330,6 +334,7 @@ export default function CountryAdminPage() {
       active: 'default',
       completed: 'secondary',
       defaulted: 'destructive',
+      cancelled: 'outline',
       pending: 'outline'
     }
     return <Badge variant={variants[status] || 'outline'}>{status}</Badge>
@@ -349,7 +354,8 @@ export default function CountryAdminPage() {
   const loanStatusData = [
     { name: 'Active', value: stats.activeLoans, color: '#3b82f6' },
     { name: 'Completed', value: stats.completedLoans, color: '#10b981' },
-    { name: 'Defaulted', value: stats.defaultedLoans, color: '#ef4444' }
+    { name: 'Defaulted', value: stats.defaultedLoans, color: '#ef4444' },
+    { name: 'Cancelled', value: stats.cancelledLoans, color: '#9ca3af' }
   ].filter(item => item.value > 0)
 
   return (
@@ -423,7 +429,7 @@ export default function CountryAdminPage() {
               <CardContent>
                 <span className="text-3xl font-bold text-green-600">{stats.totalLoans}</span>
                 <div className="mt-1.5 text-sm text-muted-foreground font-medium">
-                  {stats.activeLoans} active • {stats.completedLoans} completed
+                  {stats.activeLoans} active • {stats.completedLoans} completed • {stats.cancelledLoans} cancelled
                 </div>
               </CardContent>
             </Card>

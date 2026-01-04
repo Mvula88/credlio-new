@@ -239,8 +239,11 @@ export default function AdminDashboard() {
     const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
     const completedLoans = loans?.filter((l: any) => l.status === 'completed').length || 0
     const defaultedLoans = loans?.filter((l: any) => l.status === 'defaulted').length || 0
+    const cancelledLoans = loans?.filter((l: any) => l.status === 'cancelled').length || 0
     const totalLoans = loans?.length || 0
-    const defaultRate = totalLoans > 0 ? (defaultedLoans / totalLoans) * 100 : 0
+    // Exclude cancelled loans from default rate calculation (they were never active)
+    const processedLoans = totalLoans - cancelledLoans
+    const defaultRate = processedLoans > 0 ? (defaultedLoans / processedLoans) * 100 : 0
 
     // avgLoanSize in minor units
     const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
@@ -389,6 +392,7 @@ export default function AdminDashboard() {
       activeLoans,
       completedLoans,
       defaultedLoans,
+      cancelledLoans,
       totalLoanVolume,
       avgLoanSize,
       avgAPR,
@@ -909,7 +913,7 @@ export default function AdminDashboard() {
               <CardContent>
                 <span className="text-3xl font-bold text-blue-600">{stats.totalLoans}</span>
                 <div className="mt-1.5 text-sm text-muted-foreground font-medium">
-                  {stats.activeLoans} active, {stats.completedLoans} completed
+                  {stats.activeLoans} active • {stats.completedLoans} completed • {stats.cancelledLoans} cancelled
                 </div>
               </CardContent>
             </Card>

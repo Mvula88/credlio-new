@@ -282,6 +282,7 @@ export default function LenderOverviewPage() {
       const completedLoans = allLoans?.filter((l: any) => l.status === 'completed') || []
       const defaultedLoans = allLoans?.filter((l: any) => l.status === 'defaulted') || []
       const pendingLoans = allLoans?.filter((l: any) => l.status === 'pending' || l.status === 'offered') || []
+      const cancelledLoans = allLoans?.filter((l: any) => l.status === 'cancelled') || []
 
       // Loans by status for pie chart
       const statusData = [
@@ -289,6 +290,7 @@ export default function LenderOverviewPage() {
         { name: 'Completed', value: completedLoans.length, color: '#22c55e' },
         { name: 'Pending', value: pendingLoans.length, color: '#eab308' },
         { name: 'Defaulted', value: defaultedLoans.length, color: '#ef4444' },
+        { name: 'Cancelled', value: cancelledLoans.length, color: '#9ca3af' },
       ].filter((d: any) => d.value > 0)
       setLoansByStatus(statusData)
 
@@ -333,7 +335,9 @@ export default function LenderOverviewPage() {
       // Calculate rates
       const repaymentRate = totalDue > 0 ? (totalRepaid / totalDue) * 100 : 0
       const totalLoansCount = allLoans?.length || 0
-      const defaultRate = totalLoansCount > 0 ? (defaultedLoans.length / totalLoansCount) * 100 : 0
+      // Exclude cancelled loans from default rate calculation (they were never active)
+      const processedLoansCount = totalLoansCount - cancelledLoans.length
+      const defaultRate = processedLoansCount > 0 ? (defaultedLoans.length / processedLoansCount) * 100 : 0
       const averageLoanSize = totalLoansCount > 0 ? Math.round(totalDisbursed / totalLoansCount) : 0
 
       // Generate monthly data for charts (last 6 months)
@@ -525,15 +529,15 @@ export default function LenderOverviewPage() {
 
         <Card className="tech-card hover-lift border-none">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Active Loans</CardTitle>
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Total Loans</CardTitle>
             <div className="p-2.5 bg-gradient-to-br from-secondary/10 to-secondary/5 rounded-xl">
               <CreditCard className="h-5 w-5 text-secondary" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-secondary">{stats.activeLoans}</div>
+            <div className="text-3xl font-bold text-secondary">{stats.totalLoans}</div>
             <p className="text-sm text-muted-foreground mt-1.5 font-medium">
-              <span className="text-destructive font-bold">{stats.overdueLoans}</span> overdue • <span className="text-green-600 font-bold">{stats.completedLoans}</span> completed
+              <span className="text-blue-600 font-bold">{stats.activeLoans}</span> active • <span className="text-green-600 font-bold">{stats.completedLoans}</span> completed
             </p>
           </CardContent>
         </Card>
@@ -977,6 +981,8 @@ export default function LenderOverviewPage() {
                               ? 'bg-green-100 text-green-800 border-green-300'
                               : loan.status === 'pending' || loan.status === 'offered'
                               ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
+                              : loan.status === 'cancelled'
+                              ? 'bg-gray-100 text-gray-800 border-gray-300'
                               : 'bg-red-100 text-red-800 border-red-300'
                           }`}
                         >
