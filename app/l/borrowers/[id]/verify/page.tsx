@@ -113,6 +113,7 @@ export default function DocumentVerificationPage() {
   const [overallRiskScore, setOverallRiskScore] = useState(0)
   const [processing, setProcessing] = useState(false)
   const [verificationSummary, setVerificationSummary] = useState<any>(null)
+  const [quotaExceeded, setQuotaExceeded] = useState<{ exceeded: boolean; message: string } | null>(null)
 
   useEffect(() => {
     loadBorrowerData()
@@ -191,7 +192,33 @@ export default function DocumentVerificationPage() {
   const handleFileUpload = async (docIndex: number, file: File) => {
     try {
       setProcessing(true)
+      setQuotaExceeded(null)
       const doc = documents[docIndex]
+
+      // Get current user and check quota
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('Please login to verify documents')
+        return
+      }
+
+      // Check quota for document verification
+      const { data: quotaResult, error: quotaError } = await supabase.rpc('check_and_use_quota', {
+        p_user_id: user.id,
+        p_action: 'document_check'
+      })
+
+      if (quotaError) {
+        console.error('Quota check error:', quotaError)
+        // Continue anyway if quota check fails
+      } else if (quotaResult && !quotaResult.allowed) {
+        setQuotaExceeded({
+          exceeded: true,
+          message: quotaResult.upgrade_message || 'Document verification limit reached. Upgrade to continue.'
+        })
+        setProcessing(false)
+        return
+      }
 
       toast.info('Analyzing document metadata...')
 
@@ -411,6 +438,24 @@ export default function DocumentVerificationPage() {
           Only verification data and risk scores are saved.
         </AlertDescription>
       </Alert>
+
+      {/* Quota Exceeded Alert */}
+      {quotaExceeded?.exceeded && (
+        <Alert className="bg-orange-50 border-orange-200">
+          <AlertTriangle className="h-4 w-4 text-orange-600" />
+          <AlertDescription className="text-orange-900">
+            <strong>Document Verification Limit Reached!</strong>
+            <p className="mt-1">{quotaExceeded.message}</p>
+            <Button
+              size="sm"
+              className="mt-2"
+              onClick={() => router.push('/l/billing')}
+            >
+              Upgrade Now
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Borrower Info Summary & Document Checklist */}
       <Card className="border-2 border-blue-200 bg-blue-50/30">

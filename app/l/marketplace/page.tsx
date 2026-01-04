@@ -79,6 +79,8 @@ export default function MarketplacePage() {
   const [showMessageDialog, setShowMessageDialog] = useState(false)
   const [selectedThread, setSelectedThread] = useState<any>(null)
   const [newMessage, setNewMessage] = useState('')
+  const [usageStatus, setUsageStatus] = useState<any>(null)
+  const [quotaExceeded, setQuotaExceeded] = useState<{ exceeded: boolean; message: string } | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -94,8 +96,33 @@ export default function MarketplacePage() {
         return
       }
 
-      // All users have access now - usage limits will be added later
-      setHasAccess(true)
+      // Load usage status to check tier and remaining offers
+      const { data: usage, error: usageError } = await supabase.rpc('get_usage_status', { p_user_id: user.id })
+
+      if (usageError) {
+        console.error('Error getting usage status:', usageError)
+        // Fallback: allow access but may hit limits later
+        setHasAccess(true)
+        loadMarketplaceData()
+        return
+      }
+
+      setUsageStatus(usage)
+
+      // FREE tier has 0 marketplace offers - no access
+      // PRO tier has 1 offer/month
+      // BUSINESS tier has unlimited
+      // During launch period, everyone gets BUSINESS access
+      const tier = usage?.tier || 'FREE'
+      const isLaunchPeriod = usage?.is_launch_period || false
+
+      if (tier === 'FREE' && !isLaunchPeriod) {
+        // FREE users can see marketplace but can't make offers
+        setHasAccess(false)
+      } else {
+        setHasAccess(true)
+      }
+
       loadMarketplaceData()
     } catch (error) {
       console.error('Error checking access:', error)
@@ -345,10 +372,29 @@ export default function MarketplacePage() {
 
     try {
       setSubmittingOffer(true)
+      setQuotaExceeded(null)
 
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         toast.error('You must be logged in')
+        return
+      }
+
+      // Check quota for marketplace offers
+      const { data: quotaResult, error: quotaError } = await supabase.rpc('check_and_use_quota', {
+        p_user_id: user.id,
+        p_action: 'marketplace_offer'
+      })
+
+      if (quotaError) {
+        console.error('Quota check error:', quotaError)
+        // Continue anyway if quota check fails (during migration)
+      } else if (quotaResult && !quotaResult.allowed) {
+        setQuotaExceeded({
+          exceeded: true,
+          message: quotaResult.upgrade_message || 'Marketplace offer limit reached. Upgrade to continue.'
+        })
+        setSubmittingOffer(false)
         return
       }
 
@@ -472,21 +518,20 @@ export default function MarketplacePage() {
       <div className="max-w-2xl mx-auto py-12">
         <Card>
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-gradient-to-r from-green-500 to-blue-500 flex items-center justify-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center">
               <Lock className="h-6 w-6 text-white" />
             </div>
-            <CardTitle className="text-2xl">No Loan Requests Yet</CardTitle>
+            <CardTitle className="text-2xl">Upgrade to Access Marketplace</CardTitle>
             <CardDescription>
-              Borrowers haven't posted any loan requests yet. Check back soon!
+              The loan marketplace is available for Pro and Business subscribers
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <Alert className="border-blue-200 bg-blue-50">
-              <ShoppingBag className="h-4 w-4 text-blue-600" />
-              <AlertTitle>What are Loan Requests?</AlertTitle>
+            <Alert className="border-orange-200 bg-orange-50">
+              <ShoppingBag className="h-4 w-4 text-orange-600" />
+              <AlertTitle>Marketplace Access Required</AlertTitle>
               <AlertDescription>
-                Browse requests from borrowers seeking loans and make competitive offers. 
-                You can browse loan requests, make competitive offers, and expand your lending portfolio beyond your registered borrowers.
+                Upgrade to Pro ($9.99/month) for 1 offer per month, or Business ($17.99/month) for unlimited offers.
               </AlertDescription>
             </Alert>
 
@@ -509,13 +554,13 @@ export default function MarketplacePage() {
                   <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
                   <span>Advanced filtering and search</span>
                 </li>
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
-                  <span>Priority support</span>
-                </li>
               </ul>
             </div>
 
+            <Button onClick={() => router.push('/l/billing')} className="w-full">
+              <TrendingUp className="mr-2 h-4 w-4" />
+              View Plans & Upgrade
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -529,6 +574,54 @@ export default function MarketplacePage() {
         <h1 className="text-3xl font-bold text-gray-900">Loan Requests</h1>
         <p className="text-gray-600 mt-1">Browse loan requests and make competitive offers</p>
       </div>
+
+      {/* Launch Period Banner */}
+      {usageStatus?.is_launch_period && (
+        <Alert className="border-blue-200 bg-blue-50">
+          <Star className="h-4 w-4 text-blue-600" />
+          <AlertTitle className="text-blue-800">Launch Period Active!</AlertTitle>
+          <AlertDescription className="text-blue-700">
+            Enjoy unlimited marketplace access for {usageStatus.launch_days_remaining} more days as part of our country launch promotion.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Usage Status for PRO users */}
+      {usageStatus?.tier === 'PRO' && !usageStatus?.is_launch_period && (
+        <Alert className="border-yellow-200 bg-yellow-50">
+          <AlertCircle className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="text-yellow-800">
+            <strong>Pro Plan:</strong> You have {usageStatus.marketplace_offers?.remaining || 0} marketplace offer(s) remaining this month.
+            {usageStatus.marketplace_offers?.remaining === '0' && (
+              <Button
+                variant="link"
+                className="text-yellow-800 underline p-0 h-auto ml-2"
+                onClick={() => router.push('/l/billing')}
+              >
+                Upgrade to Business for unlimited offers
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Quota Exceeded Alert */}
+      {quotaExceeded?.exceeded && (
+        <Alert className="border-orange-200 bg-orange-50">
+          <AlertCircle className="h-4 w-4 text-orange-600" />
+          <AlertTitle className="text-orange-800">Offer Limit Reached!</AlertTitle>
+          <AlertDescription className="text-orange-700">
+            {quotaExceeded.message}
+            <Button
+              size="sm"
+              className="ml-4"
+              onClick={() => router.push('/l/billing')}
+            >
+              Upgrade Now
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Lender Reputation Card */}
       {lenderReputation && (

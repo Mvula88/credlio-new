@@ -61,6 +61,7 @@ export default function BorrowersPage() {
   const [newlyRegisteredNationalId, setNewlyRegisteredNationalId] = useState<string>('')
   const [profileCompleted, setProfileCompleted] = useState<boolean | null>(null)
   const [lenderCountry, setLenderCountry] = useState<string | null>(null)
+  const [quotaExceeded, setQuotaExceeded] = useState<{ exceeded: boolean; message: string } | null>(null)
 
   // Risk listing form
   const [riskType, setRiskType] = useState<string>('LATE_1_7')
@@ -310,6 +311,32 @@ export default function BorrowersPage() {
     try {
       setSearchLoading(true)
       setSearchResult(null)
+      setQuotaExceeded(null)
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('Please login to search')
+        return
+      }
+
+      // Check quota for cross-platform search
+      const { data: quotaResult, error: quotaError } = await supabase.rpc('check_and_use_quota', {
+        p_user_id: user.id,
+        p_action: 'cross_platform_search'
+      })
+
+      if (quotaError) {
+        console.error('Quota check error:', quotaError)
+        // Continue anyway if quota check fails
+      } else if (quotaResult && !quotaResult.allowed) {
+        setQuotaExceeded({
+          exceeded: true,
+          message: quotaResult.upgrade_message || 'Search limit reached. Upgrade to continue.'
+        })
+        setSearchLoading(false)
+        return
+      }
 
       // ONLY search by National ID (hashed) - most secure and unique identifier
       const idHash = await hashNationalIdAsync(searchQuery)
@@ -812,6 +839,25 @@ export default function BorrowersPage() {
                   </DialogContent>
                 </Dialog>
               </div>
+
+              {/* Quota Exceeded Alert */}
+              {quotaExceeded?.exceeded && (
+                <Alert className="mt-4 bg-orange-50 border-orange-200">
+                  <AlertTriangle className="h-4 w-4 text-orange-600" />
+                  <AlertDescription className="text-orange-900">
+                    <strong>Search Limit Reached!</strong>
+                    <p className="mt-1">{quotaExceeded.message}</p>
+                    <Button
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => router.push('/l/billing')}
+                    >
+                      <TrendingUp className="h-4 w-4 mr-1" />
+                      Upgrade Now
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {/* Search Result */}
               {searchResult && (
