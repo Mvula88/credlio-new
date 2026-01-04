@@ -27,7 +27,6 @@ const PLANS = [
     id: 'FREE',
     name: 'Free',
     price: 0,
-    priceYearly: 0,
     description: 'Get started with basic lending',
     features: [
       'Register up to 5 borrowers',
@@ -41,15 +40,13 @@ const PLANS = [
       activeLoans: 3,
       loanRequests: 0
     },
-    stripePriceIdMonthly: null,
-    stripePriceIdYearly: null,
+    stripePriceId: null,
     popular: false
   },
   {
     id: 'PRO',
     name: 'Pro',
     price: 9.99,
-    priceYearly: 99.99,
     description: 'Unlimited lending, limited marketplace',
     features: [
       'Unlimited borrowers',
@@ -61,19 +58,17 @@ const PLANS = [
       'API access'
     ],
     limits: {
-      borrowers: -1, // unlimited
-      activeLoans: -1, // unlimited
-      loanRequests: 0 // no marketplace access
+      borrowers: -1,
+      activeLoans: -1,
+      loanRequests: 0
     },
-    stripePriceIdMonthly: process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY!,
-    stripePriceIdYearly: process.env.NEXT_PUBLIC_STRIPE_PRO_YEARLY!,
+    stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID,
     popular: false
   },
   {
     id: 'BUSINESS',
     name: 'Business',
     price: 17.99,
-    priceYearly: 179.99,
     description: 'Full access including loan marketplace',
     features: [
       'Everything in Pro',
@@ -89,10 +84,9 @@ const PLANS = [
     limits: {
       borrowers: -1,
       activeLoans: -1,
-      loanRequests: -1 // unlimited
+      loanRequests: -1
     },
-    stripePriceIdMonthly: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_MONTHLY!,
-    stripePriceIdYearly: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_YEARLY!,
+    stripePriceId: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID,
     popular: true
   }
 ]
@@ -101,7 +95,6 @@ function BillingPageContent() {
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [currentPlan, setCurrentPlan] = useState<string>('FREE')
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly')
   const [subscription, setSubscription] = useState<any>(null)
   const [showSuccess, setShowSuccess] = useState(false)
   const router = useRouter()
@@ -158,7 +151,6 @@ function BillingPageContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           planId,
-          billingPeriod,
           userRole: 'lender'
         })
       })
@@ -256,9 +248,7 @@ function BillingPageContent() {
                 <p className="font-medium text-lg">
                   {PLANS.find(p => p.id === currentPlan)?.name}
                 </p>
-                <p className="text-sm text-gray-600">
-                  {subscription.billing_cycle === 'yearly' ? 'Billed annually' : 'Billed monthly'}
-                </p>
+                <p className="text-sm text-gray-600">Billed monthly</p>
               </div>
               <Badge className="bg-green-100 text-green-800">Active</Badge>
             </div>
@@ -292,35 +282,9 @@ function BillingPageContent() {
         </Card>
       )}
 
-      {/* Billing Period Toggle */}
-      <div className="flex items-center justify-center space-x-4">
-        <span className={billingPeriod === 'monthly' ? 'font-medium' : 'text-gray-500'}>
-          Monthly
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setBillingPeriod(billingPeriod === 'monthly' ? 'yearly' : 'monthly')}
-          className="relative"
-        >
-          <div className={`w-12 h-6 rounded-full transition-colors ${
-            billingPeriod === 'yearly' ? 'bg-green-600' : 'bg-gray-300'
-          }`}>
-            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
-              billingPeriod === 'yearly' ? 'translate-x-6' : ''
-            }`}></div>
-          </div>
-        </Button>
-        <span className={billingPeriod === 'yearly' ? 'font-medium' : 'text-gray-500'}>
-          Yearly
-          <Badge variant="secondary" className="ml-2">Save 17%</Badge>
-        </span>
-      </div>
-
       {/* Pricing Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {PLANS.map((plan) => {
-          const price = billingPeriod === 'yearly' ? plan.priceYearly : plan.price
           const isCurrentPlan = plan.id === currentPlan
           const canUpgrade = plan.price > (PLANS.find(p => p.id === currentPlan)?.price || 0)
 
@@ -347,11 +311,9 @@ function BillingPageContent() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <span className="text-4xl font-bold">${price}</span>
+                  <span className="text-4xl font-bold">${plan.price}</span>
                   {plan.price > 0 && (
-                    <span className="text-gray-600">
-                      /{billingPeriod === 'yearly' ? 'year' : 'month'}
-                    </span>
+                    <span className="text-gray-600">/month</span>
                   )}
                 </div>
                 <ul className="space-y-2">
