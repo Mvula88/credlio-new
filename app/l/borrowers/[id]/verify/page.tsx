@@ -244,10 +244,6 @@ export default function DocumentVerificationPage() {
       const fileHash = await generateFileHash(file)
       const metadataHash = generateMetadataHash(metadata)
 
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
-
       // Save verification to database
       const { error: saveError } = await supabase
         .from('document_verifications')
