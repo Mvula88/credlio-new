@@ -29,17 +29,16 @@ const PLANS = [
     price: 0,
     description: 'Get started with basic lending',
     features: [
-      'Register up to 5 borrowers',
-      'Create up to 3 active loans',
+      'Manage your own borrowers',
+      'Create loans for your borrowers',
       'Basic repayment tracking',
-      'Email support',
-      'Mobile app access'
+      '2 cross-platform searches/month',
+      '2 document verifications/month',
+      'Email support'
     ],
-    limits: {
-      borrowers: 5,
-      activeLoans: 3,
-      loanRequests: 0
-    },
+    limitations: [
+      'No marketplace access'
+    ],
     stripePriceId: null,
     popular: false
   },
@@ -47,47 +46,41 @@ const PLANS = [
     id: 'PRO',
     name: 'Pro',
     price: 9.99,
-    description: 'Unlimited lending, limited marketplace',
+    description: 'Unlimited lending tools',
     features: [
-      'Unlimited borrowers',
-      'Unlimited active loans',
+      'Everything in Free',
+      'Unlimited cross-platform searches',
+      'Unlimited document verifications',
       'Advanced analytics & reports',
       'Risk assessment tools',
       'Export to CSV/PDF',
-      'Priority email support',
-      'API access'
+      '1 marketplace offer/month',
+      'Priority email support'
     ],
-    limits: {
-      borrowers: -1,
-      activeLoans: -1,
-      loanRequests: 0
-    },
+    limitations: [
+      'Limited marketplace access'
+    ],
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID,
-    popular: false
+    popular: true
   },
   {
     id: 'BUSINESS',
     name: 'Business',
     price: 17.99,
-    description: 'Full access including loan marketplace',
+    description: 'Full marketplace access',
     features: [
       'Everything in Pro',
-      'Access loan marketplace',
-      'Unlimited loan requests',
-      'Browse & bid on borrower requests',
+      'Unlimited marketplace offers',
+      'Browse all loan requests',
+      'Bid on any borrower request',
       'Advanced borrower filtering',
       'Dedicated account manager',
-      'Custom branding',
       'Lower platform fees',
       'Phone support'
     ],
-    limits: {
-      borrowers: -1,
-      activeLoans: -1,
-      loanRequests: -1
-    },
+    limitations: [],
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_PRICE_ID,
-    popular: true
+    popular: false
   }
 ]
 
@@ -96,6 +89,7 @@ function BillingPageContent() {
   const [processing, setProcessing] = useState(false)
   const [currentPlan, setCurrentPlan] = useState<string>('FREE')
   const [subscription, setSubscription] = useState<any>(null)
+  const [usageStatus, setUsageStatus] = useState<any>(null)
   const [showSuccess, setShowSuccess] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -121,6 +115,7 @@ function BillingPageContent() {
         return
       }
 
+      // Load subscription
       const { data: sub } = await supabase
         .from('subscriptions')
         .select('*')
@@ -129,9 +124,17 @@ function BillingPageContent() {
 
       if (sub) {
         setSubscription(sub)
-        setCurrentPlan(sub.tier || 'FREE')
+        setCurrentPlan(sub.tier?.toUpperCase() || 'FREE')
       } else {
         setCurrentPlan('FREE')
+      }
+
+      // Load usage status
+      const { data: usage } = await supabase.rpc('get_usage_status', { p_user_id: user.id })
+      if (usage) {
+        setUsageStatus(usage)
+        // Use the effective tier from usage status (considers launch period)
+        setCurrentPlan(usage.tier || 'FREE')
       }
     } catch (error) {
       console.error('Error loading subscription:', error)
@@ -233,6 +236,64 @@ function BillingPageContent() {
             Your subscription has been successfully updated. You now have access to all the features of your plan.
           </AlertDescription>
         </Alert>
+      )}
+
+      {/* Launch Period Banner */}
+      {usageStatus?.is_launch_period && (
+        <Alert className="border-blue-200 bg-blue-50">
+          <Zap className="h-4 w-4 text-blue-600" />
+          <AlertTitle className="text-blue-800">Launch Period Active!</AlertTitle>
+          <AlertDescription className="text-blue-700">
+            You have full Business-level access for {usageStatus.launch_days_remaining} more days as part of our country launch promotion.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Current Usage Status */}
+      {usageStatus && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              This Month&apos;s Usage
+            </CardTitle>
+            <CardDescription>
+              Your current plan: <Badge variant="secondary">{currentPlan}</Badge>
+              {usageStatus.is_launch_period && <Badge className="ml-2 bg-blue-100 text-blue-800">Launch Bonus</Badge>}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-lg bg-gray-50">
+                <p className="text-sm text-gray-600">Cross-Platform Searches</p>
+                <p className="text-2xl font-bold">
+                  {usageStatus.cross_platform_searches?.used || 0}
+                  <span className="text-sm font-normal text-gray-500">
+                    {' '}/ {usageStatus.cross_platform_searches?.limit || '0'}
+                  </span>
+                </p>
+              </div>
+              <div className="p-4 rounded-lg bg-gray-50">
+                <p className="text-sm text-gray-600">Document Verifications</p>
+                <p className="text-2xl font-bold">
+                  {usageStatus.document_checks?.used || 0}
+                  <span className="text-sm font-normal text-gray-500">
+                    {' '}/ {usageStatus.document_checks?.limit || '0'}
+                  </span>
+                </p>
+              </div>
+              <div className="p-4 rounded-lg bg-gray-50">
+                <p className="text-sm text-gray-600">Marketplace Offers</p>
+                <p className="text-2xl font-bold">
+                  {usageStatus.marketplace_offers?.used || 0}
+                  <span className="text-sm font-normal text-gray-500">
+                    {' '}/ {usageStatus.marketplace_offers?.limit || '0'}
+                  </span>
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Current Subscription */}
