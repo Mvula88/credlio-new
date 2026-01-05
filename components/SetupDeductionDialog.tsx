@@ -98,14 +98,20 @@ export function SetupDeductionDialog({
         setLenderTier(tierData)
       }
 
-      // Check payout settings
+      // Check payout settings - must have bank account details configured
       const { data: settingsData } = await supabase
         .from('lender_payout_settings')
-        .select('dpo_setup_complete')
+        .select('bank_name, account_number, account_holder_name')
         .eq('lender_id', user.id)
         .single()
 
-      setHasPayoutSettings(settingsData?.dpo_setup_complete === true)
+      // Consider settings complete if bank account details are filled in
+      setHasPayoutSettings(
+        settingsData !== null &&
+        settingsData.bank_name &&
+        settingsData.account_number &&
+        settingsData.account_holder_name
+      )
     } catch (error) {
       console.error('Error checking settings:', error)
     } finally {
@@ -269,7 +275,7 @@ export function SetupDeductionDialog({
               <Button variant="outline" onClick={handleClose} className="flex-1">
                 Cancel
               </Button>
-              <Link href="/l/settings?tab=collections" className="flex-1">
+              <Link href="/l/settings/payout" className="flex-1">
                 <Button className="w-full gap-2">
                   <Settings className="h-4 w-4" />
                   Complete Setup
