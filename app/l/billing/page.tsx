@@ -27,13 +27,14 @@ const PLANS = [
     id: 'FREE',
     name: 'Free',
     price: 0,
-    description: 'Get started with basic lending',
+    description: 'Try the full platform with limited usage',
     features: [
       'Manage your own borrowers',
-      'Create loans for your borrowers',
-      'Basic repayment tracking',
-      '2 cross-platform searches/month',
+      'Create and track loans',
+      'Search up to 2 borrowers/month (full details)',
       '2 document verifications/month',
+      'See credit scores & risk flags',
+      'View defaulter warnings',
       'Email support'
     ],
     limitations: [
@@ -46,10 +47,10 @@ const PLANS = [
     id: 'PRO',
     name: 'Pro',
     price: 9.99,
-    description: 'Unlimited lending tools',
+    description: 'Unlimited searches for active lenders',
     features: [
       'Everything in Free',
-      'Unlimited cross-platform searches',
+      'Search unlimited borrowers',
       'Unlimited document verifications',
       'Advanced analytics & reports',
       'Risk assessment tools',
@@ -67,7 +68,7 @@ const PLANS = [
     id: 'BUSINESS',
     name: 'Business',
     price: 17.99,
-    description: 'Full marketplace access',
+    description: 'Full marketplace + unlimited everything',
     features: [
       'Everything in Pro',
       'Unlimited marketplace offers',
@@ -265,13 +266,14 @@ function BillingPageContent() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 rounded-lg bg-gray-50">
-                <p className="text-sm text-gray-600">Cross-Platform Searches</p>
+                <p className="text-sm text-gray-600">Borrowers Searched</p>
                 <p className="text-2xl font-bold">
-                  {usageStatus.cross_platform_searches?.used || 0}
+                  {usageStatus.unique_borrowers_searched?.used || 0}
                   <span className="text-sm font-normal text-gray-500">
-                    {' '}/ {usageStatus.cross_platform_searches?.limit || '0'}
+                    {' '}/ {usageStatus.unique_borrowers_searched?.limit || '0'}
                   </span>
                 </p>
+                <p className="text-xs text-gray-400 mt-1">Same borrower = unlimited re-searches</p>
               </div>
               <div className="p-4 rounded-lg bg-gray-50">
                 <p className="text-sm text-gray-600">Document Verifications</p>

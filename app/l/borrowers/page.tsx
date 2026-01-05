@@ -39,7 +39,9 @@ import {
   Briefcase,
   Landmark,
   Users,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Lock,
+  Crown
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -62,6 +64,10 @@ export default function BorrowersPage() {
   const [profileCompleted, setProfileCompleted] = useState<boolean | null>(null)
   const [lenderCountry, setLenderCountry] = useState<string | null>(null)
   const [quotaExceeded, setQuotaExceeded] = useState<{ exceeded: boolean; message: string } | null>(null)
+  const [lenderTier, setLenderTier] = useState<string>('FREE')
+
+  // Check if lender has paid access (PRO or BUSINESS tier)
+  const hasPaidAccess = lenderTier === 'PRO' || lenderTier === 'BUSINESS'
 
   // Risk listing form
   const [riskType, setRiskType] = useState<string>('LATE_1_7')
@@ -80,9 +86,9 @@ export default function BorrowersPage() {
   const supabase = createClient()
   const router = useRouter()
 
-  // Load lender's country on mount
+  // Load lender's country and tier on mount
   useEffect(() => {
-    const loadLenderCountry = async () => {
+    const loadLenderInfo = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
@@ -95,9 +101,17 @@ export default function BorrowersPage() {
       if (lender) {
         setLenderCountry(lender.country)
       }
+
+      // Get lender's effective tier
+      const { data: tierData } = await supabase.rpc('get_effective_tier', {
+        p_user_id: user.id
+      })
+      if (tierData) {
+        setLenderTier(tierData)
+      }
     }
 
-    loadLenderCountry()
+    loadLenderInfo()
   }, [])
 
   // Check lender profile completion on mount
@@ -320,24 +334,6 @@ export default function BorrowersPage() {
         return
       }
 
-      // Check quota for cross-platform search
-      const { data: quotaResult, error: quotaError } = await supabase.rpc('check_and_use_quota', {
-        p_user_id: user.id,
-        p_action: 'cross_platform_search'
-      })
-
-      if (quotaError) {
-        console.error('Quota check error:', quotaError)
-        // Continue anyway if quota check fails
-      } else if (quotaResult && !quotaResult.allowed) {
-        setQuotaExceeded({
-          exceeded: true,
-          message: quotaResult.upgrade_message || 'Search limit reached. Upgrade to continue.'
-        })
-        setSearchLoading(false)
-        return
-      }
-
       // ONLY search by National ID (hashed) - most secure and unique identifier
       const idHash = await hashNationalIdAsync(searchQuery)
 
@@ -377,6 +373,24 @@ export default function BorrowersPage() {
       } else {
         // Take first result
         const borrower = Array.isArray(data) ? data[0] : data
+
+        // Check quota for this specific borrower (2 unique borrowers/month for FREE)
+        const { data: quotaResult, error: quotaError } = await supabase.rpc('check_borrower_search_quota', {
+          p_user_id: user.id,
+          p_borrower_id: borrower.id
+        })
+
+        if (quotaError) {
+          console.error('Quota check error:', quotaError)
+          // Continue anyway if quota check fails
+        } else if (quotaResult && !quotaResult.allowed) {
+          setQuotaExceeded({
+            exceeded: true,
+            message: quotaResult.upgrade_message || 'You have reached your limit of 2 borrowers this month. Upgrade to continue.'
+          })
+          setSearchLoading(false)
+          return
+        }
 
         // Calculate how many unique lenders have reported this borrower
         const uniqueLenders = new Set(
@@ -984,7 +998,7 @@ export default function BorrowersPage() {
                           <Alert className="bg-red-50 border-red-200 border-2">
                             <AlertTriangle className="h-5 w-5 text-red-600" />
                             <AlertDescription className="text-red-900">
-                              <strong className="text-lg block mb-2">⚠️ WARNING: Listed as Defaulter</strong>
+                              <strong className="text-lg block mb-2">WARNING: Listed as Defaulter</strong>
                               <p className="mb-2">
                                 This borrower has been reported by <strong>{searchResult.listed_by_lenders} lender{searchResult.listed_by_lenders > 1 ? 's' : ''}</strong> for defaulting/non-payment.
                               </p>

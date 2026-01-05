@@ -32,6 +32,8 @@ import {
   MessageSquare,
   ShieldCheck,
   Wallet,
+  Landmark,
+  Crown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -56,6 +58,7 @@ const navigationGroups = [
     items: [
       { name: 'Loans', href: '/l/loans', icon: CreditCard, badge: null },
       { name: 'Repayments', href: '/l/repayments', icon: Wallet, badge: null },
+      { name: 'Collections', href: '/l/collections', icon: Landmark, badge: null, businessOnly: true },
     ]
   },
   {
@@ -87,6 +90,7 @@ export default function LenderLayout({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [lenderTier, setLenderTier] = useState<string>('FREE')
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
@@ -94,6 +98,22 @@ export default function LenderLayout({
   // Prevent hydration mismatch with Radix UI
   useEffect(() => {
     setMounted(true)
+  }, [])
+
+  // Fetch lender tier
+  useEffect(() => {
+    const fetchTier = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: tierData } = await supabase.rpc('get_effective_tier', {
+        p_user_id: user.id
+      })
+      if (tierData) {
+        setLenderTier(tierData)
+      }
+    }
+    fetchTier()
   }, [])
 
   const handleSignOut = async () => {
@@ -148,7 +168,7 @@ export default function LenderLayout({
                   {group.title}
                 </h3>
                 <div className="space-y-1">
-                  {group.items.map((item) => (
+                  {group.items.filter(item => !item.businessOnly || lenderTier === 'BUSINESS').map((item) => (
                     <Link
                       key={item.name}
                       href={item.href}
@@ -207,7 +227,7 @@ export default function LenderLayout({
                   {group.title}
                 </h3>
                 <div className="space-y-1">
-                  {group.items.map((item) => (
+                  {group.items.filter(item => !item.businessOnly || lenderTier === 'BUSINESS').map((item) => (
                     <Link
                       key={item.name}
                       href={item.href}

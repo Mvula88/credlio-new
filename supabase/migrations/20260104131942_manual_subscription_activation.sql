@@ -78,7 +78,7 @@ CREATE POLICY "Admins can manage manual activations" ON public.manual_subscripti
   FOR ALL USING (
     EXISTS (
       SELECT 1 FROM public.profiles
-      WHERE user_id = auth.uid() AND role = 'admin'
+      WHERE user_id = auth.uid() AND app_role = 'admin'
     )
   );
 
@@ -111,7 +111,7 @@ BEGIN
   -- Verify caller is an admin
   IF NOT EXISTS (
     SELECT 1 FROM public.profiles
-    WHERE user_id = v_admin_id AND role = 'admin'
+    WHERE user_id = v_admin_id AND app_role = 'admin'
   ) THEN
     RAISE EXCEPTION 'Only admins can manually activate subscriptions';
   END IF;
@@ -264,7 +264,7 @@ BEGIN
   -- Verify caller is an admin
   IF NOT EXISTS (
     SELECT 1 FROM public.profiles
-    WHERE profiles.user_id = auth.uid() AND role = 'admin'
+    WHERE profiles.user_id = auth.uid() AND app_role = 'admin'
   ) THEN
     RAISE EXCEPTION 'Only admins can access this function';
   END IF;
@@ -312,7 +312,7 @@ BEGIN
   -- Verify caller is an admin
   IF NOT EXISTS (
     SELECT 1 FROM public.profiles
-    WHERE user_id = v_admin_id AND role = 'admin'
+    WHERE user_id = v_admin_id AND app_role = 'admin'
   ) THEN
     RAISE EXCEPTION 'Only admins can deactivate subscriptions';
   END IF;

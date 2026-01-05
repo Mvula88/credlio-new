@@ -45,7 +45,9 @@ import {
   Briefcase,
   Landmark,
   Link as LinkIcon,
-  ExternalLink
+  ExternalLink,
+  Lock,
+  Crown
 } from 'lucide-react'
 import { format, isPast } from 'date-fns'
 import { RadialBarChart, RadialBar, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
@@ -81,7 +83,11 @@ export default function LenderBorrowerProfilePage() {
   const [messageText, setMessageText] = useState('')
   const [messageSubject, setMessageSubject] = useState('')
   const [sendingMessage, setSendingMessage] = useState(false)
+  const [lenderTier, setLenderTier] = useState<string>('FREE')
   const supabase = createClient()
+
+  // Check if lender has paid access (PRO or BUSINESS tier)
+  const hasPaidAccess = lenderTier === 'PRO' || lenderTier === 'BUSINESS'
 
   useEffect(() => {
     loadBorrowerProfile()
@@ -99,6 +105,14 @@ export default function LenderBorrowerProfilePage() {
       // Store current user ID for permission checks
       setCurrentUserId(user.id)
       const currentLenderId = user.id
+
+      // Get lender's effective tier
+      const { data: tierData } = await supabase.rpc('get_effective_tier', {
+        p_user_id: user.id
+      })
+      if (tierData) {
+        setLenderTier(tierData)
+      }
 
       // IMPORTANT: This page handles TWO types of borrowers:
       // 1. Self-registered borrowers: Have user accounts, verification status, full profiles
