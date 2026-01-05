@@ -34,6 +34,8 @@ interface CollectionStats {
   next_deduction_date: string | null
 }
 
+const DEFAULT_CURRENCY = 'NAD'
+
 interface PaymentMandate {
   id: string
   mandate_reference: string
@@ -281,7 +283,7 @@ export default function CollectionsPage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between">
-                <p className="text-3xl font-bold">{stats.currency || 'NAD'} {Number(stats.total_collected_this_month).toFixed(2)}</p>
+                <p className="text-3xl font-bold">{DEFAULT_CURRENCY} {Number(stats.total_collected_this_month).toFixed(2)}</p>
                 <DollarSign className="h-8 w-8 text-primary" />
               </div>
               <p className="text-xs text-muted-foreground mt-2">
