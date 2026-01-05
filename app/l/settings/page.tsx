@@ -23,7 +23,8 @@ import {
   AlertTriangle,
   CheckCircle,
   UserCheck,
-  ShieldCheck
+  ShieldCheck,
+  Landmark
 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 
@@ -648,7 +649,7 @@ export default function SettingsPage() {
               <Separator />
 
               {/* Quick Actions */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="rounded-lg border p-4 space-y-3">
                   <h4 className="font-medium flex items-center gap-2">
                     <UserCheck className="h-4 w-4" />
@@ -681,6 +682,24 @@ export default function SettingsPage() {
                     onClick={() => router.push('/l/provider-info')}
                   >
                     Edit Provider Info
+                    <ExternalLink className="h-4 w-4 ml-2" />
+                  </Button>
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-3">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Landmark className="h-4 w-4" />
+                    Payout Settings
+                  </h4>
+                  <p className="text-sm text-gray-500">
+                    Configure bank account for automatic payouts
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => router.push('/l/settings/payout')}
+                  >
+                    Manage Payouts
                     <ExternalLink className="h-4 w-4 ml-2" />
                   </Button>
                 </div>
