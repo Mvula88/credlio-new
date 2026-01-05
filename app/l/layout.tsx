@@ -40,7 +40,21 @@ import { RoleSwitcher } from '@/components/RoleSwitcher'
 import NotificationBell from '@/components/NotificationBell'
 import ProfileCompletionBanner from '@/components/ProfileCompletionBanner'
 
-const navigationGroups = [
+interface NavigationItem {
+  name: string
+  href: string
+  icon: any
+  badge: string | null
+  proPlusOnly?: boolean
+  businessOnly?: boolean
+}
+
+interface NavigationGroup {
+  title: string
+  items: NavigationItem[]
+}
+
+const navigationGroups: NavigationGroup[] = [
   {
     title: 'Dashboard',
     items: [
