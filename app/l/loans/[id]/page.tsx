@@ -46,7 +46,8 @@ import {
   Receipt,
   Eye,
   Image,
-  FileEdit
+  FileEdit,
+  Landmark
 } from 'lucide-react'
 import { format, isPast, differenceInDays } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
@@ -54,6 +55,7 @@ import { toast } from 'sonner'
 import { RadialBarChart, RadialBar, Legend, ResponsiveContainer, Tooltip } from 'recharts'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
+import { SetupDeductionDialog } from '@/components/SetupDeductionDialog'
 
 export default function LoanDetailPage() {
   const [loan, setLoan] = useState<any>(null)
@@ -103,6 +105,7 @@ export default function LoanDetailPage() {
   const [editingScheduleNotes, setEditingScheduleNotes] = useState<any>(null)
   const [scheduleNotes, setScheduleNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
+  const [setupDeductionOpen, setSetupDeductionOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const disbursementFileRef = useRef<HTMLInputElement>(null)
 
@@ -2104,14 +2107,24 @@ export default function LoanDetailPage() {
               <CardDescription>Track and mark payments as they come in</CardDescription>
             </div>
             {loan.status === 'active' && (
-              <Button
-                variant="outline"
-                onClick={handleShowEarlyPayoff}
-                className="border-green-300 text-green-700 hover:bg-green-50"
-              >
-                <Banknote className="h-4 w-4 mr-2" />
-                Pay Off Entire Loan
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setSetupDeductionOpen(true)}
+                  className="border-primary/30 text-primary hover:bg-primary/5"
+                >
+                  <Landmark className="h-4 w-4 mr-2" />
+                  Setup Auto Deductions
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleShowEarlyPayoff}
+                  className="border-green-300 text-green-700 hover:bg-green-50"
+                >
+                  <Banknote className="h-4 w-4 mr-2" />
+                  Pay Off Entire Loan
+                </Button>
+              </div>
             )}
           </CardHeader>
           <CardContent>
@@ -2689,6 +2702,23 @@ export default function LoanDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Setup Auto Deductions Dialog */}
+      {loan && (
+        <SetupDeductionDialog
+          open={setupDeductionOpen}
+          onOpenChange={setSetupDeductionOpen}
+          loanId={loan.id}
+          loanAmount={loan.principal_minor ? loan.principal_minor / 100 : loan.amount || 0}
+          outstandingBalance={loan.outstanding_balance || 0}
+          currency={loan.currency || 'NAD'}
+          borrowerName={loan.borrowers?.full_name || 'Unknown'}
+          onSuccess={() => {
+            // Refresh loan data
+            loadLoanDetails()
+          }}
+        />
+      )}
     </div>
   )
 }
