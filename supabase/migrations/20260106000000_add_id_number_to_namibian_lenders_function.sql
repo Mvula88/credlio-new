@@ -1,6 +1,10 @@
 -- Update admin_get_namibian_lenders to include id_number for search functionality
 -- This allows admins to search lenders by ID number
 
+-- Drop the existing function first (required when changing return type)
+DROP FUNCTION IF EXISTS public.admin_get_namibian_lenders();
+
+-- Create the updated function with id_number
 CREATE OR REPLACE FUNCTION public.admin_get_namibian_lenders()
 RETURNS TABLE (
   user_id UUID,
