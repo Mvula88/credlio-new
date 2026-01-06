@@ -1001,6 +1001,7 @@ export default function CountryAdminPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Lender</TableHead>
+                        <TableHead>ID Number</TableHead>
                         <TableHead>Contact</TableHead>
                         <TableHead>Current Plan</TableHead>
                         <TableHead>Payment</TableHead>
@@ -1011,7 +1012,7 @@ export default function CountryAdminPage() {
                     <TableBody>
                       {filteredManualSubLenders.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                             {manualSubSearch ? 'No lenders match your search' : 'No Namibian lenders found'}
                           </TableCell>
                         </TableRow>
@@ -1025,6 +1026,9 @@ export default function CountryAdminPage() {
                                   <div className="text-sm text-muted-foreground">{lender.business_name}</div>
                                 )}
                               </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-mono text-sm">{lender.id_number || 'N/A'}</div>
                             </TableCell>
                             <TableCell>
                               <div className="text-sm space-y-1">
