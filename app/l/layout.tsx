@@ -72,7 +72,7 @@ const navigationGroups: NavigationGroup[] = [
     items: [
       { name: 'Loans', href: '/l/loans', icon: CreditCard, badge: null },
       { name: 'Repayments', href: '/l/repayments', icon: Wallet, badge: null },
-      { name: 'Collections', href: '/l/collections', icon: Landmark, badge: null, businessOnly: true },
+      { name: 'Collections', href: '/l/collections', icon: Landmark, badge: null },
     ]
   },
   {
@@ -182,7 +182,7 @@ export default function LenderLayout({
                   {group.title}
                 </h3>
                 <div className="space-y-1">
-                  {group.items.filter(item => !item.businessOnly || lenderTier === 'BUSINESS').map((item) => (
+                  {group.items.map((item) => (
                     <Link
                       key={item.name}
                       href={item.href}
@@ -241,7 +241,7 @@ export default function LenderLayout({
                   {group.title}
                 </h3>
                 <div className="space-y-1">
-                  {group.items.filter(item => !item.businessOnly || lenderTier === 'BUSINESS').map((item) => (
+                  {group.items.map((item) => (
                     <Link
                       key={item.name}
                       href={item.href}
