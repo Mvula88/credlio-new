@@ -188,15 +188,11 @@ export default function AdminLendersPage() {
       filtered = filtered.filter((lender) => lender.country_code === countryFilter)
     }
 
-    // Filter by search query (ID number, name, email, phone)
+    // Filter by search query (ID number ONLY)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter((lender) =>
-        lender.id_number?.toLowerCase().includes(query) ||
-        lender.full_name?.toLowerCase().includes(query) ||
-        lender.email?.toLowerCase().includes(query) ||
-        lender.phone?.includes(query) ||
-        lender.city?.toLowerCase().includes(query)
+        lender.id_number?.toLowerCase().includes(query)
       )
     }
 
@@ -285,7 +281,7 @@ export default function AdminLendersPage() {
             <Filter className="h-5 w-5" />
             Search & Filter Lenders
           </CardTitle>
-          <CardDescription>Search by ID number, name, email, or phone. Filter by country.</CardDescription>
+          <CardDescription>Search by ID number only. Filter by country.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col md:flex-row gap-4">
@@ -295,7 +291,7 @@ export default function AdminLendersPage() {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     type="text"
-                    placeholder="Search by ID number, name, email, phone..."
+                    placeholder="Search by ID number..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"

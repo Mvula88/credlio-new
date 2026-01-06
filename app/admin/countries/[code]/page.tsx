@@ -85,6 +85,7 @@ interface NamibianLender {
   email: string
   phone: string
   business_name: string
+  id_number: string
   current_tier: string
   subscription_status: string
   subscription_end_date: string | null
@@ -478,10 +479,7 @@ export default function CountryAdminPage() {
   }
 
   const filteredManualSubLenders = manualSubLenders.filter(lender =>
-    lender.full_name?.toLowerCase().includes(manualSubSearch.toLowerCase()) ||
-    lender.email?.toLowerCase().includes(manualSubSearch.toLowerCase()) ||
-    lender.phone?.includes(manualSubSearch) ||
-    lender.business_name?.toLowerCase().includes(manualSubSearch.toLowerCase())
+    lender.id_number?.toLowerCase().includes(manualSubSearch.toLowerCase())
   )
 
   const getTierBadge = (tier: string, status: string) => {
@@ -990,7 +988,7 @@ export default function CountryAdminPage() {
                 <div className="relative mb-4">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search by name, email, phone, or business..."
+                    placeholder="Search by ID number..."
                     value={manualSubSearch}
                     onChange={(e) => setManualSubSearch(e.target.value)}
                     className="pl-10"
