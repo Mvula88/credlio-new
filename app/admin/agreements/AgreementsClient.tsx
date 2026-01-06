@@ -207,10 +207,7 @@ export default function AgreementsClient() {
   const filteredAgreements = agreements.filter(agreement => {
     const searchLower = searchTerm.toLowerCase()
     return (
-      agreement.lender_name?.toLowerCase().includes(searchLower) ||
-      agreement.borrower_name?.toLowerCase().includes(searchLower) ||
-      agreement.loan_id?.toLowerCase().includes(searchLower) ||
-      agreement.loans?.country_code?.toLowerCase().includes(searchLower)
+      agreement.loan_id?.toLowerCase().includes(searchLower)
     )
   })
 
@@ -301,13 +298,13 @@ export default function AgreementsClient() {
       <Card>
         <CardHeader>
           <CardTitle>Search Agreements</CardTitle>
-          <CardDescription>Filter by lender, borrower, loan ID, or country</CardDescription>
+          <CardDescription>Filter by loan ID</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
             <Search className="h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search agreements..."
+              placeholder="Search by Loan ID..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-md"

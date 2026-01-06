@@ -180,8 +180,7 @@ export default function CompliancePage() {
   }
 
   const filteredLenders = lenderCompliance.filter(l =>
-    l.business_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    l.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    l.user_id?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const stats = {
@@ -301,7 +300,7 @@ export default function CompliancePage() {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
-                    placeholder="Search lenders..."
+                    placeholder="Search by Lender ID..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-9 w-64"

@@ -104,7 +104,6 @@ export default function AdminDashboard() {
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [showKYCDialog, setShowKYCDialog] = useState(false)
   const [showRiskDialog, setShowRiskDialog] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [dateRange, setDateRange] = useState('7days')
   const [countryStats, setCountryStats] = useState<any[]>([])
@@ -1368,18 +1367,10 @@ export default function AdminDashboard() {
                     Borrowers created by lenders who haven't created user accounts yet
                   </CardDescription>
                 </div>
-                <div className="flex space-x-2">
-                  <Input
-                    placeholder="Search users..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-64"
-                  />
-                  <Button variant="outline">
-                    <Filter className="mr-2 h-4 w-4" />
-                    Filter
-                  </Button>
-                </div>
+                <Button variant="outline">
+                  <Filter className="mr-2 h-4 w-4" />
+                  Filter
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
