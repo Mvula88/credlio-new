@@ -1112,8 +1112,8 @@ export default function CountryAdminPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="PRO">PRO - N$99.99/month</SelectItem>
-                  <SelectItem value="BUSINESS">BUSINESS - N$179.99/month</SelectItem>
+                  <SelectItem value="PRO">PRO - $9.99/month</SelectItem>
+                  <SelectItem value="BUSINESS">BUSINESS - $17.99/month</SelectItem>
                 </SelectContent>
               </Select>
             </div>
