@@ -32,7 +32,6 @@ import {
   MessageSquare,
   ShieldCheck,
   Wallet,
-  Landmark,
   Crown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -72,7 +71,6 @@ const navigationGroups: NavigationGroup[] = [
     items: [
       { name: 'Loans', href: '/l/loans', icon: CreditCard, badge: null },
       { name: 'Repayments', href: '/l/repayments', icon: Wallet, badge: null },
-      { name: 'Collections', href: '/l/collections', icon: Landmark, badge: null },
     ]
   },
   {
