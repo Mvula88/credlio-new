@@ -39,8 +39,7 @@ export default function UserManagementPage() {
   const filteredUsers = users.filter(user => {
     const search = searchQuery.toLowerCase().replace(/\s/g, '')
     return !searchQuery ||
-      user.user_id?.toLowerCase().includes(search) ||
-      user.email?.toLowerCase().includes(search)
+      user.user_id?.toLowerCase().includes(search)
   })
 
   if (loading) {
@@ -116,7 +115,7 @@ export default function UserManagementPage() {
             <CardTitle>All Users</CardTitle>
             <div className="flex space-x-2">
               <Input
-                placeholder="Search by email or ID..."
+                placeholder="Search by User ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-64"

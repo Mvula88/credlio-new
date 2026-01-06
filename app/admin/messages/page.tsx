@@ -146,11 +146,10 @@ export default function AdminMessagesPage() {
         filteredThreads = threadsWithInfo.filter(t => t.flagged_count > 0)
       }
 
-      // Filter by search term (phone number or ID)
+      // Filter by search term (Borrower ID or Lender ID only)
       if (searchTerm) {
         const search = searchTerm.toLowerCase().replace(/\s/g, '')
         filteredThreads = filteredThreads.filter(t =>
-          t.borrower?.phone_e164?.includes(search) ||
           t.borrower?.id?.toLowerCase().includes(search) ||
           t.lender?.user_id?.toLowerCase().includes(search)
         )
@@ -350,7 +349,7 @@ export default function AdminMessagesPage() {
         <div className="flex items-center space-x-2">
           <Search className="h-4 w-4 text-gray-400" />
           <Input
-            placeholder="Search by phone or ID..."
+            placeholder="Search by Borrower or Lender ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-64"

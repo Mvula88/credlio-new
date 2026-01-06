@@ -428,8 +428,7 @@ export default function RepaymentsPage() {
 
   const filteredBorrowers = Object.values(schedulesByBorrower).filter((borrowerData: any) => {
     if (!searchQuery.trim()) return true
-    return borrowerData.borrower.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-           borrowerData.borrower.full_name.toLowerCase().includes(searchQuery.toLowerCase())
+    return borrowerData.borrower.id.toLowerCase().includes(searchQuery.toLowerCase())
   })
 
   // Prepare chart data
@@ -770,7 +769,7 @@ export default function RepaymentsPage() {
               <div className="relative">
                 <Input
                   type="text"
-                  placeholder="Search by name or borrower ID..."
+                  placeholder="Search by Borrower ID..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"

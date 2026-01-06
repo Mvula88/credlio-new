@@ -103,18 +103,12 @@ export default function AdminDisbursementsPage() {
     if (statusFilter === 'confirmed' && !d.borrower_confirmed) return false
     if (statusFilter === 'pending' && (d.borrower_confirmed || d.borrower_disputed)) return false
 
-    // Search filter
+    // Search filter (Loan ID only)
     if (searchTerm) {
       const search = searchTerm.toLowerCase()
-      const borrowerName = d.loans?.borrowers?.full_name?.toLowerCase() || ''
-      const lenderName = d.loans?.lenders?.business_name?.toLowerCase() || ''
       const loanId = d.loan_id?.toLowerCase() || ''
-      const reference = d.lender_proof_reference?.toLowerCase() || ''
 
-      return borrowerName.includes(search) ||
-             lenderName.includes(search) ||
-             loanId.includes(search) ||
-             reference.includes(search)
+      return loanId.includes(search)
     }
     return true
   })
@@ -200,7 +194,7 @@ export default function AdminDisbursementsPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by borrower, lender, loan ID..."
+                placeholder="Search by Loan ID..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
