@@ -136,6 +136,28 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
+    // Quota: filing a report on a borrower counts toward the FREE tier's
+    // 2-unique-borrowers-per-month limit (same quota used for affordability
+    // checks and borrower searches). Reporting a borrower already checked
+    // this month is free; PRO/BUSINESS unlimited.
+    const { data: quotaResult, error: quotaError } = await supabase.rpc(
+      'check_borrower_search_quota',
+      { p_user_id: user.id, p_borrower_id: borrowerId }
+    )
+
+    if (quotaError) {
+      console.error('Quota check error:', quotaError)
+      // Fail-open on RPC error — mirrors the existing pattern elsewhere.
+    } else if (quotaResult && !quotaResult.allowed) {
+      return NextResponse.json(
+        {
+          error: quotaResult.upgrade_message || 'You have reached your limit of 2 borrowers this month. Upgrade to continue.',
+          quotaExceeded: true
+        },
+        { status: 402 }
+      )
+    }
+
     // Validate status
     const validStatuses = ['unpaid', 'paid', 'disputed', 'overdue']
     if (!validStatuses.includes(status)) {
