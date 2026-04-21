@@ -24,11 +24,28 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate file type and size
-    const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf']
-    const maxSize = 5 * 1024 * 1024 // 5MB
+    // Reject documentType values that could escape the storage prefix
+    // (anything outside [a-z0-9_] — e.g. ".." or "/" — is blocked).
+    if (!/^[a-z0-9_]+$/.test(documentType)) {
+      return NextResponse.json(
+        { error: 'Invalid document type' },
+        { status: 400 }
+      )
+    }
 
-    if (!validTypes.includes(file.type)) {
+    // MIME -> extension map. Derives the extension from the validated content
+    // type rather than trusting the client-supplied filename (which can lie:
+    // e.g. "payload.php.jpg" or "../../evil.sh").
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'application/pdf': 'pdf',
+    }
+    const maxSize = 5 * 1024 * 1024 // 5MB
+    const ext = mimeToExt[file.type]
+
+    if (!ext) {
       return NextResponse.json(
         { error: 'Invalid file type. Only JPG, PNG, and PDF allowed.' },
         { status: 400 }
@@ -57,7 +74,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Upload file to Supabase Storage
-    const fileName = `${user.id}/${documentType}_${Date.now()}.${file.name.split('.').pop()}`
+    const fileName = `${user.id}/${documentType}_${Date.now()}.${ext}`
     
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('kyc-documents')
