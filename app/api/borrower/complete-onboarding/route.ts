@@ -1,22 +1,36 @@
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
-import { cookies } from 'next/headers'
 
 // Hash function (same as in lib/auth.ts)
 function hashNationalId(nationalId: string): string {
   return createHash('sha256').update(nationalId.trim().toLowerCase()).digest('hex')
 }
 
-// Encode national ID for admin verification (base64)
+// Base64-encode the national ID for admin review. This is reversible encoding,
+// not encryption — the admin verification page decodes it for visual review
+// against the uploaded ID photo. The SHA-256 hash (hashNationalId) is the
+// lookup key; the encoded value is display-only for admins.
 function encodeNationalId(nationalId: string): string {
   return Buffer.from(nationalId.trim()).toString('base64')
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authenticated user from session
+    const serverSupabase = await createServerClient()
+    const { data: { user: authUser }, error: authError } = await serverSupabase.auth.getUser()
+
+    if (authError || !authUser) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const {
-      nationalId, phone, dateOfBirth, userId,
+      nationalId, phone, dateOfBirth,
       // Enhanced verification fields
       streetAddress, city, postalCode,
       employmentStatus, employerName, monthlyIncomeRange, incomeSource,
@@ -26,7 +40,10 @@ export async function POST(request: NextRequest) {
       linkedinUrl, facebookUrl, referrerPhone
     } = await request.json()
 
-    if (!nationalId || !phone || !dateOfBirth || !userId) {
+    // Use authenticated user ID - never trust client-provided userId
+    const userId = authUser.id
+
+    if (!nationalId || !phone || !dateOfBirth) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -56,8 +73,8 @@ export async function POST(request: NextRequest) {
       }
     )
 
-    // Use the userId provided from the client
-    const user = { id: userId }
+    // Use authenticated user
+    const user = { id: userId } // userId comes from auth, not client input
 
     // Get user's profile for country and name
     const { data: profile } = await supabase
@@ -196,9 +213,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Link borrower to user account
-    console.log('Creating borrower_user_link:', { borrowerId, userId: user.id })
-
-    const { data: linkData, error: linkError } = await supabase
+    const { error: linkError } = await supabase
       .from('borrower_user_links')
       .upsert({
         borrower_id: borrowerId,
@@ -209,13 +224,10 @@ export async function POST(request: NextRequest) {
       })
       .select()
 
-    console.log('Link created:', linkData)
-    console.log('Link error:', linkError)
-
     if (linkError) {
-      console.error('Link error details:', linkError)
+      console.error('Link error:', linkError)
       return NextResponse.json(
-        { error: 'Failed to link borrower to user: ' + linkError.message },
+        { error: 'Failed to link borrower to user' },
         { status: 500 }
       )
     }
@@ -226,8 +238,6 @@ export async function POST(request: NextRequest) {
       .select('*')
       .eq('user_id', user.id)
       .single()
-
-    console.log('Verification - link exists:', verifyLink)
 
     // Create duplicate detection record
     await supabase
