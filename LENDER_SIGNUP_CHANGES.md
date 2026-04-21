@@ -127,7 +127,6 @@ These columns still exist in database but are no longer collected in the form:
 
 **Why keep them?**
 - Backward compatibility with existing lenders
-- Can re-enable collection later if needed
 - No need to migrate/remove data
 
 ---
