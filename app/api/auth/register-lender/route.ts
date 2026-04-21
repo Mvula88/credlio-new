@@ -37,74 +37,72 @@ export async function POST(request: NextRequest) {
       }
     )
 
-    // Check if email already exists
-    // NOTE: listUsers paginates. perPage=1000 catches the common case but won't
-    // scale past ~1000 users — migrate to a `find_user_by_email` RPC before then.
-    const { data: existingUsers, error: listError } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000
+    // Indexed lookup in auth.users — replaces an O(N) listUsers scan.
+    const { data: existingUserId, error: lookupError } = await supabase.rpc('find_user_by_email', {
+      p_email: email
     })
 
-    if (!listError && existingUsers?.users) {
-      const existingUser = existingUsers.users.find(u => u.email === email)
+    if (lookupError) {
+      console.error('Error looking up existing user:', lookupError)
+      // Non-fatal — fall through and let signUp surface a duplicate error.
+    }
 
-      if (existingUser) {
-        // Check if user already has lender role using user_roles table
-        const { data: userRoles } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', existingUser.id)
+    if (existingUserId) {
+      // Check if user already has lender role using user_roles table
+      const { data: userRoles } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', existingUserId)
 
-        const roles = userRoles?.map(r => r.role) || []
+      const roles = userRoles?.map(r => r.role) || []
 
-        if (roles.includes('lender')) {
+      if (roles.includes('lender')) {
+        return NextResponse.json(
+          {
+            error: 'This email is already registered as a lender. Please sign in instead.',
+            errorCode: 'EMAIL_EXISTS_AS_LENDER'
+          },
+          { status: 409 }
+        )
+      }
+
+      // User exists but doesn't have lender role - upgrade them to lender
+      if (roles.length > 0) {
+        // Add lender role to existing user
+        const { error: roleError } = await supabase.rpc('add_user_role', {
+          p_user_id: existingUserId,
+          p_role: 'lender'
+        })
+
+        if (roleError) {
           return NextResponse.json(
-            {
-              error: 'This email is already registered as a lender. Please sign in instead.',
-              errorCode: 'EMAIL_EXISTS_AS_LENDER'
-            },
-            { status: 409 }
+            { error: 'Failed to add lender role: ' + roleError.message },
+            { status: 500 }
           )
         }
 
-        // User exists but doesn't have lender role - upgrade them to lender
-        if (roles.length > 0) {
-          // Add lender role to existing user
-          const { error: roleError } = await supabase.rpc('add_user_role', {
-            p_user_id: existingUser.id,
-            p_role: 'lender'
-          })
+        // Update profile's app_role to lender for backward compatibility
+        await supabase
+          .from('profiles')
+          .update({ app_role: 'lender' })
+          .eq('user_id', existingUserId)
 
-          if (roleError) {
-            return NextResponse.json(
-              { error: 'Failed to add lender role: ' + roleError.message },
-              { status: 500 }
-            )
-          }
+        // NOTE: We do NOT create a lender record here
+        // The user will be redirected to /l/complete-profile by middleware
+        // where they will complete lender profile and ID photo verification
+        // This ensures existing borrowers MUST complete full lender verification
 
-          // Update profile's app_role to lender for backward compatibility
-          await supabase
-            .from('profiles')
-            .update({ app_role: 'lender' })
-            .eq('user_id', existingUser.id)
-
-          // NOTE: We do NOT create a lender record here
-          // The user will be redirected to /l/complete-profile by middleware
-          // where they will complete lender profile and ID photo verification
-          // This ensures existing borrowers MUST complete full lender verification
-
-          return NextResponse.json(
-            {
-              success: true,
-              userId: existingUser.id,
-              email: existingUser.email,
-              message: 'Lender role added! You must complete lender profile and ID photo verification to access your lender account.',
-              upgraded: true,
-              requiresProfileCompletion: true  // Signal to frontend that profile completion is needed
-            },
-            { status: 200 }
-          )
-        }
+        return NextResponse.json(
+          {
+            success: true,
+            userId: existingUserId,
+            email,
+            message: 'Lender role added! You must complete lender profile and ID photo verification to access your lender account.',
+            upgraded: true,
+            requiresProfileCompletion: true  // Signal to frontend that profile completion is needed
+          },
+          { status: 200 }
+        )
       }
     }
 

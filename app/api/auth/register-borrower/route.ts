@@ -37,28 +37,22 @@ export async function POST(request: NextRequest) {
       }
     )
 
-    // Check if email already exists - use direct auth check instead of listing all users
-    let existingUser = null
-    try {
-      // Try to get user by email more efficiently
-      const { data: { users }, error: listError } = await supabase.auth.admin.listUsers({
-        page: 1,
-        perPage: 1000
-      })
+    // Indexed lookup in auth.users — replaces an O(N) listUsers scan.
+    const { data: existingUserId, error: lookupError } = await supabase.rpc('find_user_by_email', {
+      p_email: email
+    })
 
-      if (!listError && users) {
-        existingUser = users.find(u => u.email === email)
-      }
-    } catch (e) {
-      console.error('Error checking existing users:', e)
+    if (lookupError) {
+      console.error('Error looking up existing user:', lookupError)
+      // Non-fatal — fall through and let signUp surface a duplicate error.
     }
 
-    if (existingUser) {
+    if (existingUserId) {
       // Check if user already has borrower role using user_roles table
       const { data: userRoles } = await supabase
         .from('user_roles')
         .select('role')
-        .eq('user_id', existingUser.id)
+        .eq('user_id', existingUserId)
 
       const roles = userRoles?.map(r => r.role) || []
 
@@ -76,7 +70,7 @@ export async function POST(request: NextRequest) {
       if (roles.length > 0) {
         // Add borrower role to existing user
         const { error: roleError } = await supabase.rpc('add_user_role', {
-          p_user_id: existingUser.id,
+          p_user_id: existingUserId,
           p_role: 'borrower'
         })
 
@@ -96,8 +90,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             success: true,
-            userId: existingUser.id,
-            email: existingUser.email,
+            userId: existingUserId,
+            email,
             message: 'Borrower role added! You must complete borrower onboarding and verification to access your borrower account.',
             upgraded: true,
             requiresOnboarding: true  // Signal to frontend that onboarding is needed
