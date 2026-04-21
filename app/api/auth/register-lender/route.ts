@@ -38,7 +38,12 @@ export async function POST(request: NextRequest) {
     )
 
     // Check if email already exists
-    const { data: existingUsers, error: listError } = await supabase.auth.admin.listUsers()
+    // NOTE: listUsers paginates. perPage=1000 catches the common case but won't
+    // scale past ~1000 users — migrate to a `find_user_by_email` RPC before then.
+    const { data: existingUsers, error: listError } = await supabase.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000
+    })
 
     if (!listError && existingUsers?.users) {
       const existingUser = existingUsers.users.find(u => u.email === email)

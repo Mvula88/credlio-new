@@ -95,13 +95,24 @@ export async function POST(request: NextRequest) {
     // Encode the national ID for admin verification
     const idEncoded = encodeNationalId(nationalId)
 
-    // Check if borrower already exists with this ID or phone
-    const { data: existingBorrower } = await supabase
-      .from('borrowers')
-      .select('id')
-      .eq('country_code', profile.country_code)
-      .or(`national_id_hash.eq.${idHash},phone_e164.eq.${phone}`)
-      .single()
+    // Check if borrower already exists with this ID or phone.
+    // Runs two .eq() queries instead of a string-interpolated .or() so a phone
+    // value that contains filter metacharacters can't corrupt the query.
+    const [byIdHash, byPhone] = await Promise.all([
+      supabase
+        .from('borrowers')
+        .select('id')
+        .eq('country_code', profile.country_code)
+        .eq('national_id_hash', idHash)
+        .maybeSingle(),
+      supabase
+        .from('borrowers')
+        .select('id')
+        .eq('country_code', profile.country_code)
+        .eq('phone_e164', phone)
+        .maybeSingle(),
+    ])
+    const existingBorrower = byIdHash.data ?? byPhone.data
 
     let borrowerId: string
 
