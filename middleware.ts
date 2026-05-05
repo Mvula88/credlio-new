@@ -1,6 +1,24 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Routes that require authentication
+const protectedPrefixes = ['/l/', '/b/', '/admin/']
+
+// Public routes within protected prefixes (login, register, etc.)
+const publicRoutes = [
+  '/l/login',
+  '/l/register',
+  '/l/register/confirm-email',
+  '/l/forgot-password',
+  '/l/reset-password',
+  '/b/login',
+  '/b/register',
+  '/b/register/confirm-email',
+  '/b/forgot-password',
+  '/b/reset-password',
+  '/b/verify',
+]
+
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
 
@@ -9,7 +27,6 @@ export async function middleware(request: NextRequest) {
   if (pathname === '/' && (searchParams.has('code') || searchParams.has('token_hash'))) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/callback'
-    // All search params (code, token_hash, type, next, etc.) are preserved automatically
     return NextResponse.redirect(url)
   }
 
@@ -33,7 +50,7 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({
             request,
           })
@@ -46,7 +63,28 @@ export async function middleware(request: NextRequest) {
   )
 
   // Refresh session if expired
-  await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Check if this is a protected route
+  const isProtectedRoute = protectedPrefixes.some(prefix => pathname.startsWith(prefix))
+  const isPublicRoute = publicRoutes.some(route => pathname === route)
+
+  if (isProtectedRoute && !isPublicRoute && !user) {
+    // Determine which login page to redirect to
+    let loginUrl: string
+    if (pathname.startsWith('/admin/')) {
+      loginUrl = '/l/login'
+    } else if (pathname.startsWith('/l/')) {
+      loginUrl = '/l/login'
+    } else {
+      loginUrl = '/b/login'
+    }
+
+    const url = request.nextUrl.clone()
+    url.pathname = loginUrl
+    url.searchParams.set('redirect', pathname)
+    return NextResponse.redirect(url)
+  }
 
   return supabaseResponse
 }
