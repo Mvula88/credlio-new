@@ -126,7 +126,6 @@ const countryCode = data.country_code // 'NG', 'NA', etc.
 **African Payment Processors:**
 - Paystack (Nigeria, Ghana, South Africa)
 - Flutterwave (Pan-African)
-- DPO PayGate
 
 ---
 

@@ -16,85 +16,6 @@ export function getStripe(): Stripe {
   return _stripe
 }
 
-export const SUBSCRIPTION_PLANS = {
-  borrower_basic: {
-    name: 'Borrower Basic',
-    description: 'Basic access to loan marketplace',
-    price: 0,
-    features: [
-      'Access to loan marketplace',
-      'Basic credit score monitoring',
-      'Apply for up to 1 active loan',
-      'Email support'
-    ]
-  },
-  borrower_premium: {
-    name: 'Borrower Premium',
-    description: 'Premium features for serious borrowers',
-    priceMonthly: 9.99,
-    priceYearly: 99.99,
-    stripePriceIdMonthly: process.env.STRIPE_BORROWER_PREMIUM_MONTHLY,
-    stripePriceIdYearly: process.env.STRIPE_BORROWER_PREMIUM_YEARLY,
-    features: [
-      'Everything in Basic',
-      'Advanced credit score insights',
-      'Apply for multiple loans',
-      'Priority loan processing',
-      'Dedicated support',
-      'Lower interest rates',
-      'Financial planning tools'
-    ]
-  },
-  lender_starter: {
-    name: 'Lender Starter',
-    description: 'Start lending with basic features',
-    priceMonthly: 29.99,
-    priceYearly: 299.99,
-    stripePriceIdMonthly: process.env.STRIPE_LENDER_STARTER_MONTHLY,
-    stripePriceIdYearly: process.env.STRIPE_LENDER_STARTER_YEARLY,
-    features: [
-      'List up to 10 loan offers',
-      'Basic borrower filtering',
-      'Standard verification badge',
-      'Email support',
-      '3% platform fee'
-    ]
-  },
-  lender_professional: {
-    name: 'Lender Professional',
-    description: 'Professional tools for serious lenders',
-    priceMonthly: 99.99,
-    priceYearly: 999.99,
-    stripePriceIdMonthly: process.env.STRIPE_LENDER_PRO_MONTHLY,
-    stripePriceIdYearly: process.env.STRIPE_LENDER_PRO_YEARLY,
-    features: [
-      'Unlimited loan offers',
-      'Advanced borrower analytics',
-      'Premium verification badge',
-      'Priority support',
-      '2% platform fee',
-      'API access',
-      'Custom branding',
-      'Bulk loan management'
-    ]
-  },
-  lender_enterprise: {
-    name: 'Lender Enterprise',
-    description: 'Enterprise solution for institutions',
-    custom: true,
-    features: [
-      'Everything in Professional',
-      'Dedicated account manager',
-      'Custom integration',
-      'SLA guarantee',
-      '1% platform fee',
-      'White-label option',
-      'Advanced reporting',
-      'Compliance tools'
-    ]
-  }
-}
-
 export async function createCustomer(
   email: string,
   name: string,
@@ -268,6 +189,19 @@ export async function createPayout(
     destination: destinationAccountId,
     metadata
   })
+}
+
+// Subscription plan → Stripe Price ID mapping
+// Set STRIPE_PRICE_* env vars in your Stripe dashboard
+export const SUBSCRIPTION_PLANS = {
+  PRO: {
+    stripePriceIdMonthly: process.env.STRIPE_PRICE_PRO_MONTHLY || '',
+    stripePriceIdYearly: process.env.STRIPE_PRICE_PRO_YEARLY || '',
+  },
+  BUSINESS: {
+    stripePriceIdMonthly: process.env.STRIPE_PRICE_BUSINESS_MONTHLY || '',
+    stripePriceIdYearly: process.env.STRIPE_PRICE_BUSINESS_YEARLY || '',
+  },
 }
 
 export async function verifyWebhookSignature(
