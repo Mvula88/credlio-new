@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
       if (generateError) {
         console.error('Error generating agreement:', JSON.stringify(generateError, null, 2))
         return NextResponse.json(
-          { error: 'Failed to generate loan agreement', details: generateError.message, code: generateError.code, hint: generateError.hint },
+          { error: 'Failed to generate loan agreement' },
           { status: 500 }
         )
       }
@@ -125,10 +125,10 @@ export async function GET(request: NextRequest) {
         'Content-Disposition': `attachment; filename="loan-agreement-${loanId}.html"`,
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in loan agreement API:', error)
     return NextResponse.json(
-      { error: 'Internal server error', details: error.message },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }
@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
     if (generateError) {
       console.error('Error generating agreement:', generateError)
       return NextResponse.json(
-        { error: 'Failed to generate loan agreement', details: generateError.message },
+        { error: 'Failed to generate loan agreement' },
         { status: 500 }
       )
     }
@@ -216,10 +216,10 @@ export async function POST(request: NextRequest) {
       message: 'Agreement generated successfully',
       agreementId
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in loan agreement generation:', error)
     return NextResponse.json(
-      { error: 'Internal server error', details: error.message },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

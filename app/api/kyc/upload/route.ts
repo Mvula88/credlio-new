@@ -183,7 +183,7 @@ export async function GET(req: NextRequest) {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to fetch documents' },
         { status: 400 }
       )
     }

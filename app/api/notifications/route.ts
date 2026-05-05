@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to fetch notifications' },
         { status: 400 }
       )
     }
@@ -71,14 +71,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Check if user is admin
-    const { data: profile } = await supabase
-      .from('profiles')
+    // Check if user is admin (multi-role system)
+    const { data: adminRole } = await supabase
+      .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
+      .eq('role', 'admin')
       .single()
 
-    if (profile?.role !== 'admin') {
+    if (!adminRole) {
       return NextResponse.json(
         { error: 'Admin access required' },
         { status: 403 }
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to create notification' },
         { status: 400 }
       )
     }
@@ -133,7 +134,7 @@ export async function PATCH(req: NextRequest) {
 
       if (error) {
         return NextResponse.json(
-          { error: error.message },
+          { error: 'Failed to mark notifications as read' },
           { status: 400 }
         )
       }
@@ -146,7 +147,7 @@ export async function PATCH(req: NextRequest) {
 
       if (error) {
         return NextResponse.json(
-          { error: error.message },
+          { error: 'Failed to mark notification as read' },
           { status: 400 }
         )
       }

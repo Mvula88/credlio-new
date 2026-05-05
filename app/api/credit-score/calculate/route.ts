@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { BorrowerWithRelations, LoanWithRelations, RepaymentEvent, RepaymentScheduleWithEvents } from '@/lib/types'
 
 interface CreditFactors {
   payment_history: number
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ creditScore })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Credit score calculation error:', error)
     return NextResponse.json(
       { error: 'Failed to calculate credit score' },
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function calculateCreditScore(borrower: any): { score: number; factors: CreditFactors } {
+function calculateCreditScore(borrower: BorrowerWithRelations): { score: number; factors: CreditFactors } {
   let baseScore = 650 // Starting score
   const factors: CreditFactors = {
     payment_history: 35,
@@ -96,13 +97,13 @@ function calculateCreditScore(borrower: any): { score: number; factors: CreditFa
   // Payment History (35% of score)
   let paymentHistoryScore = 0
   if (borrower.loans && borrower.loans.length > 0) {
-    const totalPayments = borrower.loans.reduce((sum: number, loan: any) => {
+    const totalPayments = borrower.loans.reduce((sum: number, loan: LoanWithRelations) => {
       return sum + (loan.repayment_events?.length || 0)
     }, 0)
     
-    const onTimePayments = borrower.loans.reduce((sum: number, loan: any) => {
-      return sum + (loan.repayment_events?.filter((p: any) => {
-        const schedule = loan.repayment_schedules?.find((s: any) => s.id === p.schedule_id)
+    const onTimePayments = borrower.loans.reduce((sum: number, loan: LoanWithRelations) => {
+      return sum + (loan.repayment_events?.filter((p: RepaymentEvent) => {
+        const schedule = loan.repayment_schedules?.find((s: RepaymentScheduleWithEvents) => s.id === p.schedule_id)
         return schedule && new Date(p.created_at) <= new Date(schedule.due_date)
       }).length || 0)
     }, 0)
@@ -116,8 +117,8 @@ function calculateCreditScore(borrower: any): { score: number; factors: CreditFa
   // Credit Utilization (30% of score)
   let utilizationScore = 0
   const creditLimit = borrower.credit_limit || 100000
-  const currentDebt = borrower.loans?.filter((l: any) => l.status === 'active')
-    .reduce((sum: number, loan: any) => sum + (loan.total_amount - loan.total_repaid), 0) || 0
+  const currentDebt = borrower.loans?.filter((l: LoanWithRelations) => l.status === 'active')
+    .reduce((sum: number, loan: LoanWithRelations) => sum + ((loan.total_amount ?? 0) - (loan.total_repaid ?? 0)), 0) || 0
   
   const utilizationRate = currentDebt / creditLimit
   if (utilizationRate <= 0.3) {
@@ -147,7 +148,7 @@ function calculateCreditScore(borrower: any): { score: number; factors: CreditFa
 
   // Credit Mix (10% of score)
   let creditMixScore = 0
-  const loanTypes = new Set(borrower.loans?.map((l: any) => l.purpose) || [])
+  const loanTypes = new Set(borrower.loans?.map((l: LoanWithRelations) => l.purpose) || [])
   
   if (loanTypes.size >= 3) {
     creditMixScore = factors.credit_mix * 8.5 // Max 85 points
@@ -159,7 +160,7 @@ function calculateCreditScore(borrower: any): { score: number; factors: CreditFa
 
   // New Inquiries (10% of score)
   let inquiriesScore = factors.new_inquiries * 8.5 // Start with max 85 points
-  const recentLoans = borrower.loans?.filter((l: any) => {
+  const recentLoans = borrower.loans?.filter((l: LoanWithRelations) => {
     const loanAge = new Date().getTime() - new Date(l.created_at).getTime()
     return loanAge < (90 * 24 * 60 * 60 * 1000) // Last 90 days
   }).length || 0
@@ -230,7 +231,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({ creditScore })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Credit score fetch error:', error)
     return NextResponse.json(
       { error: 'Failed to fetch credit score' },

@@ -62,14 +62,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Verify user is a lender
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('app_role')
+    // Verify user is a lender (multi-role system)
+    const { data: lenderRole } = await supabase
+      .from('user_roles')
+      .select('role')
       .eq('user_id', user.id)
+      .eq('role', 'lender')
       .single()
 
-    if (profile?.app_role !== 'lender') {
+    if (!lenderRole) {
       return NextResponse.json({ error: 'Only lenders can update provider info' }, { status: 403 })
     }
 

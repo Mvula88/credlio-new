@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
@@ -26,7 +27,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create admin client with service role key
+    // Verify the requesting user is authenticated and is an admin
+    const serverSupabase = await createServerClient()
+    const { data: { user }, error: authError } = await serverSupabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Check user has admin role
+    const { data: adminRole } = await serverSupabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .single()
+
+    if (!adminRole) {
+      return NextResponse.json(
+        { error: 'Forbidden: Admin access required' },
+        { status: 403 }
+      )
+    }
+
+    // Create admin client with service role key for operations that bypass RLS
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -37,19 +64,6 @@ export async function POST(request: NextRequest) {
         }
       }
     )
-
-    // Get current admin user from the request
-    // (In production, you'd validate the JWT token here)
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
-    // Verify the user is an admin
-    // For now, we'll trust the middleware has already checked this
 
     // Get borrower user_id for notification
     const { data: verificationData, error: fetchError } = await supabase
@@ -85,7 +99,7 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       console.error('Error updating verification status:', updateError)
       return NextResponse.json(
-        { error: 'Failed to update verification status: ' + updateError.message },
+        { error: 'Failed to update verification status' },
         { status: 500 }
       )
     }

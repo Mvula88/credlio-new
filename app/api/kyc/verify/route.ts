@@ -13,14 +13,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Check admin role
-    const { data: profile } = await supabase
-      .from('profiles')
+    // Check admin role (multi-role system)
+    const { data: adminRole } = await supabase
+      .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
+      .eq('role', 'admin')
       .single()
 
-    if (profile?.role !== 'admin') {
+    if (!adminRole) {
       return NextResponse.json(
         { error: 'Admin access required' },
         { status: 403 }
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to update KYC status' },
         { status: 400 }
       )
     }
@@ -89,14 +90,15 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Check admin role
-    const { data: profile } = await supabase
-      .from('profiles')
+    // Check admin role (multi-role system)
+    const { data: adminRole } = await supabase
+      .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
+      .eq('role', 'admin')
       .single()
 
-    if (profile?.role !== 'admin') {
+    if (!adminRole) {
       return NextResponse.json(
         { error: 'Admin access required' },
         { status: 403 }
@@ -120,7 +122,7 @@ export async function GET(req: NextRequest) {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to fetch KYC data' },
         { status: 400 }
       )
     }

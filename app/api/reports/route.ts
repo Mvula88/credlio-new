@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error('Error filing report:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to file report' }, { status: 500 })
     }
 
     // Fetch the created report
@@ -248,7 +248,7 @@ export async function PATCH(req: NextRequest) {
 
       if (error) {
         console.error('Error confirming payment:', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        return NextResponse.json({ error: 'Failed to confirm payment' }, { status: 500 })
       }
 
       result = data
@@ -266,7 +266,7 @@ export async function PATCH(req: NextRequest) {
 
       if (error) {
         console.error('Error disputing report:', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        return NextResponse.json({ error: 'Failed to dispute report' }, { status: 500 })
       }
 
       result = data

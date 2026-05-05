@@ -104,24 +104,39 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to create loan' },
         { status: 400 }
       )
     }
 
-    // Generate repayment schedule using database function
+    // Generate repayment schedule using the new simple interest system
+    // Calculate interest amounts from the loan data
+    const principalMinor = loanData.principal_minor
+    const totalInterestPercent = loanData.total_interest_percent || (loanData.apr_bps ? loanData.apr_bps / 100 : 0)
+    const interestAmountMinor = loanData.interest_amount_minor || Math.round(principalMinor * totalInterestPercent / 100)
+    const totalAmountMinor = loanData.total_amount_minor || (principalMinor + interestAmountMinor)
+    const paymentType = loanData.payment_type || 'once_off'
+    const numInstallments = loanData.num_installments || loanData.term_months || 1
+
     const { error: scheduleError } = await supabase
-      .rpc('generate_repayment_schedule', {
+      .rpc('generate_simple_repayment_schedule', {
         p_loan_id: loan.id,
-        p_principal_minor: loanData.principal_minor,
-        p_apr_bps: loanData.apr_bps,
-        p_term_months: loanData.term_months,
+        p_principal_minor: principalMinor,
+        p_total_amount_minor: totalAmountMinor,
+        p_interest_amount_minor: interestAmountMinor,
+        p_payment_type: paymentType,
+        p_num_installments: numInstallments,
         p_start_date: loan.start_date
       })
 
     if (scheduleError) {
       console.error('Error generating repayment schedule:', scheduleError)
-      // Don't fail the whole request, but log the error
+      // Delete the loan if schedule generation fails to prevent orphaned loans
+      await supabase.from('loans').delete().eq('id', loan.id)
+      return NextResponse.json(
+        { error: 'Failed to generate repayment schedule' },
+        { status: 500 }
+      )
     }
 
     return NextResponse.json({ loan })

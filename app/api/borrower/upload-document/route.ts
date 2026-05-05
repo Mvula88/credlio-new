@@ -64,16 +64,16 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Document upload error:', error)
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to upload document' },
         { status: 500 }
       )
     }
 
     return NextResponse.json({ data }, { status: 200 })
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Upload document error:', err)
     return NextResponse.json(
-      { error: err.message || 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

@@ -14,14 +14,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Verify user is a lender
-    const { data: profile } = await supabase
-      .from('profiles')
+    // Verify user is a lender (multi-role system)
+    const { data: lenderRole } = await supabase
+      .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
+      .eq('role', 'lender')
       .single()
 
-    if (!profile || profile.role !== 'lender') {
+    if (!lenderRole) {
       return NextResponse.json({ error: 'Only lenders can invite borrowers' }, { status: 403 })
     }
 
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error('Error inviting borrower:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to invite borrower' }, { status: 500 })
     }
 
     // TODO: Send actual invitation email/SMS
