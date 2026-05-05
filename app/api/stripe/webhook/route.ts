@@ -4,6 +4,18 @@ import { createClient } from '@/lib/supabase/server'
 import { getStripe, verifyWebhookSignature } from '@/lib/stripe/server'
 import Stripe from 'stripe'
 
+// Map Stripe price IDs to subscription tiers
+function getTierFromPriceId(priceId: string): string {
+  // You can configure these in env vars for flexibility
+  const proPrice = process.env.STRIPE_PRO_PRICE_ID
+  const proPlusPrice = process.env.STRIPE_PRO_PLUS_PRICE_ID
+  const businessPrice = process.env.STRIPE_BUSINESS_PRICE_ID
+
+  if (priceId === proPlusPrice) return 'PRO_PLUS'
+  if (priceId === businessPrice) return 'BUSINESS'
+  return 'PRO' // Default to PRO
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text()
   const signature = (await headers()).get('stripe-signature')
@@ -37,17 +49,31 @@ export async function POST(req: NextRequest) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
-        
-        // Update user subscription status
+
         if (session.metadata?.user_id) {
+          const userId = session.metadata.user_id
+          const tier = getTierFromPriceId(session.metadata.plan_id || '')
+
+          // Update subscriptions table (this is what the app reads)
+          await supabase
+            .from('subscriptions')
+            .upsert({
+              user_id: userId,
+              tier: tier,
+              stripe_customer_id: session.customer as string,
+              stripe_subscription_id: session.subscription as string,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' })
+
+          // Also update profiles for backwards compatibility
           await supabase
             .from('profiles')
             .update({
+              stripe_customer_id: session.customer as string,
               subscription_status: 'active',
-              subscription_plan: session.metadata.plan_id,
-              subscription_period_end: new Date(session.expires_at * 1000).toISOString()
+              subscription_plan: session.metadata.plan_id
             })
-            .eq('user_id', session.metadata.user_id)
+            .eq('user_id', userId)
         }
         break
       }
@@ -55,77 +81,88 @@ export async function POST(req: NextRequest) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription
-        
-        // Get customer
         const customer = await getStripe().customers.retrieve(subscription.customer as string)
-        
+
         if ('metadata' in customer && customer.metadata?.user_id) {
+          const userId = customer.metadata.user_id
+          const priceId = subscription.items.data[0]?.price?.id || ''
+          const tier = getTierFromPriceId(priceId)
+
+          // Update subscriptions table
+          await supabase
+            .from('subscriptions')
+            .upsert({
+              user_id: userId,
+              tier: tier,
+              stripe_customer_id: subscription.customer as string,
+              stripe_subscription_id: subscription.id,
+              stripe_price_id: priceId,
+              current_period_start: new Date(((subscription as any).current_period_start || 0) * 1000).toISOString(),
+              current_period_end: new Date(((subscription as any).current_period_end || 0) * 1000).toISOString(),
+              cancel_at_period_end: (subscription as any).cancel_at_period_end || false,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' })
+
+          // Also update profiles
           await supabase
             .from('profiles')
             .update({
               subscription_status: subscription.status,
-              subscription_id: subscription.id,
-              subscription_period_end: new Date(((subscription as any).current_period_end || 0) * 1000).toISOString()
+              subscription_id: subscription.id
             })
-            .eq('user_id', customer.metadata.user_id)
+            .eq('user_id', userId)
         }
         break
       }
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription
-        
-        // Get customer
         const customer = await getStripe().customers.retrieve(subscription.customer as string)
-        
+
         if ('metadata' in customer && customer.metadata?.user_id) {
+          const userId = customer.metadata.user_id
+
+          // Update subscriptions table - downgrade to FREE tier
+          await supabase
+            .from('subscriptions')
+            .upsert({
+              user_id: userId,
+              tier: 'FREE',
+              stripe_subscription_id: null,
+              stripe_price_id: null,
+              cancel_at_period_end: false,
+              current_period_end: new Date(((subscription as any).current_period_end || 0) * 1000).toISOString(),
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' })
+
+          // Also update profiles
           await supabase
             .from('profiles')
             .update({
-              subscription_status: 'canceled',
-              subscription_period_end: new Date(((subscription as any).current_period_end || 0) * 1000).toISOString()
+              subscription_status: 'canceled'
             })
-            .eq('user_id', customer.metadata.user_id)
+            .eq('user_id', userId)
         }
         break
       }
 
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice
-        
-        // Record payment
+
+        // Record successful payment for audit trail
         if (invoice.metadata?.user_id) {
-          await supabase
-            .from('payments')
-            .insert({
-              user_id: invoice.metadata.user_id,
-              amount: invoice.amount_paid / 100,
-              currency: invoice.currency,
-              status: 'completed',
-              stripe_invoice_id: invoice.id,
-              type: 'subscription'
-            })
+          console.log(`Payment succeeded for user ${invoice.metadata.user_id}: ${invoice.amount_paid / 100} ${invoice.currency}`)
         }
         break
       }
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice
-        
-        // Record failed payment
-        if (invoice.metadata?.user_id) {
-          await supabase
-            .from('payments')
-            .insert({
-              user_id: invoice.metadata.user_id,
-              amount: invoice.amount_due / 100,
-              currency: invoice.currency,
-              status: 'failed',
-              stripe_invoice_id: invoice.id,
-              type: 'subscription'
-            })
 
-          // Update subscription status
+        if (invoice.metadata?.user_id) {
+          console.error(`Payment failed for user ${invoice.metadata.user_id}: ${invoice.amount_due / 100} ${invoice.currency}`)
+
+          // Update profiles with past_due status
           await supabase
             .from('profiles')
             .update({
@@ -138,33 +175,19 @@ export async function POST(req: NextRequest) {
 
       case 'payment_intent.succeeded': {
         const paymentIntent = event.data.object as Stripe.PaymentIntent
-        
-        if (paymentIntent.metadata?.type === 'loan_repayment') {
-          // Update loan repayment
-          await supabase
-            .from('repayment_events')
-            .insert({
-              loan_id: paymentIntent.metadata.loan_id,
-              amount: paymentIntent.amount / 100,
-              status: 'completed',
-              payment_method: 'stripe',
-              transaction_reference: paymentIntent.id
+
+        if (paymentIntent.metadata?.type === 'loan_repayment' && paymentIntent.metadata?.loan_id) {
+          // Use the process_repayment RPC for proper handling
+          const amountInMajorUnits = paymentIntent.amount / 100
+
+          const { error } = await supabase
+            .rpc('process_repayment', {
+              p_loan_id: paymentIntent.metadata.loan_id,
+              p_amount: amountInMajorUnits
             })
 
-          // Update loan total repaid
-          const { data: loan } = await supabase
-            .from('loans')
-            .select('total_repaid')
-            .eq('id', paymentIntent.metadata.loan_id)
-            .single()
-
-          if (loan) {
-            await supabase
-              .from('loans')
-              .update({
-                total_repaid: loan.total_repaid + (paymentIntent.amount / 100)
-              })
-              .eq('id', paymentIntent.metadata.loan_id)
+          if (error) {
+            console.error('Failed to process loan repayment via webhook:', error)
           }
         }
         break

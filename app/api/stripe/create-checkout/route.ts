@@ -73,8 +73,8 @@ export async function POST(req: NextRequest) {
     const session = await createCheckoutSession(
       stripeCustomerId,
       priceId,
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/subscription?success=true`,
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/subscription`,
+      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/l/billing?success=true`,
+      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/l/billing`,
       {
         user_id: user.id,
         plan_id: planId

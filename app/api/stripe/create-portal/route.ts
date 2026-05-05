@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     // Create portal session
     const session = await createPortalSession(
       profile.stripe_customer_id,
-      `${process.env.NEXT_PUBLIC_APP_URL}/subscription`
+      `${process.env.NEXT_PUBLIC_APP_URL}/l/billing`
     )
 
     return NextResponse.json({ url: session.url })
