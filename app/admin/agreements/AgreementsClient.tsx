@@ -166,15 +166,15 @@ export default function AgreementsClient() {
       pdf.save(`loan-agreement-${loanId}-admin.pdf`)
 
       toast.success('Agreement downloaded successfully')
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error downloading agreement:', error)
-      toast.error(error.message || 'Failed to download agreement')
+      toast.error(error instanceof Error ? error.message : 'Failed to download agreement')
     } finally {
       setDownloadingId(null)
     }
   }
 
-  const handlePreviewAgreement = (agreement: any) => {
+  const handlePreviewAgreement = (agreement: Record<string, unknown>) => {
     setSelectedAgreement(agreement)
     setShowPreviewDialog(true)
   }

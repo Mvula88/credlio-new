@@ -238,7 +238,7 @@ export default function LoanRequestsPage() {
         .order('purpose')
 
       setTemplates(templateData || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading data:', error)
     } finally {
       setLoading(false)
@@ -308,7 +308,7 @@ export default function LoanRequestsPage() {
         })
 
       if (error) {
-        toast.error(error.message)
+        toast.error(error instanceof Error ? error.message : 'An error occurred')
         return
       }
 
@@ -316,7 +316,7 @@ export default function LoanRequestsPage() {
       // Reload data
       await loadData()
       reset()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
     } finally {
       setSubmitting(false)
@@ -363,7 +363,7 @@ export default function LoanRequestsPage() {
       }
 
       await loadData()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
     }
   }

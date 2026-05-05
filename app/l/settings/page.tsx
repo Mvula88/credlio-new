@@ -24,7 +24,6 @@ import {
   CheckCircle,
   UserCheck,
   ShieldCheck,
-  Landmark
 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 
@@ -164,9 +163,9 @@ export default function SettingsPage() {
         toast.success('Profile updated successfully')
       }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating profile:', error)
-      toast.error(error.message || 'Failed to update profile')
+      toast.error(error instanceof Error ? error.message : 'Failed to update profile')
     } finally {
       setSaving(false)
     }
@@ -200,9 +199,9 @@ export default function SettingsPage() {
         confirmPassword: ''
       })
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating password:', error)
-      toast.error(error.message || 'Failed to update password')
+      toast.error(error instanceof Error ? error.message : 'Failed to update password')
     } finally {
       setSaving(false)
     }
@@ -686,23 +685,6 @@ export default function SettingsPage() {
                   </Button>
                 </div>
 
-                <div className="rounded-lg border p-4 space-y-3">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Landmark className="h-4 w-4" />
-                    Payout Settings
-                  </h4>
-                  <p className="text-sm text-gray-500">
-                    Configure bank account for automatic payouts
-                  </p>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => router.push('/l/settings/payout')}
-                  >
-                    Manage Payouts
-                    <ExternalLink className="h-4 w-4 ml-2" />
-                  </Button>
-                </div>
               </div>
 
               <Separator />

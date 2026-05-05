@@ -191,7 +191,7 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
       riskFactors,
       riskScore: Math.min(riskScore, 100)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error extracting PDF metadata:', error)
     return {
       wasModified: false,
@@ -252,7 +252,7 @@ export async function extractImageMetadata(file: File): Promise<ImageMetadata> {
       riskFactors,
       riskScore: Math.min(riskScore, 100)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error extracting image metadata:', error)
     return {
       hasBeenEdited: false,
@@ -310,7 +310,7 @@ export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
       riskFactors,
       riskScore: Math.min(riskScore, 100)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error extracting video metadata:', error)
     return {
       riskFactors: ['Failed to extract video metadata'],
@@ -361,7 +361,7 @@ function parsePDFDate(pdfDate: string): Date | undefined {
         parseInt(second)
       )
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error parsing PDF date:', error)
   }
   return undefined

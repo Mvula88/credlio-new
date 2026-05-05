@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import type { BorrowerWithRelations, LoanWithRelations, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   Dialog,
   DialogContent,
@@ -167,7 +168,7 @@ export default function CountryAdminPage() {
         // Load manual subscription lenders only for Namibia
         countryCode.toUpperCase() === 'NA' ? loadManualSubLenders() : Promise.resolve()
       ])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading country data:', error)
     } finally {
       setLoading(false)
@@ -208,9 +209,9 @@ export default function CountryAdminPage() {
       `)
       .eq('country_code', code)
 
-    const scores = borrowerScores?.map((b: any) => b.borrower_scores).flat().filter(Boolean) || []
+    const scores = borrowerScores?.map((b: BorrowerWithRelations) => b.borrower_scores).flat().filter(Boolean) || []
     const avgCreditScore = scores.length > 0
-      ? Math.round(scores.reduce((sum: number, s: any) => sum + s.score, 0) / scores.length)
+      ? Math.round(scores.reduce((sum: number, s: any) => sum + (s.score ?? 0), 0) / scores.length)
       : 0
 
     // LENDER METRICS
@@ -233,16 +234,16 @@ export default function CountryAdminPage() {
       .eq('country_code', code)
 
     const totalLoans = loans?.length || 0
-    const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
-    const completedLoans = loans?.filter((l: any) => l.status === 'completed').length || 0
-    const defaultedLoans = loans?.filter((l: any) => l.status === 'defaulted').length || 0
-    const cancelledLoans = loans?.filter((l: any) => l.status === 'cancelled').length || 0
-    const pendingLoans = loans?.filter((l: any) => l.status === 'pending' || l.status === 'offered').length || 0
+    const activeLoans = loans?.filter((l: LoanWithRelations) => l.status === 'active').length || 0
+    const completedLoans = loans?.filter((l: LoanWithRelations) => l.status === 'completed').length || 0
+    const defaultedLoans = loans?.filter((l: LoanWithRelations) => l.status === 'defaulted').length || 0
+    const cancelledLoans = loans?.filter((l: LoanWithRelations) => l.status === 'cancelled').length || 0
+    const pendingLoans = loans?.filter((l: LoanWithRelations) => l.status === 'pending' || l.status === 'offered').length || 0
     // Keep in MINOR units for consistent formatting
-    const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
+    const totalLoanVolume = loans?.reduce((sum: number, loan: LoanWithRelations) => sum + (loan.principal_minor || 0), 0) || 0
     const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
     const avgAPR = loans && loans.length > 0
-      ? Math.round(loans.reduce((sum: number, l: any) => sum + l.apr_bps, 0) / loans.length / 100)
+      ? Math.round(loans.reduce((sum: number, l: any) => sum + (l.apr_bps ?? 0), 0) / loans.length / 100)
       : 0
     // Exclude cancelled loans from default rate calculation (they were never active)
     const processedLoans = totalLoans - cancelledLoans
@@ -273,7 +274,7 @@ export default function CountryAdminPage() {
       .eq('loans.country_code', code)
       .neq('loans.status', 'cancelled')
 
-    const overduePayments = schedules?.filter((s: any) => new Date(s.due_date) < new Date()).length || 0
+    const overduePayments = schedules?.filter((s: RepaymentScheduleWithEvents) => new Date(s.due_date) < new Date()).length || 0
     const totalScheduledPayments = schedules?.length || 0
 
     setStats({
@@ -1112,8 +1113,8 @@ export default function CountryAdminPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="PRO">PRO - $9.99/month</SelectItem>
-                  <SelectItem value="BUSINESS">BUSINESS - $17.99/month</SelectItem>
+                  <SelectItem value="PRO">PRO - $5.99/month</SelectItem>
+                  <SelectItem value="BUSINESS">BUSINESS - $11.99/month</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import type { LoanWithRelations } from '@/lib/types'
 import {
   Table,
   TableBody,
@@ -86,8 +87,8 @@ export default function VerificationPage() {
 
       // Get unique borrowers
       const borrowerMap = new Map<string, Borrower>()
-      loansData?.forEach((loan: any) => {
-        const borrower = loan.borrowers as any
+      loansData?.forEach((loan: LoanWithRelations) => {
+        const borrower = loan.borrowers as Borrower
         if (borrower && !borrowerMap.has(borrower.id)) {
           borrowerMap.set(borrower.id, {
             id: borrower.id,
@@ -137,7 +138,7 @@ export default function VerificationPage() {
       )
 
       setRecentBorrowers(borrowersWithVerification as any)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading recent borrowers:', error)
     } finally {
       setLoadingRecent(false)

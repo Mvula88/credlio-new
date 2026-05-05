@@ -84,7 +84,7 @@ export default function AdminDisbursementsPage() {
     }
   }
 
-  const getStatusBadge = (d: any) => {
+  const getStatusBadge = (d: Record<string, unknown>) => {
     if (d.borrower_disputed) {
       return <Badge variant="destructive" className="flex items-center gap-1"><AlertTriangle className="h-3 w-3" />Disputed</Badge>
     }
@@ -121,7 +121,7 @@ export default function AdminDisbursementsPage() {
     awaitingProof: disbursements.filter(d => !d.lender_submitted_at).length
   }
 
-  const openDetails = (d: any) => {
+  const openDetails = (d: Record<string, unknown>) => {
     setSelectedDisbursement(d)
     setDetailsDialog(true)
   }

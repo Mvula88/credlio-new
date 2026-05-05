@@ -181,7 +181,7 @@ export default function DocumentVerificationPage() {
         setVideoHash(videoData.video_hash)
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading borrower data:', error)
       toast.error('Failed to load borrower data')
     } finally {

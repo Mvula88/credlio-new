@@ -109,7 +109,7 @@ export default function PendingLoanOffersPage() {
       if (offers) {
         setPendingOffers(offers)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading pending offers:', error)
     } finally {
       setLoading(false)

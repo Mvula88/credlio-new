@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import type { Borrower, LoanWithRelations, RiskFlag } from '@/lib/types'
 import {
   Search,
   UserPlus,
@@ -165,9 +166,9 @@ export default function BorrowersPage() {
       // Group by borrower and calculate stats for THIS lender only
       const borrowerMap = new Map()
 
-      loansData?.forEach((loan: any) => {
+      loansData?.forEach((loan: LoanWithRelations) => {
         const borrowerId = loan.borrower_id
-        const borrower = loan.borrowers as any
+        const borrower = loan.borrowers as Borrower
 
         if (!borrower) return
 
@@ -211,7 +212,7 @@ export default function BorrowersPage() {
       borrowersList.sort((a, b) => new Date(b.last_loan_date).getTime() - new Date(a.last_loan_date).getTime())
 
       setMyBorrowers(borrowersList)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in loadMyBorrowers:', error)
     } finally {
       setMyBorrowersLoading(false)
@@ -253,7 +254,7 @@ export default function BorrowersPage() {
       // Profile is complete if both fields are set
       const isComplete = Boolean(lender.profile_completed && lender.id_photo_uploaded_at)
       setProfileCompleted(isComplete)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Unexpected error checking profile:', error)
       setProfileCompleted(false)
     }
@@ -283,7 +284,7 @@ export default function BorrowersPage() {
       // Group by borrower and count lenders
       const borrowerMap = new Map()
       
-      flags?.forEach((flag: any) => {
+      flags?.forEach((flag: RiskFlag) => {
         const borrowerId = flag.borrower_id
         if (!borrowerMap.has(borrowerId)) {
           borrowerMap.set(borrowerId, {
@@ -308,7 +309,7 @@ export default function BorrowersPage() {
       }))
 
       setRiskyBorrowers(riskyList)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading risky borrowers:', error)
       toast.error('Failed to load risky borrowers')
     } finally {
@@ -395,8 +396,8 @@ export default function BorrowersPage() {
         // Calculate how many unique lenders have reported this borrower
         const uniqueLenders = new Set(
           borrower.risk_flags
-            ?.filter((f: any) => !f.resolved_at && f.origin === 'LENDER_REPORTED')
-            .map((f: any) => f.created_by)
+            ?.filter((f: RiskFlag) => !f.resolved_at && f.origin === 'LENDER_REPORTED')
+            .map((f: RiskFlag) => f.created_by)
         )
 
         // Format the result with verification badges
@@ -409,17 +410,17 @@ export default function BorrowersPage() {
           city: borrower.city,
           country_code: borrower.country_code,
           credit_score: borrower.borrower_scores?.[0]?.score || 500,
-          active_loan: borrower.loans?.some((l: any) => l.status === 'active') || false,
-          risk_flags_count: borrower.risk_flags?.filter((f: any) => !f.resolved_at).length || 0,
+          active_loan: borrower.loans?.some((l: LoanWithRelations) => l.status === 'active') || false,
+          risk_flags_count: borrower.risk_flags?.filter((f: RiskFlag) => !f.resolved_at).length || 0,
           listed_by_lenders: uniqueLenders.size,
           created_at: borrower.created_at,
-          has_defaults: borrower.risk_flags?.some((f: any) => !f.resolved_at && f.type === 'DEFAULT') || false,
+          has_defaults: borrower.risk_flags?.some((f: RiskFlag) => !f.resolved_at && f.type === 'DEFAULT') || false,
           risk_flags: borrower.risk_flags,
           // Account status
           has_user_account: hasUserAccount,
           // Loan history summary (show everything)
           total_loans: borrower.loans?.length || 0,
-          completed_loans: borrower.loans?.filter((l: any) => l.status === 'completed').length || 0,
+          completed_loans: borrower.loans?.filter((l: LoanWithRelations) => l.status === 'completed').length || 0,
           // Verification badges (summary only - no sensitive data)
           verification_badges: {
             identity_verified: verificationStatus?.verification_status === 'approved',
@@ -484,7 +485,7 @@ export default function BorrowersPage() {
     } catch (error: any) {
       console.error('Registration error:', error)
       console.error('Error details:', JSON.stringify(error, null, 2))
-      toast.error(error.message || 'Registration failed')
+      toast.error(error instanceof Error ? error.message : 'Registration failed')
     } finally {
       setLoading(false)
     }
@@ -527,7 +528,7 @@ export default function BorrowersPage() {
       }
     } catch (error: any) {
       console.error('Risk listing error:', error)
-      toast.error(error.message || 'Failed to list borrower as risky')
+      toast.error(error instanceof Error ? error.message : 'Failed to list borrower as risky')
     } finally {
       setLoading(false)
     }
@@ -552,7 +553,7 @@ export default function BorrowersPage() {
       loadRiskyBorrowers()
     } catch (error: any) {
       console.error('Resolve error:', error)
-      toast.error(error.message || 'Failed to resolve risk flag')
+      toast.error(error instanceof Error ? error.message : 'Failed to resolve risk flag')
     } finally {
       setLoading(false)
     }
@@ -1003,10 +1004,10 @@ export default function BorrowersPage() {
                                 This borrower has been reported by <strong>{searchResult.listed_by_lenders} lender{searchResult.listed_by_lenders > 1 ? 's' : ''}</strong> for defaulting/non-payment.
                               </p>
                               <div className="text-sm space-y-1 mt-2">
-                                {searchResult.risk_flags?.slice(0, 3).map((flag: any, idx: number) => (
+                                {searchResult.risk_flags?.slice(0, 3).map((flag: RiskFlag, idx: number) => (
                                   <div key={idx} className="flex items-center gap-2">
                                     <Ban className="h-3 w-3" />
-                                    <span>{flag.type.replace('_', ' ')}: {flag.reason?.substring(0, 60)}...</span>
+                                    <span>{(flag.type ?? flag.flag_type ?? '').replace('_', ' ')}: {flag.reason?.substring(0, 60)}...</span>
                                   </div>
                                 ))}
                               </div>

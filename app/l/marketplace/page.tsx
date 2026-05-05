@@ -124,7 +124,7 @@ export default function MarketplacePage() {
       }
 
       loadMarketplaceData()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error checking access:', error)
     } finally {
       setLoading(false)
@@ -302,7 +302,7 @@ export default function MarketplacePage() {
       setMessageThreads(threads || [])
       setLoanRequests(formattedRequests || [])
       setMyOffers(formattedOffers || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading marketplace:', error)
     }
   }
@@ -338,7 +338,7 @@ export default function MarketplacePage() {
       await loadMarketplaceData()
       setShowSaveSearch(false)
       setSearchName('')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
     }
   }
@@ -351,7 +351,7 @@ export default function MarketplacePage() {
         .eq('id', searchId)
 
       await loadMarketplaceData()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting search:', error)
     }
   }
@@ -479,7 +479,7 @@ export default function MarketplacePage() {
       setOfferPaymentType('once_off')
       setOfferInstallments('1')
       setLenderMessage('')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
       toast.error('An unexpected error occurred')
     } finally {
@@ -531,7 +531,7 @@ export default function MarketplacePage() {
               <ShoppingBag className="h-4 w-4 text-orange-600" />
               <AlertTitle>Marketplace Access Required</AlertTitle>
               <AlertDescription>
-                Upgrade to Pro ($9.99/month) for 1 offer per month, or Business ($17.99/month) for unlimited offers.
+                Upgrade to Pro ($5.99/month) for 1 offer per month, or Business ($11.99/month) for unlimited offers.
               </AlertDescription>
             </Alert>
 

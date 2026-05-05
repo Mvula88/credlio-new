@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, AlertCircle, Building2, Eye, EyeOff } from 'lucide-react'
+import type { UserRole } from '@/lib/types'
 
 export default function LenderLoginPage() {
   const [error, setError] = useState<string | null>(null)
@@ -62,7 +63,7 @@ export default function LenderLoginPage() {
         return
       }
 
-      const roles = userRoles?.map((r: any) => r.role) || []
+      const roles = userRoles?.map((r: UserRole) => r.role) || []
 
       if (roles.length === 0) {
         setError('No roles found for this account. Please register first.')

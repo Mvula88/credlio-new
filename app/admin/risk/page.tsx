@@ -152,9 +152,9 @@ export default function RiskManagementPage() {
       setResolutionReason('')
       loadRiskFlags()
       loadResolvedFlags()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error resolving risk flag:', error)
-      toast.error(error.message || 'Failed to resolve risk flag')
+      toast.error(error instanceof Error ? error.message : 'Failed to resolve risk flag')
     } finally {
       setResolving(false)
     }

@@ -137,7 +137,7 @@ export default function DisputesPage() {
       )
 
       setDisputes(disputesWithDetails || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
     } finally {
       setLoading(false)
@@ -168,7 +168,7 @@ export default function DisputesPage() {
       setSelectedDispute(null)
       setResolutionNote('')
       setResolutionAction('')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
     }
   }
@@ -187,7 +187,7 @@ export default function DisputesPage() {
 
       await loadDisputes()
       setAssigningTo(null)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
     }
   }
@@ -208,7 +208,7 @@ export default function DisputesPage() {
       }
 
       await loadDisputes()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
     }
   }

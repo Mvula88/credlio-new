@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
+import type { LoanWithRelations, RepaymentEvent, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   CreditCard,
   Calendar as CalendarIcon,
@@ -183,20 +184,19 @@ export default function RepaymentsPage() {
           const schedules = loanData.repayment_schedules || []
           
           const upcoming = schedules
-            .filter((s: any) => s.status === 'pending' && new Date(s.due_date) >= now)
-            .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+            .filter((s: RepaymentScheduleWithEvents) => s.status === 'pending' && new Date(s.due_date) >= now)
+            .sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
           
           const overdue = schedules
-            .filter((s: any) => s.status === 'pending' && new Date(s.due_date) < now)
-            .sort((a: any, b: any) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime())
+            .filter((s: RepaymentScheduleWithEvents) => s.status === 'pending' && new Date(s.due_date) < now)
+            .sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime())
           
           setUpcomingPayments(upcoming)
           setOverduePayments(overdue)
           
           // Get payment history
           const history = loanData.repayment_events || []
-          setPaymentHistory(history.sort((a: any, b: any) => 
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          setPaymentHistory(history.sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           ))
           
           // Calculate stats
@@ -216,27 +216,27 @@ export default function RepaymentsPage() {
           setConfirmedPayments(confirmed)
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading repayments:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  const calculatePaymentStats = (loan: any, schedules: any[], history: any[]) => {
+  const calculatePaymentStats = (loan: LoanWithRelations, schedules: RepaymentScheduleWithEvents[], history: RepaymentEvent[]) => {
     const totalPayments = schedules.length
-    const completedPayments = schedules.filter((s: any) => s.status === 'paid').length
-    const onTimePayments = history.filter((h: any) => {
-      const schedule = schedules.find((s: any) => s.id === h.schedule_id)
+    const completedPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'paid').length
+    const onTimePayments = history.filter((h: RepaymentEvent) => {
+      const schedule = schedules.find((s: RepaymentScheduleWithEvents) => s.id === h.schedule_id)
       if (!schedule) return false
       return new Date(h.created_at) <= new Date(schedule.due_date)
     }).length
     
     const totalPaid = loan.total_repaid
-    const totalRemaining = loan.total_amount - totalPaid
+    const totalRemaining = (loan.total_amount ?? 0) - (totalPaid ?? 0)
     const nextPayment = schedules
-      .filter((s: any) => s.status === 'pending')
-      .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0]
+      .filter((s: RepaymentScheduleWithEvents) => s.status === 'pending')
+      .sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0]
     
     setPaymentStats({
       totalPayments,
@@ -247,7 +247,7 @@ export default function RepaymentsPage() {
       totalRemaining,
       nextPaymentAmount: nextPayment?.amount || 0,
       nextPaymentDate: nextPayment?.due_date || null,
-      averagePayment: loan.total_amount / totalPayments
+      averagePayment: (loan.total_amount ?? 0) / totalPayments
     })
   }
 
@@ -280,7 +280,7 @@ export default function RepaymentsPage() {
     return `${days} days`
   }
 
-  const handleMakePayment = (payment: any) => {
+  const handleMakePayment = (payment: RepaymentScheduleWithEvents) => {
     setSelectedPayment(payment)
     setShowPaymentDialog(true)
   }
@@ -303,10 +303,8 @@ export default function RepaymentsPage() {
         if (uploadError) {
           console.error('Upload error:', uploadError)
         } else {
-          const { data: urlData } = supabase.storage
-            .from('payment-proofs')
-            .getPublicUrl(fileName)
-          proofUrl = urlData.publicUrl
+          // Store file path (bucket is private, use signed URLs to view)
+          proofUrl = fileName
         }
       }
 
@@ -367,7 +365,7 @@ export default function RepaymentsPage() {
     const last6Months = []
     for (let i = 5; i >= 0; i--) {
       const month = subMonths(new Date(), i)
-      const monthPayments = paymentHistory.filter((p: any) => {
+      const monthPayments = paymentHistory.filter((p: RepaymentEvent) => {
         const paymentDate = new Date(p.created_at)
         return paymentDate.getMonth() === month.getMonth() && 
                paymentDate.getFullYear() === month.getFullYear()
@@ -375,7 +373,7 @@ export default function RepaymentsPage() {
       
       last6Months.push({
         month: format(month, 'MMM'),
-        amount: monthPayments.reduce((sum: number, p: any) => sum + p.amount, 0),
+        amount: monthPayments.reduce((sum: number, p: RepaymentEvent) => sum + (p.amount ?? 0), 0),
         count: monthPayments.length
       })
     }
@@ -639,7 +637,7 @@ export default function RepaymentsPage() {
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" />
                         <YAxis />
-                        <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                        <Tooltip formatter={(value: number) => formatCurrency(value)} />
                         <Area 
                           type="monotone" 
                           dataKey="amount" 

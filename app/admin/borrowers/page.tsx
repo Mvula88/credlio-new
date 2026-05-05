@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import type { BorrowerWithRelations, LoanWithRelations, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   Table,
   TableBody,
@@ -84,7 +85,7 @@ export default function AdminBorrowersPage() {
       console.log('Borrowers data loaded successfully:', borrowersData?.length || 0, 'borrowers')
 
       // Calculate payment health for each borrower
-      const borrowersWithHealth = borrowersData?.map((borrower: any) => {
+      const borrowersWithHealth = borrowersData?.map((borrower: BorrowerWithRelations) => {
         let totalOnTime = 0
         let totalLate = 0
         let totalOverdue = 0
@@ -93,14 +94,14 @@ export default function AdminBorrowersPage() {
         let activeLoans = 0
 
         const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
-        borrower.loans?.forEach((loan: any) => {
+        borrower.loans?.forEach((loan: LoanWithRelations) => {
           // Only count as disbursed if loan has actually started (not pending_offer or pending_signatures)
           if (disbursedStatuses.includes(loan.status)) {
             totalDisbursed += (loan.principal_minor || 0)
           }
           if (loan.status === 'active') activeLoans++
 
-          loan.repayment_schedules?.forEach((schedule: any) => {
+          loan.repayment_schedules?.forEach((schedule: RepaymentScheduleWithEvents) => {
             // Check if this schedule has any payments
             const hasPayment = schedule.repayment_events && schedule.repayment_events.length > 0
 
@@ -108,7 +109,7 @@ export default function AdminBorrowersPage() {
               totalPaid++
               const dueDate = new Date(schedule.due_date)
               // Get the first payment date (could have multiple partial payments)
-              const paidDate = new Date(schedule.repayment_events[0].paid_at)
+              const paidDate = new Date(schedule.repayment_events?.[0]?.paid_at as string)
               if (paidDate <= dueDate) {
                 totalOnTime++
               } else {
@@ -123,7 +124,7 @@ export default function AdminBorrowersPage() {
 
         const healthScore = totalPaid > 0 ? Math.round((totalOnTime / totalPaid) * 100) : 0
         const creditScore = borrower.borrower_scores?.[0]?.score || 0
-        const verificationData = borrower.borrower_self_verification_status?.[0]
+        const verificationData = (borrower.borrower_self_verification_status as any)?.[0]
         const verificationStatus = verificationData?.verification_status || 'incomplete'
         const rejectionReason = verificationData?.rejection_reason || null
 
@@ -144,7 +145,7 @@ export default function AdminBorrowersPage() {
 
       setBorrowers(borrowersWithHealth)
       applyFilters(borrowersWithHealth, verificationFilter, searchQuery)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading borrowers:', error)
     } finally {
       setLoading(false)
@@ -169,7 +170,7 @@ export default function AdminBorrowersPage() {
         const { hashNationalIdAsync } = await import('@/lib/auth')
         const idHash = await hashNationalIdAsync(search)
         filtered = filtered.filter(b => b.national_id_hash === idHash)
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error hashing National ID:', error)
         filtered = []
       }

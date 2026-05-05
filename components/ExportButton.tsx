@@ -67,9 +67,9 @@ export function ExportButton({
       // Premium user - proceed with export
       await onExport()
       toast.success('Export completed successfully')
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Export error:', error)
-      toast.error(error.message || 'Export failed')
+      toast.error(error instanceof Error ? error.message : 'Export failed')
     } finally {
       setLoading(false)
     }

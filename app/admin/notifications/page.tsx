@@ -62,7 +62,7 @@ interface Notification {
   priority: string
   action_label?: string
   action_link?: string
-  metadata?: any
+  metadata?: Record<string, unknown>
   created_at: string
   expires_at?: string
 }
@@ -120,7 +120,7 @@ export default function AdminNotificationsPage() {
       if (error) throw error
 
       setNotifications(data || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading notifications:', error)
       toast.error('Failed to load notifications')
     } finally {
@@ -139,7 +139,7 @@ export default function AdminNotificationsPage() {
 
       setNotifications(prev => prev.filter(n => n.id !== id))
       toast.success('Notification deleted')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting notification:', error)
       toast.error('Failed to delete notification')
     }

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { LoanWithRelations, RepaymentEvent, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   Table,
   TableBody,
@@ -178,7 +179,7 @@ export default function LoansPage() {
 
       // Now get repayment schedules with their events separately for each loan
       const loansWithSchedules = await Promise.all(
-        (loanData || []).map(async (loan: any) => {
+        (loanData || []).map(async (loan: LoanWithRelations) => {
           const { data: schedules } = await supabase
             .from('repayment_schedules')
             .select('id, due_date, amount_due_minor, installment_no, principal_minor, interest_minor, status, paid_amount_minor, paid_at, is_early_payment, repayment_events(id, amount_paid_minor, paid_at)')
@@ -195,10 +196,10 @@ export default function LoansPage() {
       setLoans(loansWithSchedules)
 
       // Helper to check if schedule is paid
-      const checkSchedulePaid = (schedule: any) => {
+      const checkSchedulePaid = (schedule: RepaymentScheduleWithEvents) => {
         if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
-        const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
-        return totalPaid >= schedule.amount_due_minor
+        const totalPaid = schedule.repayment_events.reduce((sum: number, e: RepaymentEvent) => sum + (e.amount_paid_minor || 0), 0)
+        return totalPaid >= (schedule.amount_due_minor ?? 0)
       }
 
       // Calculate due today and overdue counts
@@ -212,7 +213,7 @@ export default function LoansPage() {
 
       loansWithSchedules.forEach(loan => {
         if (loan.status !== 'active') return
-        loan.repayment_schedules?.forEach((schedule: any) => {
+        loan.repayment_schedules?.forEach((schedule: RepaymentScheduleWithEvents) => {
           if (checkSchedulePaid(schedule)) return
           const dueDate = new Date(schedule.due_date)
           dueDate.setHours(0, 0, 0, 0)
@@ -228,16 +229,16 @@ export default function LoansPage() {
       // Calculate stats - convert from minor units to major units
       const statsData = {
         total: loanData?.length || 0,
-        active: loanData?.filter((l: any) => l.status === 'active').length || 0,
-        completed: loanData?.filter((l: any) => l.status === 'completed').length || 0,
-        defaulted: loanData?.filter((l: any) => l.status === 'defaulted').length || 0,
-        totalDisbursed: loanData?.filter((l: any) => ['active', 'completed', 'defaulted', 'written_off'].includes(l.status)).reduce((sum: number, l: any) => sum + (l.principal_minor || 0), 0) || 0,
+        active: loanData?.filter((l: LoanWithRelations) => l.status === 'active').length || 0,
+        completed: loanData?.filter((l: LoanWithRelations) => l.status === 'completed').length || 0,
+        defaulted: loanData?.filter((l: LoanWithRelations) => l.status === 'defaulted').length || 0,
+        totalDisbursed: loanData?.filter((l: LoanWithRelations) => ['active', 'completed', 'defaulted', 'written_off'].includes(l.status)).reduce((sum: number, l: LoanWithRelations) => sum + (l.principal_minor || 0), 0) || 0,
         totalRepaid: 0, // This would need to be calculated from repayment_events
         dueToday,
         overdue,
       }
       setStats(statsData)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
     } finally {
       setLoading(false)
@@ -284,42 +285,42 @@ export default function LoansPage() {
   }
 
   // Helper to check if a schedule is paid
-  const isSchedulePaid = (schedule: any) => {
+  const isSchedulePaid = (schedule: RepaymentScheduleWithEvents) => {
     // First check the status column if available
     if (schedule.status === 'paid') return true
     if (schedule.status === 'partial' || schedule.status === 'pending' || schedule.status === 'overdue') return false
 
     // Fallback to checking repayment events
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
-    const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
-    return totalPaid >= schedule.amount_due_minor
+    const totalPaid = schedule.repayment_events.reduce((sum: number, e: RepaymentEvent) => sum + (e.amount_paid_minor || 0), 0)
+    return totalPaid >= (schedule.amount_due_minor ?? 0)
   }
 
-  const calculateProgress = (loan: any) => {
+  const calculateProgress = (loan: LoanWithRelations) => {
     const schedules = loan.repayment_schedules || []
     if (schedules.length === 0) return 0
 
     // Use amount-based progress instead of schedule-count-based progress
     // This shows partial payment progress correctly
-    const totalDue = schedules.reduce((sum: number, s: any) => sum + (s.amount_due_minor || 0), 0)
-    const totalPaid = schedules.reduce((sum: number, s: any) => sum + (s.paid_amount_minor || 0), 0)
+    const totalDue = schedules.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + (s.amount_due_minor || 0), 0)
+    const totalPaid = schedules.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + (s.paid_amount_minor || 0), 0)
 
     return totalDue > 0 ? Math.round((totalPaid / totalDue) * 100) : 0
   }
 
-  const getNextPayment = (loan: any) => {
+  const getNextPayment = (loan: LoanWithRelations) => {
     // Get the earliest unpaid schedule by due_date
     const schedules = loan.repayment_schedules || []
     if (schedules.length === 0) return null
 
     // Sort by installment_no and get the first unpaid one
-    const sorted = [...schedules].sort((a, b) => a.installment_no - b.installment_no)
-    const unpaid = sorted.find((s: any) => !isSchedulePaid(s))
+    const sorted = [...schedules].sort((a, b) => (a.installment_no ?? 0) - (b.installment_no ?? 0))
+    const unpaid = sorted.find((s: RepaymentScheduleWithEvents) => !isSchedulePaid(s))
     return unpaid || sorted[0]
   }
 
   // Check if a schedule is overdue
-  const isOverdue = (dueDate: string, schedule: any) => {
+  const isOverdue = (dueDate: string, schedule: RepaymentScheduleWithEvents) => {
     if (isSchedulePaid(schedule)) return false
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -329,7 +330,7 @@ export default function LoansPage() {
   }
 
   // Check if a schedule is due today
-  const isDueToday = (dueDate: string, schedule: any) => {
+  const isDueToday = (dueDate: string, schedule: RepaymentScheduleWithEvents) => {
     if (isSchedulePaid(schedule)) return false
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -342,7 +343,7 @@ export default function LoansPage() {
   const getOverdueLoans = () => {
     return loans.filter(loan => {
       if (loan.status !== 'active') return false
-      return loan.repayment_schedules?.some((s: any) => isOverdue(s.due_date, s))
+      return loan.repayment_schedules?.some((s: RepaymentScheduleWithEvents) => isOverdue(s.due_date, s))
     })
   }
 
@@ -350,7 +351,7 @@ export default function LoansPage() {
   const getDueTodayLoans = () => {
     return loans.filter(loan => {
       if (loan.status !== 'active') return false
-      return loan.repayment_schedules?.some((s: any) => isDueToday(s.due_date, s))
+      return loan.repayment_schedules?.some((s: RepaymentScheduleWithEvents) => isDueToday(s.due_date, s))
     })
   }
 
@@ -405,7 +406,7 @@ export default function LoansPage() {
       setSelectedSchedule(null)
       setPaymentAmount('')
       setPaymentMethod('cash')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error recording payment:', error)
       toast.error('Failed to record payment')
     } finally {
@@ -786,6 +787,7 @@ export default function LoansPage() {
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function LoanTable({ loans, formatCurrency, getStatusBadge, calculateProgress, getNextPayment, router, onRecordPayment, isOverdue, isDueToday, isSchedulePaid, showDueSchedule }: any) {
   if (loans.length === 0) {
     return (
@@ -800,23 +802,23 @@ function LoanTable({ loans, formatCurrency, getStatusBadge, calculateProgress, g
   }
 
   // Helper to get the due/overdue schedule for a loan
-  const getDueSchedule = (loan: any) => {
+  const getDueSchedule = (loan: LoanWithRelations) => {
     if (!loan.repayment_schedules) return null
-    return loan.repayment_schedules.find((s: any) =>
+    return loan.repayment_schedules.find((s: RepaymentScheduleWithEvents) =>
       !isSchedulePaid(s) && (isOverdue(s.due_date, s) || isDueToday(s.due_date, s))
     )
   }
 
   // Check if schedule is paid for table display
-  const isSchedulePaidForDisplay = (schedule: any) => {
+  const isSchedulePaidForDisplay = (schedule: RepaymentScheduleWithEvents) => {
     // First check the status column if available
     if (schedule.status === 'paid') return true
     if (schedule.status === 'partial' || schedule.status === 'pending' || schedule.status === 'overdue') return false
 
     // Fallback to checking repayment events
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
-    const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
-    return totalPaid >= schedule.amount_due_minor
+    const totalPaid = schedule.repayment_events.reduce((sum: number, e: RepaymentEvent) => sum + (e.amount_paid_minor || 0), 0)
+    return totalPaid >= (schedule.amount_due_minor ?? 0)
   }
 
   return (
@@ -835,7 +837,7 @@ function LoanTable({ loans, formatCurrency, getStatusBadge, calculateProgress, g
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loans.map((loan: any) => {
+          {loans.map((loan: LoanWithRelations) => {
             const nextPayment = getNextPayment(loan)
             const progress = calculateProgress(loan)
             const dueSchedule = showDueSchedule ? getDueSchedule(loan) : null
@@ -855,11 +857,11 @@ function LoanTable({ loans, formatCurrency, getStatusBadge, calculateProgress, g
                       {formatCurrency(loan.principal_minor || 0)}
                     </p>
                     <p className="text-sm text-gray-500">
-                      APR: {((loan.apr_bps || 0) / 100).toFixed(2)}%
+                      Rate: {(loan.total_interest_percent || loan.base_rate_percent || ((loan.apr_bps || 0) / 100)).toFixed(2)}%
                     </p>
                   </div>
                 </TableCell>
-                <TableCell>{((loan.apr_bps || 0) / 100).toFixed(2)}%</TableCell>
+                <TableCell>{(loan.total_interest_percent || loan.base_rate_percent || ((loan.apr_bps || 0) / 100)).toFixed(2)}%</TableCell>
                 <TableCell>{loan.term_months} months</TableCell>
                 <TableCell>{getStatusBadge(loan.status)}</TableCell>
                 <TableCell>

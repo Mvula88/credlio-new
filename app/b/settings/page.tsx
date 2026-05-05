@@ -216,7 +216,7 @@ export default function BorrowerSettingsPage() {
 
       // Load saved preferences (mock data for now)
       // In production, these would be stored in a user_preferences table
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading settings:', error)
     } finally {
       setLoading(false)
@@ -261,7 +261,7 @@ export default function BorrowerSettingsPage() {
 
       // Show success message
       alert('Profile updated successfully!')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving profile:', error)
       alert('Failed to update profile')
     } finally {
@@ -289,7 +289,7 @@ export default function BorrowerSettingsPage() {
           confirmPassword: ''
         })
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error changing password:', error)
       alert('Failed to change password')
     }

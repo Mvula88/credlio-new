@@ -42,7 +42,7 @@ import ProfileCompletionBanner from '@/components/ProfileCompletionBanner'
 interface NavigationItem {
   name: string
   href: string
-  icon: any
+  icon: React.ComponentType<{ className?: string }>
   badge: string | null
   proPlusOnly?: boolean
   businessOnly?: boolean

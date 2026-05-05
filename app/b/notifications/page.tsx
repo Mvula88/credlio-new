@@ -45,7 +45,7 @@ interface Notification {
   priority: string
   action_label?: string
   action_link?: string
-  metadata?: any
+  metadata?: Record<string, unknown>
   created_at: string
   expires_at?: string
 }

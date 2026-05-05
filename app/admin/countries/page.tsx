@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import type { BorrowerWithRelations, LoanWithRelations } from '@/lib/types'
 import {
   Globe,
   MapPin,
@@ -83,7 +84,7 @@ export default function CountriesPage() {
           const totalBorrowers = borrowersData?.length || 0
           // Count borrowers without linked accounts (no entry in borrower_user_links)
           const unregisteredBorrowers = borrowersData?.filter(
-            (b: any) => !b.borrower_user_links || b.borrower_user_links.length === 0
+            (b: BorrowerWithRelations) => !b.borrower_user_links || b.borrower_user_links.length === 0
           ).length || 0
 
           // Get lenders by country
@@ -99,9 +100,9 @@ export default function CountriesPage() {
             .eq('country_code', country.code)
 
           const totalLoans = loans?.length || 0
-          const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
+          const activeLoans = loans?.filter((l: LoanWithRelations) => l.status === 'active').length || 0
           // Keep in MINOR units for consistent formatting
-          const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
+          const totalLoanVolume = loans?.reduce((sum: number, loan: LoanWithRelations) => sum + (loan.principal_minor || 0), 0) || 0
 
           // Get risk flags by country
           const { count: openRiskFlags } = await supabase
@@ -204,7 +205,7 @@ export default function CountriesPage() {
       )
 
       setCountries(countryStats)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading countries:', error)
     } finally {
       setLoading(false)

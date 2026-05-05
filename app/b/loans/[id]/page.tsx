@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
+import type { RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   Table,
   TableBody,
@@ -124,7 +125,7 @@ export default function BorrowerLoanDetailPage() {
       }
 
       if (loanData.repayment_schedules) {
-        loanData.repayment_schedules.sort((a: any, b: any) => a.installment_no - b.installment_no)
+        loanData.repayment_schedules.sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => (a.installment_no ?? 0) - (b.installment_no ?? 0))
       }
 
       setLoan(loanData)
@@ -150,7 +151,7 @@ export default function BorrowerLoanDetailPage() {
         .eq('loan_id', loanId)
         .order('created_at', { ascending: false })
       setPaymentProofs(proofs || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading loan:', error)
     } finally {
       setLoading(false)
@@ -284,7 +285,8 @@ export default function BorrowerLoanDetailPage() {
         .upload(filePath, proofFile)
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage.from('payment-proofs').getPublicUrl(filePath)
+      // Store the file path (bucket is private, use signed URLs to view)
+      const proofUrl = filePath
 
       // Submit payment proof
       const { error } = await supabase.rpc('submit_payment_proof', {
@@ -293,7 +295,7 @@ export default function BorrowerLoanDetailPage() {
         p_payment_date: proofDate,
         p_payment_method: proofMethod,
         p_reference_number: proofReference || null,
-        p_proof_url: publicUrl,
+        p_proof_url: proofUrl,
         p_notes: proofNotes || null
       })
       if (error) throw error
@@ -350,7 +352,7 @@ export default function BorrowerLoanDetailPage() {
 
   const getNextPayment = () => {
     if (!loan?.repayment_schedules) return null
-    return loan.repayment_schedules.filter((s: any) => s.status === 'pending').sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0]
+    return loan.repayment_schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'pending').sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0]
   }
 
   if (loading) return <div className="flex items-center justify-center h-96"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>
@@ -781,13 +783,13 @@ export default function BorrowerLoanDetailPage() {
             <Table>
               <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Due Date</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
               <TableBody>
-                {loan.repayment_schedules.map((s: any) => {
+                {loan.repayment_schedules.map((s: RepaymentScheduleWithEvents) => {
                   const overdue = s.status !== 'paid' && isPast(new Date(s.due_date))
                   return (
                     <TableRow key={s.id} className={overdue ? 'bg-red-50' : ''}>
                       <TableCell>{s.installment_no}</TableCell>
                       <TableCell>{format(new Date(s.due_date), 'MMM dd, yyyy')}</TableCell>
-                      <TableCell className="font-medium">{formatCurrency(s.amount_due_minor, loan.currency)}</TableCell>
+                      <TableCell className="font-medium">{formatCurrency(s.amount_due_minor ?? 0, loan.currency)}</TableCell>
                       <TableCell>
                         {s.status === 'paid' ? <Badge className="bg-green-100 text-green-800"><CheckCircle className="h-3 w-3 mr-1" />Paid</Badge> : overdue ? <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />Overdue</Badge> : <Badge variant="outline"><Clock className="h-3 w-3 mr-1" />Pending</Badge>}
                       </TableCell>

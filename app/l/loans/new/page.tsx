@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import type { LoanWithRelations } from '@/lib/types'
 import {
   CreditCard,
   User,
@@ -156,7 +157,7 @@ function NewLoanPageContent() {
       setBorrowerHasAccount(!!borrowerLink?.user_id)
 
       // Check for active loan
-      const hasActiveLoan = data.loans?.some((l: any) => l.status === 'active')
+      const hasActiveLoan = data.loans?.some((l: LoanWithRelations) => l.status === 'active')
       if (hasActiveLoan) {
         setError('This borrower has an active loan and cannot take a new one.')
       }
@@ -208,7 +209,7 @@ function NewLoanPageContent() {
       setBorrowerHasAccount(!!borrowerLink?.user_id)
 
       // Check for active loan
-      const hasActiveLoan = data.loans?.some((l: any) => l.status === 'active')
+      const hasActiveLoan = data.loans?.some((l: LoanWithRelations) => l.status === 'active')
       if (hasActiveLoan) {
         setError('This borrower has an active loan and cannot take a new one.')
       }
@@ -364,7 +365,7 @@ function NewLoanPageContent() {
         console.error('Loan error KEYS:', errorKeys)
         console.error('Loan error entries:', Object.entries(loanError))
 
-        const errorMessage = loanError.message || (loanError as any).error || errorStr || 'Unknown error'
+        const errorMessage = loanError.message || (loanError as Record<string, unknown>).error || errorStr || 'Unknown error'
 
         if (errorMessage.includes('already have an active loan')) {
           setError('This borrower already has an active loan. They must repay it before taking a new one.')

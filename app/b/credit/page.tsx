@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { BorrowerWithRelations, LoanWithRelations, RepaymentEvent } from '@/lib/types'
 import {
   TrendingUp,
   TrendingDown,
@@ -68,6 +69,9 @@ export default function CreditScorePage() {
   const [creditUtilization, setCreditUtilization] = useState<any>(null)
   const [recommendations, setRecommendations] = useState<any[]>([])
   const [riskFlags, setRiskFlags] = useState<any[]>([])
+  const [activeLoans, setActiveLoans] = useState<any[]>([])
+  const [onTimeRate, setOnTimeRate] = useState<number | null>(null)
+  const [creditAgeYears, setCreditAgeYears] = useState<number | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -172,11 +176,41 @@ export default function CreditScorePage() {
         const utilization = calculateUtilization(loans || [], borrowerData)
         setCreditUtilization(utilization)
 
+        // Track active loans for the accounts section
+        setActiveLoans((loans || []).filter((l: any) => l.status === 'active'))
+
+        // Calculate on-time payment rate from repayment schedules
+        const { data: allSchedules } = await supabase
+          .from('repayment_schedules')
+          .select('status, due_date, paid_at')
+          .in('loan_id', (loans || []).map((l: { id: string }) => l.id))
+          .eq('status', 'paid')
+
+        if (allSchedules && allSchedules.length > 0) {
+          const onTimeCount = allSchedules.filter((s: { paid_at: string | null; due_date: string }) => {
+            if (!s.paid_at) return true // assume on-time if no paid_at recorded
+            return new Date(s.paid_at) <= new Date(s.due_date)
+          }).length
+          setOnTimeRate(Math.round((onTimeCount / allSchedules.length) * 100))
+        } else {
+          setOnTimeRate(null)
+        }
+
+        // Calculate credit age from earliest loan
+        if (loans && loans.length > 0) {
+          const earliest = loans.reduce((min: any, l: any) =>
+            new Date(l.created_at) < new Date(min.created_at) ? l : min
+          , loans[0])
+          const ageMs = Date.now() - new Date(earliest.created_at).getTime()
+          const ageYears = Math.round((ageMs / (1000 * 60 * 60 * 24 * 365.25)) * 10) / 10
+          setCreditAgeYears(ageYears)
+        }
+
         // Generate recommendations
         const recs = generateRecommendations(borrowerData.borrower_scores?.[0]?.score || 650)
         setRecommendations(recs)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading credit data:', error)
     } finally {
       setLoading(false)
@@ -214,15 +248,15 @@ export default function CreditScorePage() {
 
       // Count late payments in this month
       let latePaymentsInMonth = 0
-      loans.forEach((loan: any) => {
+      loans.forEach((loan: LoanWithRelations) => {
         const events = loan.repayment_events || []
-        events.forEach((event: any) => {
+        events.forEach((event: RepaymentEvent) => {
           const eventDate = new Date(event.created_at)
-          if (eventDate >= monthStart && eventDate <= monthEnd && event.days_late > 0) {
+          if (eventDate >= monthStart && eventDate <= monthEnd && (event.days_late ?? 0) > 0) {
             latePaymentsInMonth++
             // Deduct points based on lateness
-            if (event.days_late <= 7) currentScore -= 10
-            else if (event.days_late <= 30) currentScore -= 35
+            if ((event.days_late ?? 0) <= 7) currentScore -= 10
+            else if ((event.days_late ?? 0) <= 30) currentScore -= 35
             else currentScore -= 70
           }
         })
@@ -242,11 +276,11 @@ export default function CreditScorePage() {
     return history
   }
 
-  const calculateUtilization = (loans: any[], borrower: any) => {
+  const calculateUtilization = (loans: LoanWithRelations[], borrower: BorrowerWithRelations) => {
     const totalCredit = borrower.credit_limit || 100000
     const totalUsed = loans
       .filter(l => l.status === 'active')
-      .reduce((sum, loan) => sum + loan.principal_amount, 0)
+      .reduce((sum, loan) => sum + (loan.principal_amount ?? 0), 0)
     
     return {
       used: totalUsed,
@@ -447,10 +481,10 @@ export default function CreditScorePage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-baseline space-x-2">
-                  <span className="text-2xl font-bold">98%</span>
+                  <span className="text-2xl font-bold">{onTimeRate !== null ? `${onTimeRate}%` : 'N/A'}</span>
                   <span className="text-sm text-green-600">On-time</span>
                 </div>
-                <Progress value={98} className="mt-2" />
+                <Progress value={onTimeRate ?? 0} className="mt-2" />
               </CardContent>
             </Card>
 
@@ -479,10 +513,10 @@ export default function CreditScorePage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-baseline space-x-2">
-                  <span className="text-2xl font-bold">2.5</span>
-                  <span className="text-sm text-gray-600">Years</span>
+                  <span className="text-2xl font-bold">{creditAgeYears !== null ? creditAgeYears : 'N/A'}</span>
+                  <span className="text-sm text-gray-600">{creditAgeYears !== null ? 'Years' : ''}</span>
                 </div>
-                <Progress value={60} className="mt-2" />
+                <Progress value={creditAgeYears !== null ? Math.min(creditAgeYears / 5 * 100, 100) : 0} className="mt-2" />
               </CardContent>
             </Card>
 
@@ -494,10 +528,10 @@ export default function CreditScorePage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-baseline space-x-2">
-                  <span className="text-2xl font-bold">3</span>
+                  <span className="text-2xl font-bold">{activeLoans.length}</span>
                   <span className="text-sm text-gray-600">Active</span>
                 </div>
-                <Progress value={75} className="mt-2" />
+                <Progress value={Math.min(activeLoans.length * 25, 100)} className="mt-2" />
               </CardContent>
             </Card>
           </div>
@@ -826,29 +860,39 @@ export default function CreditScorePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="p-4 border rounded-lg">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-medium">Personal Loan #1</p>
-                      <p className="text-sm text-gray-600">Opened: Jan 2023</p>
+                {activeLoans.length === 0 ? (
+                  <p className="text-sm text-gray-500">No active loan accounts</p>
+                ) : (
+                  activeLoans.map((loan, idx) => (
+                    <div key={loan.id} className="p-4 border rounded-lg">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-medium">Loan #{idx + 1}</p>
+                          <p className="text-sm text-gray-600">
+                            Opened: {format(new Date(loan.created_at), 'MMM yyyy')}
+                          </p>
+                        </div>
+                        <Badge className="bg-green-100 text-green-800">Active</Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-600">Principal</p>
+                          <p className="font-medium">
+                            {((loan.principal_minor || loan.principal_amount || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: loan.currency || 'USD' })}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">Term</p>
+                          <p className="font-medium">{loan.term_months || '—'} months</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">Status</p>
+                          <p className="font-medium text-green-600">{loan.status}</p>
+                        </div>
+                      </div>
                     </div>
-                    <Badge className="bg-green-100 text-green-800">Active</Badge>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-600">Balance</p>
-                      <p className="font-medium">$5,000</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">Limit</p>
-                      <p className="font-medium">$10,000</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">Payment</p>
-                      <p className="font-medium text-green-600">On Time</p>
-                    </div>
-                  </div>
-                </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

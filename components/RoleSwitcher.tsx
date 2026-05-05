@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +54,7 @@ export function RoleSwitcher() {
           return
         }
 
-        const rolesList = userRoles?.map((r: any) => r.role) || []
+        const rolesList = userRoles?.map((r: UserRole) => r.role) || []
         setRoles(rolesList)
 
         // Detect current role from URL

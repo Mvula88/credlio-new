@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
+import type { BorrowerWithRelations, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   Table,
   TableBody,
@@ -200,13 +201,13 @@ export default function RepaymentsPage() {
 
       // Calculate comprehensive stats
       const now = new Date()
-      const paid = schedulesData?.filter((s: any) => s.status === 'paid') || []
-      const pending = schedulesData?.filter((s: any) => s.status === 'pending' || s.status === 'partial') || []
-      const overdue = pending.filter((s: any) => new Date(s.due_date) < now)
-      const early = paid.filter((s: any) => s.is_early_payment)
+      const paid = schedulesData?.filter((s: RepaymentScheduleWithEvents) => s.status === 'paid') || []
+      const pending = schedulesData?.filter((s: RepaymentScheduleWithEvents) => s.status === 'pending' || s.status === 'partial') || []
+      const overdue = pending.filter((s: RepaymentScheduleWithEvents) => new Date(s.due_date) < now)
+      const early = paid.filter((s: RepaymentScheduleWithEvents) => s.is_early_payment)
 
       // Calculate late payments (paid after due date)
-      const late = paid.filter((s: any) => {
+      const late = paid.filter((s: RepaymentScheduleWithEvents) => {
         if (!s.paid_at) return false
         return new Date(s.paid_at) > new Date(s.due_date)
       })
@@ -215,23 +216,23 @@ export default function RepaymentsPage() {
       let totalDaysEarly = 0
       let totalDaysLate = 0
 
-      early.forEach((s: any) => {
+      early.forEach((s: RepaymentScheduleWithEvents) => {
         if (s.paid_at) {
           const days = differenceInDays(new Date(s.due_date), new Date(s.paid_at))
           totalDaysEarly += Math.max(0, days)
         }
       })
 
-      late.forEach((s: any) => {
+      late.forEach((s: RepaymentScheduleWithEvents) => {
         if (s.paid_at) {
           const days = differenceInDays(new Date(s.paid_at), new Date(s.due_date))
           totalDaysLate += Math.max(0, days)
         }
       })
 
-      const totalCollected = schedulesData?.reduce((sum: number, s: any) => sum + (s.paid_amount_minor || 0), 0) || 0
-      const pendingAmount = pending.reduce((sum: number, s: any) => sum + ((s.amount_due_minor || 0) - (s.paid_amount_minor || 0)), 0)
-      const overdueAmount = overdue.reduce((sum: number, s: any) => sum + ((s.amount_due_minor || 0) - (s.paid_amount_minor || 0)), 0)
+      const totalCollected = schedulesData?.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + (s.paid_amount_minor || 0), 0) || 0
+      const pendingAmount = pending.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + ((s.amount_due_minor || 0) - (s.paid_amount_minor || 0)), 0)
+      const overdueAmount = overdue.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + ((s.amount_due_minor || 0) - (s.paid_amount_minor || 0)), 0)
 
       setStats({
         totalCollected,
@@ -245,7 +246,7 @@ export default function RepaymentsPage() {
         averageDaysEarly: early.length > 0 ? Math.round(totalDaysEarly / early.length) : 0,
         averageDaysLate: late.length > 0 ? Math.round(totalDaysLate / late.length) : 0,
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading repayments:', error)
     } finally {
       setLoading(false)
@@ -268,7 +269,7 @@ export default function RepaymentsPage() {
         .order('created_at', { ascending: true })
 
       setCrossLenderHistory(history || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading cross-lender history:', error)
     }
   }
@@ -302,7 +303,7 @@ export default function RepaymentsPage() {
       setSelectedSchedule(null)
       setPaymentAmount('')
       setPaymentMethod('cash')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error recording payment:', error)
       toast.error('Failed to record payment')
     } finally {
@@ -358,18 +359,18 @@ export default function RepaymentsPage() {
   }
 
   // Group schedules by borrower with comprehensive analytics
-  const schedulesByBorrower = schedules.reduce((acc: any, schedule: any) => {
+  const schedulesByBorrower = schedules.reduce((acc: any, schedule: RepaymentScheduleWithEvents) => {
     const borrowerId = schedule.loans?.borrowers?.id
     if (!borrowerId) return acc
 
     if (!acc[borrowerId]) {
       acc[borrowerId] = {
-        borrower: schedule.loans.borrowers,
+        borrower: schedule.loans?.borrowers,
         loan: schedule.loans,
         schedules: [],
         totalAmount: 0,
         paidAmount: 0,
-        currency: schedule.loans.currency,
+        currency: schedule.loans?.currency,
         earlyPayments: 0,
         latePayments: 0,
         onTimePayments: 0,
@@ -474,10 +475,10 @@ export default function RepaymentsPage() {
 
   // Borrower health distribution
   const healthDistribution = [
-    { range: 'Excellent (80-100)', count: Object.values(schedulesByBorrower).filter((b: any) => b.paymentHealth >= 80).length, color: '#10b981' },
-    { range: 'Good (60-79)', count: Object.values(schedulesByBorrower).filter((b: any) => b.paymentHealth >= 60 && b.paymentHealth < 80).length, color: '#3b82f6' },
-    { range: 'Fair (40-59)', count: Object.values(schedulesByBorrower).filter((b: any) => b.paymentHealth >= 40 && b.paymentHealth < 60).length, color: '#f59e0b' },
-    { range: 'Poor (0-39)', count: Object.values(schedulesByBorrower).filter((b: any) => b.paymentHealth < 40).length, color: '#ef4444' },
+    { range: 'Excellent (80-100)', count: Object.values(schedulesByBorrower).filter((b: any) => (b.paymentHealth ?? 0) >= 80).length, color: '#10b981' },
+    { range: 'Good (60-79)', count: Object.values(schedulesByBorrower).filter((b: any) => (b.paymentHealth ?? 0) >= 60 && (b.paymentHealth ?? 0) < 80).length, color: '#3b82f6' },
+    { range: 'Fair (40-59)', count: Object.values(schedulesByBorrower).filter((b: any) => (b.paymentHealth ?? 0) >= 40 && (b.paymentHealth ?? 0) < 60).length, color: '#f59e0b' },
+    { range: 'Poor (0-39)', count: Object.values(schedulesByBorrower).filter((b: any) => (b.paymentHealth ?? 0) < 40).length, color: '#ef4444' },
   ].filter(item => item.count > 0)
 
   if (loading) {
@@ -889,7 +890,7 @@ export default function RepaymentsPage() {
                         />
                         {/* Markers for each payment */}
                         <div className="absolute inset-0 flex items-center">
-                          {borrowerData.schedules.map((s: any, i: number) => {
+                          {borrowerData.schedules.map((s: RepaymentScheduleWithEvents, i: number) => {
                             const position = ((i + 1) / borrowerData.schedules.length) * 100
                             return (
                               <div
@@ -910,7 +911,7 @@ export default function RepaymentsPage() {
 
                     {/* Individual Schedules */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                      {borrowerData.schedules.map((schedule: any) => {
+                      {borrowerData.schedules.map((schedule: RepaymentScheduleWithEvents) => {
                         const paidAmountMinor = schedule.paid_amount_minor || 0
                         const amountDueMinor = schedule.amount_due_minor || 0
                         const remainingMinor = amountDueMinor - paidAmountMinor

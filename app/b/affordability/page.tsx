@@ -39,6 +39,7 @@ import {
   PieChart
 } from 'lucide-react'
 import { format } from 'date-fns'
+import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 import {
   PieChart as RechartsPieChart,
   Pie,
@@ -60,6 +61,7 @@ export default function AffordabilityCalculatorPage() {
   const [profile, setProfile] = useState<any>(null)
   const [borrower, setBorrower] = useState<any>(null)
   const [creditScore, setCreditScore] = useState<any>(null)
+  const [currency, setCurrency] = useState<CurrencyInfo>({ code: 'NAD', symbol: 'N$', minorUnits: 2, countryCode: 'NA' })
   const router = useRouter()
   const supabase = createClient()
 
@@ -118,6 +120,14 @@ export default function AffordabilityCalculatorPage() {
       }
 
       setProfile(profileData)
+
+      // Set currency based on user's country
+      if (profileData.country_code) {
+        const userCurrency = getCurrencyByCountry(profileData.country_code)
+        if (userCurrency) {
+          setCurrency(userCurrency)
+        }
+      }
 
       const { data: borrowerData } = await supabase
         .from('borrowers')
@@ -247,11 +257,11 @@ export default function AffordabilityCalculatorPage() {
   }
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
+    const formatted = amount.toLocaleString('en-US', {
       minimumFractionDigits: 0,
-    }).format(amount)
+      maximumFractionDigits: 0,
+    })
+    return `${currency.symbol}${formatted}`
   }
 
   const expenseCategories = [
@@ -668,7 +678,7 @@ export default function AffordabilityCalculatorPage() {
                       <Cell key={`cell-${index}`} fill={expenseCategories[index].color} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
                 </RechartsPieChart>
               </ResponsiveContainer>
             </div>

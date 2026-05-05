@@ -82,8 +82,7 @@ export default function KYCVerificationPage() {
       const pendingCount = verificationsData?.filter((v: any) => v.verification_status === 'pending').length || 0
       const rejectedCount = verificationsData?.filter((v: any) => v.verification_status === 'rejected').length || 0
       const bannedCount = verificationsData?.filter((v: any) => v.verification_status === 'banned').length || 0
-      const todayApprovedCount = verificationsData?.filter((v: any) =>
-        v.verification_status === 'approved' &&
+      const todayApprovedCount = verificationsData?.filter((v: any) => v.verification_status === 'approved' &&
         v.verified_at &&
         v.verified_at.startsWith(today)
       ).length || 0
@@ -96,7 +95,7 @@ export default function KYCVerificationPage() {
         banned: bannedCount,
         todayApproved: todayApprovedCount,
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading KYC data:', error)
     } finally {
       setLoading(false)
@@ -116,7 +115,7 @@ export default function KYCVerificationPage() {
       setSelectedVerification(verification)
       setAdminNotes(verification.admin_notes || '')
       setShowDetailsModal(true)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading verification details:', error)
     }
   }
@@ -151,7 +150,7 @@ export default function KYCVerificationPage() {
       alert('Borrower approved successfully!')
       setShowDetailsModal(false)
       loadKYCData()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error approving:', error)
       alert('Failed to approve borrower')
     } finally {
@@ -194,7 +193,7 @@ export default function KYCVerificationPage() {
       alert('Borrower rejected successfully!')
       setShowDetailsModal(false)
       loadKYCData()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error rejecting:', error)
       alert('Failed to reject borrower')
     } finally {

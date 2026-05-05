@@ -76,7 +76,7 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
           schema: 'public',
           table: 'notifications'
         },
-        (payload: any) => {
+        (payload: Record<string, unknown>) => {
           console.log('Notification change:', payload)
           loadNotifications()
           loadUnreadCounts()
@@ -136,7 +136,7 @@ export default function NotificationBell({ userRole }: NotificationBellProps) {
       if (error) throw error
 
       setNotifications(data || [])
-      const unread = data?.filter((n: any) => !n.read).length || 0
+      const unread = data?.filter((n: { read: boolean }) => !n.read).length || 0
       setUnreadCount(unread)
     } catch (error) {
       console.error('Error loading notifications:', error)

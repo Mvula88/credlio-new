@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
 import { VerificationStatusBanner } from '@/components/verification-status-banner'
-import { getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
+import { getCurrencyInfo, getCurrencyByCountry, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
+import type { BorrowerWithRelations, LoanWithRelations, RepaymentEvent, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   LineChart,
   Line,
@@ -150,26 +151,24 @@ export default function LenderOverviewPage() {
         return
       }
 
-      // Fetch profile and currency from API route to avoid RLS issues
-      const profileResponse = await fetch('/api/check-profile')
-      const profileApiData = await profileResponse.json()
-
-      const profileData = profileApiData.profile
-      const currencyData = profileApiData.currency
+      // Fetch profile directly from Supabase
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single()
 
       setLenderProfile({
         ...finalLender,
         profiles: profileData
       })
 
-      // Set currency from API response
-      if (currencyData) {
-        setLenderCurrency({
-          code: currencyData.currency_code,
-          symbol: currencyData.currency_symbol,
-          minorUnits: currencyData.minor_units,
-          countryCode: profileData?.country_code
-        })
+      // Set currency based on profile country
+      if (profileData?.country_code) {
+        const currencyData = getCurrencyByCountry(profileData.country_code)
+        if (currencyData) {
+          setLenderCurrency(currencyData)
+        }
       }
 
       // Get subscription
@@ -208,7 +207,7 @@ export default function LenderOverviewPage() {
         .eq('created_by_lender', finalLender.user_id)
 
       // Get loan IDs for related queries
-      const loanIds = allLoans?.map((l: any) => l.id) || []
+      const loanIds = allLoans?.map((l: LoanWithRelations) => l.id) || []
 
       // Get repayment data if there are loans
       let repaymentEvents: any[] = []
@@ -225,7 +224,7 @@ export default function LenderOverviewPage() {
         allSchedules = schedules || []
 
         // Get repayment events for these schedules
-        const scheduleIds = schedules?.map((s: any) => s.id) || []
+        const scheduleIds = schedules?.map((s: RepaymentScheduleWithEvents) => s.id) || []
         if (scheduleIds.length > 0) {
           const { data: events } = await supabase
             .from('repayment_events')
@@ -237,8 +236,8 @@ export default function LenderOverviewPage() {
         }
 
         // Calculate overdue schedules
-        const paidScheduleIds = new Set(repaymentEvents.map((e: any) => e.schedule_id))
-        overdueSchedules = (schedules || []).filter((s: any) =>
+        const paidScheduleIds = new Set(repaymentEvents.map((e: RepaymentEvent) => e.schedule_id))
+        overdueSchedules = (schedules || []).filter((s: RepaymentScheduleWithEvents) =>
           !paidScheduleIds.has(s.id) && new Date(s.due_date) < new Date()
         )
       }
@@ -251,7 +250,7 @@ export default function LenderOverviewPage() {
         .eq('created_by_lender', finalLender.user_id)
 
       if (borrowerData && borrowerData.length > 0) {
-        const borrowerIds = borrowerData.map((b: any) => b.id)
+        const borrowerIds = borrowerData.map((b: BorrowerWithRelations) => b.id)
         const { data: scores } = await supabase
           .from('borrower_scores')
           .select('score, borrower_id')
@@ -267,10 +266,10 @@ export default function LenderOverviewPage() {
           { name: 'Poor (<650)', value: 0, color: '#ef4444' },
         ]
 
-        borrowerScores.forEach((s: any) => {
-          if (s.score >= 750) distribution[0].value++
-          else if (s.score >= 700) distribution[1].value++
-          else if (s.score >= 650) distribution[2].value++
+        borrowerScores.forEach((s: RepaymentScheduleWithEvents) => {
+          if ((s.score ?? 0) >= 750) distribution[0].value++
+          else if ((s.score ?? 0) >= 700) distribution[1].value++
+          else if ((s.score ?? 0) >= 650) distribution[2].value++
           else distribution[3].value++
         })
 
@@ -278,11 +277,11 @@ export default function LenderOverviewPage() {
       }
 
       // Calculate metrics
-      const activeLoans = allLoans?.filter((l: any) => l.status === 'active') || []
-      const completedLoans = allLoans?.filter((l: any) => l.status === 'completed') || []
-      const defaultedLoans = allLoans?.filter((l: any) => l.status === 'defaulted') || []
-      const pendingLoans = allLoans?.filter((l: any) => l.status === 'pending' || l.status === 'offered') || []
-      const cancelledLoans = allLoans?.filter((l: any) => l.status === 'cancelled') || []
+      const activeLoans = allLoans?.filter((l: LoanWithRelations) => l.status === 'active') || []
+      const completedLoans = allLoans?.filter((l: LoanWithRelations) => l.status === 'completed') || []
+      const defaultedLoans = allLoans?.filter((l: LoanWithRelations) => l.status === 'defaulted') || []
+      const pendingLoans = allLoans?.filter((l: LoanWithRelations) => l.status === 'pending' || l.status === 'offered') || []
+      const cancelledLoans = allLoans?.filter((l: LoanWithRelations) => l.status === 'cancelled') || []
 
       // Loans by status for pie chart
       const statusData = [
@@ -296,17 +295,17 @@ export default function LenderOverviewPage() {
 
       // Keep values in MINOR units - only count actually disbursed loans
       const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
-      const disbursedLoans = allLoans?.filter((loan: any) => disbursedStatuses.includes(loan.status)) || []
-      const totalDisbursed = disbursedLoans.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0)
-      const totalDue = disbursedLoans.reduce((sum: number, loan: any) => sum + (loan.total_amount_minor || loan.principal_minor || 0), 0)
-      const totalRepaid = repaymentEvents?.reduce((sum: number, event: any) => sum + (event.amount_paid_minor || 0), 0) || 0
+      const disbursedLoans = allLoans?.filter((loan: LoanWithRelations) => disbursedStatuses.includes(loan.status)) || []
+      const totalDisbursed = disbursedLoans.reduce((sum: number, loan: LoanWithRelations) => sum + (loan.principal_minor || 0), 0)
+      const totalDue = disbursedLoans.reduce((sum: number, loan: LoanWithRelations) => sum + (loan.total_amount_minor || loan.principal_minor || 0), 0)
+      const totalRepaid = repaymentEvents?.reduce((sum: number, event: RepaymentEvent) => sum + (event.amount_paid_minor || 0), 0) || 0
       const outstanding = totalDue - totalRepaid
-      const overdueAmount = overdueSchedules?.reduce((sum: number, sched: any) => sum + (sched.amount_due_minor || 0), 0) || 0
+      const overdueAmount = overdueSchedules?.reduce((sum: number, sched: RepaymentScheduleWithEvents) => sum + (sched.amount_due_minor || 0), 0) || 0
 
       // Calculate payment metrics
       let onTimePayments = 0
       let latePayments = 0
-      allSchedules.forEach((schedule: any) => {
+      allSchedules.forEach((schedule: RepaymentScheduleWithEvents) => {
         if (schedule.status === 'paid' && schedule.paid_at) {
           const dueDate = new Date(schedule.due_date)
           const paidDate = new Date(schedule.paid_at)
@@ -347,19 +346,20 @@ export default function LenderOverviewPage() {
         const monthStart = startOfMonth(monthDate)
         const monthEnd = endOfMonth(monthDate)
 
-        const monthLoans = allLoans?.filter((l: any) => {
+        const monthLoans = allLoans?.filter((l: LoanWithRelations) => {
           const created = new Date(l.created_at)
           return created >= monthStart && created <= monthEnd
         }) || []
 
-        const monthDisbursed = monthLoans.reduce((sum: number, l: any) => sum + (l.principal_minor || 0), 0)
+        const monthDisbursed = monthLoans.reduce((sum: number, l: LoanWithRelations) => sum + (l.principal_minor || 0), 0)
 
-        const monthRepayments = repaymentEvents?.filter((e: any) => {
+        const monthRepayments = repaymentEvents?.filter((e: RepaymentEvent) => {
+          if (!e.paid_at) return false
           const paid = new Date(e.paid_at)
           return paid >= monthStart && paid <= monthEnd
         }) || []
 
-        const monthCollected = monthRepayments.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
+        const monthCollected = monthRepayments.reduce((sum: number, e: RepaymentEvent) => sum + (e.amount_paid_minor || 0), 0)
 
         monthlyStats.push({
           month: format(monthDate, 'MMM'),
@@ -373,24 +373,24 @@ export default function LenderOverviewPage() {
       // Get recent repayments with borrower info
       let recentRepayments: any[] = []
       if (repaymentEvents.length > 0) {
-        const recentScheduleIds = repaymentEvents.slice(0, 5).map((e: any) => e.schedule_id)
+        const recentScheduleIds = repaymentEvents.slice(0, 5).map((e: RepaymentEvent) => e.schedule_id)
 
         const { data: schedulesWithLoans } = await supabase
           .from('repayment_schedules')
           .select('id, loan_id')
           .in('id', recentScheduleIds)
 
-        const recentLoanIds = [...new Set(schedulesWithLoans?.map((s: any) => s.loan_id) || [])]
+        const recentLoanIds = [...new Set(schedulesWithLoans?.map((s: RepaymentScheduleWithEvents) => s.loan_id) || [])]
 
         const { data: loansWithBorrowers } = await supabase
           .from('loans')
           .select('id, borrower_id, borrowers(full_name)')
           .in('id', recentLoanIds)
 
-        const loanMap = new Map(loansWithBorrowers?.map((l: any) => [l.id, l]) || [])
-        const scheduleToLoanMap = new Map(schedulesWithLoans?.map((s: any) => [s.id, s.loan_id]) || [])
+        const loanMap = new Map(loansWithBorrowers?.map((l: LoanWithRelations) => [l.id, l]) || [])
+        const scheduleToLoanMap = new Map(schedulesWithLoans?.map((s: RepaymentScheduleWithEvents) => [s.id, s.loan_id]) || [])
 
-        recentRepayments = repaymentEvents.slice(0, 5).map((event: any) => {
+        recentRepayments = repaymentEvents.slice(0, 5).map((event: RepaymentEvent) => {
           const loanId = scheduleToLoanMap.get(event.schedule_id)
           const loan: any = loanId ? loanMap.get(loanId) : null
           return {
@@ -425,7 +425,7 @@ export default function LenderOverviewPage() {
       })
 
       setRecentActivity(recentRepayments || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading dashboard:', error)
     } finally {
       setLoading(false)

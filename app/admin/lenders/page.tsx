@@ -104,7 +104,7 @@ export default function AdminLendersPage() {
       } else {
         console.log('No countries returned from database')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading countries:', error)
     }
   }
@@ -173,7 +173,7 @@ export default function AdminLendersPage() {
 
       setLenders(lendersWithStats)
       setFilteredLenders(lendersWithStats)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading lenders:', error)
     } finally {
       setLoading(false)
@@ -222,7 +222,7 @@ export default function AdminLendersPage() {
       ))
 
       setSuspendDialog({ open: false, lender: null })
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating lender status:', error)
       alert('Failed to update lender status')
     } finally {

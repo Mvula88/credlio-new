@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import type { LoanWithRelations } from '@/lib/types'
 import {
   Table,
   TableBody,
@@ -36,6 +37,7 @@ import {
   Save
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { getCurrencyByCountry, type CurrencyInfo } from '@/lib/utils/currency'
 
 interface Borrower {
   id: string
@@ -43,16 +45,32 @@ interface Borrower {
   phone_e164: string
   country_code: string
   created_at: string
+  credit_score?: number
+  score_updated_at?: string
+}
+
+interface ExistingLoan {
+  id: string
+  lender_name: string
+  principal_amount: number
+  outstanding_balance: number
+  monthly_payment: number
+  status: string
+  created_at: string
 }
 
 interface AffordabilityResult {
   monthlyPayment: number
+  paymentAmount: number
+  paymentFrequencyLabel: string
   debtToIncome: number
   disposableIncome: number
   affordabilityScore: 'excellent' | 'good' | 'fair' | 'poor'
   canAfford: boolean
   maxRecommendedLoan: number
   recommendation: string
+  stressTest10: { canAfford: boolean; dti: number; disposable: number }
+  stressTest20: { canAfford: boolean; dti: number; disposable: number }
 }
 
 interface SavedAssessment {
@@ -76,6 +94,9 @@ interface SavedAssessment {
 export default function LenderAffordabilityPage() {
   const supabase = createClient()
 
+  // Currency
+  const [currency, setCurrency] = useState<CurrencyInfo>({ code: 'NAD', symbol: 'N$', minorUnits: 2, countryCode: 'NA' })
+
   // Borrower search
   const [searchQuery, setSearchQuery] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
@@ -86,6 +107,9 @@ export default function LenderAffordabilityPage() {
   const [savedAssessments, setSavedAssessments] = useState<SavedAssessment[]>([])
   const [loadingAssessments, setLoadingAssessments] = useState(false)
   const [savingAssessment, setSavingAssessment] = useState(false)
+  const [existingLoans, setExistingLoans] = useState<ExistingLoan[]>([])
+  const [loadingLoans, setLoadingLoans] = useState(false)
+  const [platformDebt, setPlatformDebt] = useState(0)
 
   // Borrower Income
   const [monthlyIncome, setMonthlyIncome] = useState<string>('')
@@ -98,6 +122,7 @@ export default function LenderAffordabilityPage() {
   const [loanAmount, setLoanAmount] = useState<string>('')
   const [loanTerm, setLoanTerm] = useState<string>('12')
   const [interestRate, setInterestRate] = useState<string>('15')
+  const [paymentFrequency, setPaymentFrequency] = useState<'monthly' | 'bi-weekly' | 'weekly' | 'daily'>('monthly')
 
   // Results
   const [result, setResult] = useState<AffordabilityResult | null>(null)
@@ -111,6 +136,20 @@ export default function LenderAffordabilityPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+
+      // Get lender's profile for currency
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('country_code')
+        .eq('user_id', user.id)
+        .single()
+
+      if (profile?.country_code) {
+        const userCurrency = getCurrencyByCountry(profile.country_code)
+        if (userCurrency) {
+          setCurrency(userCurrency)
+        }
+      }
 
       const { data: loansData, error: loansError } = await supabase
         .from('loans')
@@ -132,8 +171,8 @@ export default function LenderAffordabilityPage() {
 
       // Get unique borrowers
       const borrowerMap = new Map<string, Borrower>()
-      loansData?.forEach((loan: any) => {
-        const borrower = loan.borrowers as any
+      loansData?.forEach((loan: LoanWithRelations) => {
+        const borrower = loan.borrowers as Borrower
         if (borrower && !borrowerMap.has(borrower.id)) {
           borrowerMap.set(borrower.id, {
             id: borrower.id,
@@ -146,7 +185,7 @@ export default function LenderAffordabilityPage() {
       })
 
       setRecentBorrowers(Array.from(borrowerMap.values()))
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading recent borrowers:', error)
     } finally {
       setLoadingRecent(false)
@@ -168,7 +207,10 @@ export default function LenderAffordabilityPage() {
 
       const { data, error } = await supabase
         .from('borrowers')
-        .select('id, full_name, phone_e164, country_code, created_at')
+        .select(`
+          id, full_name, phone_e164, country_code, created_at,
+          borrower_scores(score, updated_at)
+        `)
         .eq('national_id_hash', idHash)
         .single()
 
@@ -177,7 +219,14 @@ export default function LenderAffordabilityPage() {
         return
       }
 
-      selectBorrower(data)
+      // Extract credit score
+      const borrowerWithScore = {
+        ...data,
+        credit_score: data.borrower_scores?.[0]?.score,
+        score_updated_at: data.borrower_scores?.[0]?.updated_at
+      }
+
+      selectBorrower(borrowerWithScore)
     } catch (error: any) {
       console.error('Search error:', error)
       toast.error('Search failed. Please try again.')
@@ -189,6 +238,8 @@ export default function LenderAffordabilityPage() {
   const selectBorrower = async (borrower: Borrower) => {
     setSelectedBorrower(borrower)
     setResult(null)
+    setExistingLoans([])
+    setPlatformDebt(0)
 
     // Clear form
     setMonthlyIncome('')
@@ -198,8 +249,83 @@ export default function LenderAffordabilityPage() {
     setLoanTerm('12')
     setInterestRate('15')
 
-    // Load saved assessments for this borrower
-    await loadSavedAssessments(borrower.id)
+    // Load saved assessments and existing loans for this borrower
+    await Promise.all([
+      loadSavedAssessments(borrower.id),
+      loadExistingLoans(borrower.id)
+    ])
+  }
+
+  const loadExistingLoans = async (borrowerId: string) => {
+    try {
+      setLoadingLoans(true)
+
+      // Fetch active loans for this borrower via API (bypasses RLS for credit bureau data)
+      const response = await fetch(`/api/borrower/debt-summary?borrowerId=${borrowerId}`)
+
+      if (!response.ok) {
+        // If API fails, try direct query (will only show loans from current lender due to RLS)
+        const { data: loans, error } = await supabase
+          .from('loans')
+          .select('id, principal_amount, outstanding_balance, status, created_at, interest_rate, term_months')
+          .eq('borrower_id', borrowerId)
+          .in('status', ['active', 'pending', 'approved', 'disbursed'])
+          .order('created_at', { ascending: false })
+
+        if (error || !loans || loans.length === 0) {
+          setExistingLoans([])
+          setPlatformDebt(0)
+          return
+        }
+
+        // Process loans from direct query
+        const loansWithPayments = loans.map((loan: LoanWithRelations) => {
+          const monthlyRate = (loan.interest_rate || 15) / 100 / 12
+          const term = loan.term_months || 12
+          const principal = (loan.principal_amount ?? 0) / 100
+          let monthlyPayment = 0
+          if (monthlyRate > 0) {
+            monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, term)) /
+                            (Math.pow(1 + monthlyRate, term) - 1)
+          } else {
+            monthlyPayment = principal / term
+          }
+
+          return {
+            id: loan.id,
+            lender_name: 'Your Loan',
+            principal_amount: principal,
+            outstanding_balance: (loan.outstanding_balance || loan.principal_amount || 0) / 100,
+            monthly_payment: monthlyPayment,
+            status: loan.status,
+            created_at: loan.created_at
+          }
+        })
+
+        setExistingLoans(loansWithPayments)
+        const totalMonthlyDebt = loansWithPayments.reduce((sum: number, loan: any) => sum + loan.monthly_payment, 0)
+        setPlatformDebt(totalMonthlyDebt)
+        setExistingDebt(Math.round(totalMonthlyDebt).toString())
+        return
+      }
+
+      const data = await response.json()
+
+      if (data.loans && data.loans.length > 0) {
+        setExistingLoans(data.loans)
+        setPlatformDebt(data.totalMonthlyDebt)
+        setExistingDebt(Math.round(data.totalMonthlyDebt).toString())
+      } else {
+        setExistingLoans([])
+        setPlatformDebt(0)
+      }
+    } catch (error: any) {
+      // Silently handle - this is expected when borrower has no loans or API access is restricted
+      setExistingLoans([])
+      setPlatformDebt(0)
+    } finally {
+      setLoadingLoans(false)
+    }
   }
 
   const loadSavedAssessments = async (borrowerId: string) => {
@@ -224,7 +350,7 @@ export default function LenderAffordabilityPage() {
       }
 
       setSavedAssessments(data || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading assessments:', error)
     } finally {
       setLoadingAssessments(false)
@@ -247,6 +373,25 @@ export default function LenderAffordabilityPage() {
     // Calculate monthly payment using amortization formula
     const monthlyRate = rate / 100 / 12
     const monthlyPayment = amount * (monthlyRate * Math.pow(1 + monthlyRate, term)) / (Math.pow(1 + monthlyRate, term) - 1)
+
+    // Calculate payment based on frequency
+    let paymentAmount = monthlyPayment
+    let paymentFrequencyLabel = 'Monthly'
+
+    switch (paymentFrequency) {
+      case 'bi-weekly':
+        paymentAmount = monthlyPayment / 2
+        paymentFrequencyLabel = 'Bi-weekly'
+        break
+      case 'weekly':
+        paymentAmount = monthlyPayment / 4
+        paymentFrequencyLabel = 'Weekly'
+        break
+      case 'daily':
+        paymentAmount = monthlyPayment / 30
+        paymentFrequencyLabel = 'Daily'
+        break
+    }
 
     // Calculate total monthly debt including new loan
     const totalMonthlyDebt = debt + monthlyPayment
@@ -284,14 +429,40 @@ export default function LenderAffordabilityPage() {
     const maxMonthlyPayment = income * 0.35 - debt // 35% DTI is good target
     const maxRecommendedLoan = maxMonthlyPayment * (Math.pow(1 + monthlyRate, term) - 1) / (monthlyRate * Math.pow(1 + monthlyRate, term))
 
+    // Stress test calculations
+    const income10 = income * 0.9 // 10% income drop
+    const income20 = income * 0.8 // 20% income drop
+
+    const dti10 = (totalMonthlyDebt / income10) * 100
+    const dti20 = (totalMonthlyDebt / income20) * 100
+
+    const disposable10 = income10 - expenses - totalMonthlyDebt
+    const disposable20 = income20 - expenses - totalMonthlyDebt
+
+    const stressTest10 = {
+      canAfford: dti10 <= 50 && disposable10 >= 0,
+      dti: dti10,
+      disposable: disposable10
+    }
+
+    const stressTest20 = {
+      canAfford: dti20 <= 50 && disposable20 >= 0,
+      dti: dti20,
+      disposable: disposable20
+    }
+
     setResult({
       monthlyPayment,
+      paymentAmount,
+      paymentFrequencyLabel,
       debtToIncome,
       disposableIncome,
       affordabilityScore,
       canAfford,
       maxRecommendedLoan: Math.max(0, maxRecommendedLoan),
-      recommendation
+      recommendation,
+      stressTest10,
+      stressTest20
     })
   }
 
@@ -360,8 +531,12 @@ export default function LenderAffordabilityPage() {
       affordabilityScore: assessment.affordability_score as AffordabilityResult['affordabilityScore'],
       canAfford: assessment.can_afford,
       maxRecommendedLoan: assessment.max_recommended_loan,
-      recommendation: getRecommendation(assessment.affordability_score as AffordabilityResult['affordabilityScore'])
-    })
+      recommendation: getRecommendation(assessment.affordability_score as AffordabilityResult['affordabilityScore']),
+      paymentAmount: assessment.monthly_payment,
+      paymentFrequencyLabel: 'Monthly',
+      stressTest10: 0,
+      stressTest20: 0
+    } as unknown as AffordabilityResult)
   }
 
   const getRecommendation = (score: AffordabilityResult['affordabilityScore']) => {
@@ -406,12 +581,11 @@ export default function LenderAffordabilityPage() {
   }
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
+    const formatted = amount.toLocaleString('en-US', {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(amount)
+    })
+    return `${currency.symbol}${formatted}`
   }
 
   return (
@@ -472,22 +646,92 @@ export default function LenderAffordabilityPage() {
                   <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
                     <User className="h-6 w-6 text-primary" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <h3 className="font-semibold text-lg">{selectedBorrower.full_name}</h3>
                     <p className="text-sm text-muted-foreground">{selectedBorrower.phone_e164}</p>
                   </div>
+                  {selectedBorrower.credit_score && (
+                    <div className="text-center px-4 py-2 rounded-lg bg-white border">
+                      <p className="text-xs text-muted-foreground">Credit Score</p>
+                      <p className={`text-2xl font-bold ${
+                        selectedBorrower.credit_score >= 700 ? 'text-green-600' :
+                        selectedBorrower.credit_score >= 600 ? 'text-yellow-600' :
+                        'text-red-600'
+                      }`}>
+                        {selectedBorrower.credit_score}
+                      </p>
+                    </div>
+                  )}
                   <Button
                     variant="outline"
-                    className="ml-auto"
                     onClick={() => {
                       setSelectedBorrower(null)
                       setResult(null)
                       setSavedAssessments([])
+                      setExistingLoans([])
+                      setPlatformDebt(0)
                     }}
                   >
                     Change Borrower
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Existing Platform Loans */}
+          {selectedBorrower && (
+            <Card className={existingLoans.length > 0 ? 'border-orange-200 bg-orange-50' : ''}>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Receipt className="h-5 w-5" />
+                  Existing Loans on Platform
+                  {existingLoans.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 bg-orange-200 text-orange-800">
+                      {existingLoans.length} Active
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loadingLoans ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : existingLoans.length === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground">
+                    <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                    <p>No existing loans on this platform</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {existingLoans.map((loan) => (
+                      <div key={loan.id} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                        <div>
+                          <p className="font-medium text-sm">{loan.lender_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Principal: {formatCurrency(loan.principal_amount)} | Outstanding: {formatCurrency(loan.outstanding_balance)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-orange-600">{formatCurrency(loan.monthly_payment)}/mo</p>
+                          <Badge variant="outline" className="text-xs">
+                            {loan.status}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="pt-3 border-t">
+                      <div className="flex items-center justify-between font-medium">
+                        <span>Total Monthly Debt (Platform)</span>
+                        <span className="text-lg text-orange-600">{formatCurrency(platformDebt)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        This amount is auto-filled in the "Existing Debt" field below
+                      </p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -661,6 +905,20 @@ export default function LenderAffordabilityPage() {
                     />
                   </div>
                 </div>
+                <div>
+                  <Label htmlFor="frequency">Payment Frequency</Label>
+                  <select
+                    id="frequency"
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
+                    value={paymentFrequency}
+                    onChange={(e) => setPaymentFrequency(e.target.value as 'monthly' | 'bi-weekly' | 'weekly' | 'daily')}
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="bi-weekly">Bi-weekly (every 2 weeks)</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="daily">Daily</option>
+                  </select>
+                </div>
               </div>
 
               <Button onClick={calculateAffordability} className="w-full">
@@ -701,13 +959,19 @@ export default function LenderAffordabilityPage() {
 
                   {/* Key Metrics */}
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center justify-between p-4 border rounded-lg bg-primary/5">
                       <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-gray-600" />
-                        <span className="text-sm font-medium">Monthly Payment</span>
+                        <DollarSign className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">{result.paymentFrequencyLabel} Payment</span>
                       </div>
-                      <span className="text-lg font-bold">{formatCurrency(result.monthlyPayment)}</span>
+                      <span className="text-xl font-bold text-primary">{formatCurrency(result.paymentAmount)}</span>
                     </div>
+                    {paymentFrequency !== 'monthly' && (
+                      <div className="flex items-center justify-between p-3 border rounded-lg text-sm text-muted-foreground">
+                        <span>Monthly equivalent</span>
+                        <span>{formatCurrency(result.monthlyPayment)}</span>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center gap-2">
@@ -738,6 +1002,34 @@ export default function LenderAffordabilityPage() {
                       </AlertDescription>
                     </Alert>
                   )}
+
+                  {/* Stress Test Results */}
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg space-y-3">
+                    <p className="font-medium text-orange-900 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      Stress Test: What if income drops?
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className={`p-3 rounded-lg ${result.stressTest10.canAfford ? 'bg-green-100' : 'bg-red-100'}`}>
+                        <p className="font-medium">-10% Income</p>
+                        <p className={result.stressTest10.canAfford ? 'text-green-700' : 'text-red-700'}>
+                          DTI: {result.stressTest10.dti.toFixed(1)}%
+                        </p>
+                        <p className={result.stressTest10.canAfford ? 'text-green-700' : 'text-red-700'}>
+                          {result.stressTest10.canAfford ? '✓ Can still afford' : '✗ Cannot afford'}
+                        </p>
+                      </div>
+                      <div className={`p-3 rounded-lg ${result.stressTest20.canAfford ? 'bg-green-100' : 'bg-red-100'}`}>
+                        <p className="font-medium">-20% Income</p>
+                        <p className={result.stressTest20.canAfford ? 'text-green-700' : 'text-red-700'}>
+                          DTI: {result.stressTest20.dti.toFixed(1)}%
+                        </p>
+                        <p className={result.stressTest20.canAfford ? 'text-green-700' : 'text-red-700'}>
+                          {result.stressTest20.canAfford ? '✓ Can still afford' : '✗ Cannot afford'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Save Button */}
                   <Button

@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import type { LoanWithRelations, RepaymentEvent, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   CreditCard,
   Calendar,
@@ -172,17 +173,16 @@ export default function BorrowerLoansPage() {
           loansError,
           borrowerId: linkData.borrower_id,
           loansCount: loansData?.length || 0,
-          statuses: loansData?.map((l: any) => l.status) || []
+          statuses: loansData?.map((l: LoanWithRelations) => l.status) || []
         })
 
         if (loansData && loansData.length > 0) {
           // Count pending offers
-          const pendingOffers = loansData.filter((l: any) => l.status === 'pending_offer')
+          const pendingOffers = loansData.filter((l: LoanWithRelations) => l.status === 'pending_offer')
           setPendingOffersCount(pendingOffers.length)
 
           // Filter out pending offers, declined, and cancelled for the main loans view
-          const activeLoans = loansData.filter((l: any) =>
-            l.status !== 'pending_offer' &&
+          const activeLoans = loansData.filter((l: LoanWithRelations) => l.status !== 'pending_offer' &&
             l.status !== 'declined' &&
             l.status !== 'cancelled'
           )
@@ -190,8 +190,8 @@ export default function BorrowerLoansPage() {
 
           // Prefer selecting an active loan, then pending_signatures, then any other
           setSelectedLoan(
-            activeLoans.find((l: any) => l.status === 'active') ||
-            activeLoans.find((l: any) => l.status === 'pending_signatures') ||
+            activeLoans.find((l: LoanWithRelations) => l.status === 'active') ||
+            activeLoans.find((l: LoanWithRelations) => l.status === 'pending_signatures') ||
             activeLoans[0]
           )
 
@@ -199,7 +199,7 @@ export default function BorrowerLoansPage() {
           calculateLoanStats(activeLoans)
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading loans:', error)
     } finally {
       setLoading(false)
@@ -364,35 +364,35 @@ export default function BorrowerLoansPage() {
   const calculateLoanStats = (loansData: any[]) => {
     // Only count actually disbursed loans (not pending_offer or pending_signatures)
     const disbursedStatuses = ['active', 'completed', 'defaulted', 'written_off']
-    const disbursedLoans = loansData.filter((l: any) => disbursedStatuses.includes(l.status))
+    const disbursedLoans = loansData.filter((l: LoanWithRelations) => disbursedStatuses.includes(l.status))
 
     // Keep in minor units (cents) - formatCurrency will convert to major
-    const totalBorrowed = disbursedLoans.reduce((sum: number, loan: any) => {
+    const totalBorrowed = disbursedLoans.reduce((sum: number, loan: LoanWithRelations) => {
       const principal = loan.principal_minor || (loan.principal_amount ? loan.principal_amount * 100 : 0)
       return sum + principal
     }, 0)
 
     // total_repaid_minor is in cents - use it directly or convert total_repaid from major
-    const totalRepaid = loansData.reduce((sum: number, loan: any) => {
+    const totalRepaid = loansData.reduce((sum: number, loan: LoanWithRelations) => {
       const repaid = loan.total_repaid_minor || (loan.total_repaid ? loan.total_repaid * 100 : 0)
       return sum + repaid
     }, 0)
 
-    const activeLoansCount = loansData.filter((l: any) => l.status === 'active').length
-    const completedLoans = loansData.filter((l: any) => l.status === 'completed').length
+    const activeLoansCount = loansData.filter((l: LoanWithRelations) => l.status === 'active').length
+    const completedLoans = loansData.filter((l: LoanWithRelations) => l.status === 'completed').length
 
-    const totalInterestPaid = loansData.reduce((sum: number, loan: any) => {
-      const paid = loan.repayment_events?.reduce((s: number, e: any) =>
+    const totalInterestPaid = loansData.reduce((sum: number, loan: LoanWithRelations) => {
+      const paid = loan.repayment_events?.reduce((s: number, e: RepaymentEvent) =>
         e.status === 'completed' ? s + (e.interest_amount || 0) : s, 0) || 0
       return sum + paid
     }, 0)
 
     // Calculate average APR safely - use total_interest_percent, apr_bps, or interest_rate
-    const loansWithRates = disbursedLoans.filter((l: any) =>
+    const loansWithRates = disbursedLoans.filter((l: LoanWithRelations) =>
       l.total_interest_percent || l.apr_bps || l.interest_rate || l.base_rate_percent
     )
     const avgAPR = loansWithRates.length > 0
-      ? loansWithRates.reduce((sum: number, loan: any) => {
+      ? loansWithRates.reduce((sum: number, loan: LoanWithRelations) => {
           const rate = loan.total_interest_percent ||
                        (loan.apr_bps ? loan.apr_bps / 100 : 0) ||
                        loan.interest_rate ||
@@ -576,7 +576,7 @@ export default function BorrowerLoansPage() {
     }
   }
 
-  const calculateLoanProgress = (loan: any) => {
+  const calculateLoanProgress = (loan: LoanWithRelations) => {
     if (!loan) return 0
     // total_amount_minor is in cents, total_repaid is in major units (dollars)
     // Convert total_repaid to minor units for consistent calculation
@@ -589,18 +589,18 @@ export default function BorrowerLoansPage() {
     return isNaN(progress) ? 0 : Math.min(100, Math.max(0, progress))
   }
 
-  const getNextPayment = (loan: any) => {
+  const getNextPayment = (loan: LoanWithRelations) => {
     if (!loan.repayment_schedules) return null
     const pending = loan.repayment_schedules
-      .filter((s: any) => s.status === 'pending')
-      .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+      .filter((s: RepaymentScheduleWithEvents) => s.status === 'pending')
+      .sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
     return pending[0]
   }
 
   const generateRepaymentChart = () => {
     if (!selectedLoan || !selectedLoan.repayment_schedules) return []
     
-    return selectedLoan.repayment_schedules.map((schedule: any, index: number) => ({
+    return selectedLoan.repayment_schedules.map((schedule: RepaymentScheduleWithEvents, index: number) => ({
       month: format(new Date(schedule.due_date), 'MMM'),
       principal: schedule.principal_amount,
       interest: schedule.interest_amount,
@@ -624,7 +624,7 @@ export default function BorrowerLoansPage() {
   }
 
   // NEW: Payment analytics for health score
-  const getPaymentAnalytics = (loan: any) => {
+  const getPaymentAnalytics = (loan: LoanWithRelations) => {
     if (!loan || !loan.repayment_schedules) {
       return {
         totalPayments: 0,
@@ -640,12 +640,12 @@ export default function BorrowerLoansPage() {
 
     const schedules = loan.repayment_schedules
     const totalPayments = schedules.length
-    const paidPayments = schedules.filter((s: any) => s.status === 'paid').length
+    const paidPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'paid').length
 
     let onTimePayments = 0
     let latePayments = 0
 
-    schedules.forEach((s: any) => {
+    schedules.forEach((s: RepaymentScheduleWithEvents) => {
       if (s.status === 'paid' && s.paid_at) {
         const dueDate = new Date(s.due_date)
         const paidDate = new Date(s.paid_at)
@@ -657,8 +657,8 @@ export default function BorrowerLoansPage() {
       }
     })
 
-    const pendingPayments = schedules.filter((s: any) => s.status === 'pending').length
-    const overduePayments = schedules.filter((s: any) => {
+    const pendingPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'pending').length
+    const overduePayments = schedules.filter((s: RepaymentScheduleWithEvents) => {
       if (s.status === 'paid') return false
       return isPast(new Date(s.due_date))
     }).length
@@ -685,7 +685,7 @@ export default function BorrowerLoansPage() {
     }
   }
 
-  const getRadialChartData = (loan: any) => {
+  const getRadialChartData = (loan: LoanWithRelations) => {
     const analytics = getPaymentAnalytics(loan)
     return [
       {
@@ -1802,7 +1802,7 @@ export default function BorrowerLoansPage() {
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis dataKey="month" />
                           <YAxis />
-                          <Tooltip formatter={(value: any) => formatCurrency(value, selectedLoan.currency)} />
+                          <Tooltip formatter={(value: number) => formatCurrency(value, selectedLoan.currency)} />
                           <Legend />
                           <Bar dataKey="principal" stackId="a" fill="#3b82f6" name="Principal" />
                           <Bar dataKey="interest" stackId="a" fill="#f59e0b" name="Interest" />

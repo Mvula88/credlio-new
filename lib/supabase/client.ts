@@ -14,7 +14,7 @@ export function createClient() {
   if (!url || !key) {
     // Return a placeholder during build - will be properly initialized at runtime
     if (typeof window === 'undefined') {
-      return null as any
+      return null as never
     }
     throw new Error('Supabase environment variables are not configured')
   }

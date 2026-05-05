@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import type { RepaymentEvent, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   Table,
   TableBody,
@@ -47,7 +48,6 @@ import {
   Eye,
   Image,
   FileEdit,
-  Landmark
 } from 'lucide-react'
 import { format, isPast, differenceInDays } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
@@ -55,7 +55,6 @@ import { toast } from 'sonner'
 import { RadialBarChart, RadialBar, Legend, ResponsiveContainer, Tooltip } from 'recharts'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
-import { SetupDeductionDialog } from '@/components/SetupDeductionDialog'
 
 export default function LoanDetailPage() {
   const [loan, setLoan] = useState<any>(null)
@@ -105,7 +104,6 @@ export default function LoanDetailPage() {
   const [editingScheduleNotes, setEditingScheduleNotes] = useState<any>(null)
   const [scheduleNotes, setScheduleNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
-  const [setupDeductionOpen, setSetupDeductionOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const disbursementFileRef = useRef<HTMLInputElement>(null)
 
@@ -166,7 +164,7 @@ export default function LoanDetailPage() {
 
       // Sort schedules by installment number
       if (loanData.repayment_schedules) {
-        loanData.repayment_schedules.sort((a: any, b: any) => a.installment_no - b.installment_no)
+        loanData.repayment_schedules.sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => (a.installment_no ?? 0) - (b.installment_no ?? 0))
       }
 
       setLoan(loanData)
@@ -238,7 +236,7 @@ export default function LoanDetailPage() {
           newInterestRate: ((loanData.apr_bps || 0) / 100).toString()
         }))
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading loan:', error)
       toast.error('Failed to load loan details')
     } finally {
@@ -246,10 +244,10 @@ export default function LoanDetailPage() {
     }
   }
 
-  const handleMarkAsPaid = (schedule: any) => {
+  const handleMarkAsPaid = (schedule: RepaymentScheduleWithEvents) => {
     setSelectedSchedule(schedule)
     setPaymentData({
-      amountPaid: ((schedule.amount_due_minor || 0) / 100).toString(),
+      amountPaid: (((schedule.amount_due_minor ?? 0) || 0) / 100).toString(),
       paymentDate: new Date().toISOString().split('T')[0],
       notes: '',
     })
@@ -366,7 +364,7 @@ export default function LoanDetailPage() {
       toast.success('PDF downloaded successfully!')
     } catch (error: any) {
       console.error('Error downloading agreement:', error)
-      toast.error(error.message || 'Failed to download loan agreement')
+      toast.error(error instanceof Error ? error.message : 'Failed to download loan agreement')
     } finally {
       setDownloadingAgreement(false)
     }
@@ -444,7 +442,7 @@ export default function LoanDetailPage() {
     } catch (error: any) {
       console.error('Error uploading signed agreement:', error)
       console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
-      toast.error(error.message || 'Failed to upload signed agreement')
+      toast.error(error instanceof Error ? error.message : 'Failed to upload signed agreement')
     } finally {
       setUploadingSignedAgreement(false)
     }
@@ -527,7 +525,7 @@ export default function LoanDetailPage() {
     } catch (error: any) {
       console.error('Error submitting disbursement:', error)
       console.error('Error details:', JSON.stringify(error, null, 2))
-      toast.error(error.message || 'Failed to submit proof of payment')
+      toast.error(error instanceof Error ? error.message : 'Failed to submit proof of payment')
     } finally {
       setSubmittingDisbursement(false)
     }
@@ -580,7 +578,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Payment error:', error)
-      toast.error(error.message || 'Failed to record payment')
+      toast.error(error instanceof Error ? error.message : 'Failed to record payment')
     } finally {
       setProcessingPayment(false)
     }
@@ -600,7 +598,7 @@ export default function LoanDetailPage() {
 
       setEarlyPayoffInfo(data)
       setEarlyPayoffDialog(true)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error getting early payoff:', error)
       toast.error('Failed to get payoff amount')
     }
@@ -635,7 +633,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Early payoff error:', error)
-      toast.error(error.message || 'Failed to process early payoff')
+      toast.error(error instanceof Error ? error.message : 'Failed to process early payoff')
     } finally {
       setProcessingEarlyPayoff(false)
     }
@@ -662,7 +660,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Error calculating late fees:', error)
-      toast.error(error.message || 'Failed to calculate late fees')
+      toast.error(error instanceof Error ? error.message : 'Failed to calculate late fees')
     }
   }
 
@@ -682,7 +680,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Error waiving fee:', error)
-      toast.error(error.message || 'Failed to waive late fee')
+      toast.error(error instanceof Error ? error.message : 'Failed to waive late fee')
     } finally {
       setWaivingFee(null)
     }
@@ -703,7 +701,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Error approving proof:', error)
-      toast.error(error.message || 'Failed to approve payment proof')
+      toast.error(error instanceof Error ? error.message : 'Failed to approve payment proof')
     } finally {
       setProcessingProofReview(false)
     }
@@ -731,7 +729,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Error rejecting proof:', error)
-      toast.error(error.message || 'Failed to reject payment proof')
+      toast.error(error instanceof Error ? error.message : 'Failed to reject payment proof')
     } finally {
       setProcessingProofReview(false)
     }
@@ -763,7 +761,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Error saving notes:', error)
-      toast.error(error.message || 'Failed to save notes')
+      toast.error(error instanceof Error ? error.message : 'Failed to save notes')
     } finally {
       setSavingNotes(false)
     }
@@ -799,7 +797,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Error requesting restructure:', error)
-      toast.error(error.message || 'Failed to request restructure')
+      toast.error(error instanceof Error ? error.message : 'Failed to request restructure')
     } finally {
       setSubmittingRestructure(false)
     }
@@ -829,7 +827,7 @@ export default function LoanDetailPage() {
       loadLoanDetails()
     } catch (error: any) {
       console.error('Error responding to restructure:', error)
-      toast.error(error.message || 'Failed to respond to restructure')
+      toast.error(error instanceof Error ? error.message : 'Failed to respond to restructure')
     } finally {
       setRespondingToRestructure(false)
     }
@@ -866,39 +864,39 @@ export default function LoanDetailPage() {
   }
 
   // Helper to check if a schedule is paid
-  const isSchedulePaid = (schedule: any) => {
+  const isSchedulePaid = (schedule: RepaymentScheduleWithEvents) => {
     // First check the status column if available
     if (schedule.status === 'paid') return true
     if (schedule.status === 'partial' || schedule.status === 'pending' || schedule.status === 'overdue') return false
 
     // Fallback to checking repayment events for backwards compatibility
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
-    const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
-    return totalPaid >= schedule.amount_due_minor
+    const totalPaid = schedule.repayment_events.reduce((sum: number, e: RepaymentEvent) => sum + (e.amount_paid_minor || 0), 0)
+    return totalPaid >= (schedule.amount_due_minor ?? schedule.amount ?? 0)
   }
 
   // Helper to check if schedule is partially paid
-  const isSchedulePartial = (schedule: any) => {
+  const isSchedulePartial = (schedule: RepaymentScheduleWithEvents) => {
     // First check the status column if available
     if (schedule.status === 'partial') return true
     if (schedule.status === 'paid') return false
 
     // Fallback to checking repayment events
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return false
-    const totalPaid = schedule.repayment_events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
-    return totalPaid > 0 && totalPaid < schedule.amount_due_minor
+    const totalPaid = schedule.repayment_events.reduce((sum: number, e: RepaymentEvent) => sum + (e.amount_paid_minor || 0), 0)
+    return totalPaid > 0 && totalPaid < (schedule.amount_due_minor ?? 0)
   }
 
   // Get the paid_at date for a schedule (most recent event)
-  const getSchedulePaidAt = (schedule: any) => {
+  const getSchedulePaidAt = (schedule: RepaymentScheduleWithEvents) => {
     if (!schedule.repayment_events || schedule.repayment_events.length === 0) return null
     const sorted = [...schedule.repayment_events].sort((a, b) =>
-      new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime()
+      new Date(b.paid_at as string).getTime() - new Date(a.paid_at as string).getTime()
     )
     return sorted[0]?.paid_at
   }
 
-  const getScheduleStatus = (schedule: any) => {
+  const getScheduleStatus = (schedule: RepaymentScheduleWithEvents) => {
     // Use the status column if available
     if (schedule.status) return schedule.status
 
@@ -914,8 +912,8 @@ export default function LoanDetailPage() {
 
     // Use amount-based progress instead of schedule-count-based progress
     // This shows partial payment progress correctly
-    const totalDue = loan.repayment_schedules.reduce((sum: number, s: any) => sum + (s.amount_due_minor || 0), 0)
-    const totalPaid = loan.repayment_schedules.reduce((sum: number, s: any) => sum + (s.paid_amount_minor || 0), 0)
+    const totalDue = loan.repayment_schedules.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + (s.amount_due_minor || 0), 0)
+    const totalPaid = loan.repayment_schedules.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + (s.paid_amount_minor || 0), 0)
 
     return totalDue > 0 ? Math.round((totalPaid / totalDue) * 100) : 0
   }
@@ -924,9 +922,9 @@ export default function LoanDetailPage() {
   const getAllRepaymentEvents = () => {
     if (!loan || !loan.repayment_schedules) return []
     const events: any[] = []
-    loan.repayment_schedules.forEach((schedule: any) => {
+    loan.repayment_schedules.forEach((schedule: RepaymentScheduleWithEvents) => {
       if (schedule.repayment_events) {
-        schedule.repayment_events.forEach((event: any) => {
+        schedule.repayment_events.forEach((event: RepaymentEvent) => {
           events.push({
             ...event,
             schedule_id: schedule.id,
@@ -941,7 +939,7 @@ export default function LoanDetailPage() {
 
   const calculateTotalPaid = () => {
     const events = getAllRepaymentEvents()
-    return events.reduce((sum: number, e: any) => sum + (e.amount_paid_minor || 0), 0)
+    return events.reduce((sum: number, e: RepaymentEvent) => sum + (e.amount_paid_minor || 0), 0)
   }
 
   const calculateOutstanding = () => {
@@ -969,16 +967,16 @@ export default function LoanDetailPage() {
 
     const schedules = loan.repayment_schedules
     const totalPayments = schedules.length
-    const paidPayments = schedules.filter((s: any) => isSchedulePaid(s)).length
+    const paidPayments = schedules.filter((s: RepaymentScheduleWithEvents) => isSchedulePaid(s)).length
 
     // Calculate amount-based progress (includes partial payments)
-    const totalDueMinor = schedules.reduce((sum: number, s: any) => sum + (s.amount_due_minor || 0), 0)
-    const totalPaidMinor = schedules.reduce((sum: number, s: any) => sum + (s.paid_amount_minor || 0), 0)
+    const totalDueMinor = schedules.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + (s.amount_due_minor || 0), 0)
+    const totalPaidMinor = schedules.reduce((sum: number, s: RepaymentScheduleWithEvents) => sum + (s.paid_amount_minor || 0), 0)
 
     let onTimePayments = 0
     let latePayments = 0
 
-    schedules.forEach((s: any) => {
+    schedules.forEach((s: RepaymentScheduleWithEvents) => {
       if (isSchedulePaid(s)) {
         const paidAt = getSchedulePaidAt(s)
         if (paidAt) {
@@ -993,8 +991,8 @@ export default function LoanDetailPage() {
       }
     })
 
-    const pendingPayments = schedules.filter((s: any) => !isSchedulePaid(s) && !isPast(new Date(s.due_date))).length
-    const overduePayments = schedules.filter((s: any) => {
+    const pendingPayments = schedules.filter((s: RepaymentScheduleWithEvents) => !isSchedulePaid(s) && !isPast(new Date(s.due_date))).length
+    const overduePayments = schedules.filter((s: RepaymentScheduleWithEvents) => {
       if (isSchedulePaid(s)) return false
       return isPast(new Date(s.due_date))
     }).length
@@ -1922,7 +1920,7 @@ export default function LoanDetailPage() {
           <CardContent className="space-y-3">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Interest Rate:</span>
-              <span className="font-medium">{((loan.apr_bps || 0) / 100).toFixed(2)}%</span>
+              <span className="font-medium">{(loan.total_interest_percent || loan.base_rate_percent || ((loan.apr_bps || 0) / 100)).toFixed(2)}%</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Term:</span>
@@ -2110,14 +2108,6 @@ export default function LoanDetailPage() {
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => setSetupDeductionOpen(true)}
-                  className="border-primary/30 text-primary hover:bg-primary/5"
-                >
-                  <Landmark className="h-4 w-4 mr-2" />
-                  Setup Auto Deductions
-                </Button>
-                <Button
-                  variant="outline"
                   onClick={handleShowEarlyPayoff}
                   className="border-green-300 text-green-700 hover:bg-green-50"
                 >
@@ -2142,7 +2132,7 @@ export default function LoanDetailPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loan.repayment_schedules?.map((schedule: any) => {
+                  {loan.repayment_schedules?.map((schedule: RepaymentScheduleWithEvents) => {
                     const status = getScheduleStatus(schedule)
                     const isOverdue = status === 'overdue'
 
@@ -2186,7 +2176,7 @@ export default function LoanDetailPage() {
                                 Mark as Paid
                               </Button>
                             )}
-                            {isOverdue && status !== 'paid' && (
+                            {isOverdue && (status as string) !== 'paid' && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -2202,7 +2192,7 @@ export default function LoanDetailPage() {
                             )}
                             {status === 'paid' && (schedule.paid_at || getSchedulePaidAt(schedule)) && (
                               <span className="text-sm text-muted-foreground">
-                                Paid {format(new Date(schedule.paid_at || getSchedulePaidAt(schedule)), 'MMM dd')}
+                                Paid {format(new Date((schedule.paid_at || getSchedulePaidAt(schedule)) as string), 'MMM dd')}
                               </span>
                             )}
                           </div>
@@ -2231,7 +2221,7 @@ export default function LoanDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {getAllRepaymentEvents().map((event: any) => (
+              {getAllRepaymentEvents().map((event: RepaymentEvent) => (
                 <div key={event.id} className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="flex items-center gap-4">
                     <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
@@ -2564,7 +2554,7 @@ export default function LoanDetailPage() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Rate:</span>
-                  <span className="ml-2 font-medium">{((loan?.apr_bps || 0) / 100).toFixed(2)}%</span>
+                  <span className="ml-2 font-medium">{(loan?.total_interest_percent || loan?.base_rate_percent || ((loan?.apr_bps || 0) / 100)).toFixed(2)}%</span>
                 </div>
               </div>
             </div>
@@ -2703,22 +2693,6 @@ export default function LoanDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Setup Auto Deductions Dialog */}
-      {loan && (
-        <SetupDeductionDialog
-          open={setupDeductionOpen}
-          onOpenChange={setSetupDeductionOpen}
-          loanId={loan.id}
-          loanAmount={loan.principal_minor ? loan.principal_minor / 100 : loan.amount || 0}
-          outstandingBalance={loan.outstanding_balance || 0}
-          currency={loan.currency || 'NAD'}
-          borrowerName={loan.borrowers?.full_name || 'Unknown'}
-          onSuccess={() => {
-            // Refresh loan data
-            loadLoanDetails()
-          }}
-        />
-      )}
     </div>
   )
 }

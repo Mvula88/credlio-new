@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import type { LoanWithRelations, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   User,
   Phone,
@@ -125,7 +126,7 @@ export default function AdminBorrowerProfilePage() {
     }
   }
 
-  const getPaymentAnalytics = (loan: any) => {
+  const getPaymentAnalytics = (loan: LoanWithRelations) => {
     if (!loan || !loan.repayment_schedules) {
       return {
         totalPayments: 0,
@@ -141,12 +142,12 @@ export default function AdminBorrowerProfilePage() {
 
     const schedules = loan.repayment_schedules
     const totalPayments = schedules.length
-    const paidPayments = schedules.filter((s: any) => s.status === 'paid').length
+    const paidPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'paid').length
 
     let onTimePayments = 0
     let latePayments = 0
 
-    schedules.forEach((s: any) => {
+    schedules.forEach((s: RepaymentScheduleWithEvents) => {
       if (s.status === 'paid' && s.paid_at) {
         const dueDate = new Date(s.due_date)
         const paidDate = new Date(s.paid_at)
@@ -158,8 +159,8 @@ export default function AdminBorrowerProfilePage() {
       }
     })
 
-    const pendingPayments = schedules.filter((s: any) => s.status === 'pending').length
-    const overduePayments = schedules.filter((s: any) => {
+    const pendingPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'pending').length
+    const overduePayments = schedules.filter((s: RepaymentScheduleWithEvents) => {
       if (s.status === 'paid') return false
       return isPast(new Date(s.due_date))
     }).length

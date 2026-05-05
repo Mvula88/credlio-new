@@ -84,8 +84,8 @@ export default function CompliancePage() {
         .select('id, user_id, business_name, email')
 
       // Create combined list with compliance info
-      const lendersWithCompliance = allLenders?.map((lender: any) => {
-        const compliance = complianceData?.find((c: any) => c.lender_id === lender.user_id)
+      const lendersWithCompliance = allLenders?.map((lender: Record<string, unknown>) => {
+        const compliance = complianceData?.find((c: Record<string, unknown>) => c.lender_id === lender.user_id)
         return {
           ...lender,
           compliance: compliance || {
@@ -153,9 +153,9 @@ export default function CompliancePage() {
       setSelectedLender(null)
       setWarningForm({ type: 'late_payment_recording', severity: 'warning', title: '', description: '' })
       loadComplianceData()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error issuing warning:', error)
-      toast.error(error.message || 'Failed to issue warning')
+      toast.error(error instanceof Error ? error.message : 'Failed to issue warning')
     } finally {
       setIssuingWarning(false)
     }

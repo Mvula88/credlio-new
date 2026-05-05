@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import type { LoanWithRelations, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   CreditCard,
   TrendingUp,
@@ -151,8 +152,8 @@ export default function BorrowerOverviewPage() {
             setActiveLoan(loanData)
 
             const pending = loanData.repayment_schedules
-              ?.filter((s: any) => s.status === 'pending')
-              ?.sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+              ?.filter((s: RepaymentScheduleWithEvents) => s.status === 'pending')
+              ?.sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
 
             if (pending && pending.length > 0) {
               setNextPayment(pending[0])
@@ -165,7 +166,7 @@ export default function BorrowerOverviewPage() {
             .select('id, currency')
             .eq('borrower_id', borrowerData.id)
 
-          const loanIds = allLoans?.map((l: any) => l.id) || []
+          const loanIds = allLoans?.map((l: LoanWithRelations) => l.id) || []
 
           if (loanIds.length > 0) {
             const { data: paidSchedules } = await supabase
@@ -176,8 +177,8 @@ export default function BorrowerOverviewPage() {
               .order('due_date', { ascending: false })
               .limit(6)
 
-            const paymentHistory = (paidSchedules || []).map((schedule: any) => {
-              const loan = allLoans?.find((l: any) => l.id === schedule.loan_id)
+            const paymentHistory = (paidSchedules || []).map((schedule: RepaymentScheduleWithEvents) => {
+              const loan = allLoans?.find((l: LoanWithRelations) => l.id === schedule.loan_id)
               return {
                 id: schedule.id,
                 amount_paid_minor: schedule.amount,
@@ -252,12 +253,12 @@ export default function BorrowerOverviewPage() {
 
     const schedules = activeLoan.repayment_schedules
     const totalPayments = schedules.length
-    const paidPayments = schedules.filter((s: any) => s.status === 'paid').length
+    const paidPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'paid').length
 
     let onTimePayments = 0
     let latePayments = 0
 
-    schedules.forEach((s: any) => {
+    schedules.forEach((s: RepaymentScheduleWithEvents) => {
       if (s.status === 'paid' && s.paid_at) {
         const dueDate = new Date(s.due_date)
         const paidDate = new Date(s.paid_at)
@@ -269,8 +270,8 @@ export default function BorrowerOverviewPage() {
       }
     })
 
-    const pendingPayments = schedules.filter((s: any) => s.status === 'pending').length
-    const overduePayments = schedules.filter((s: any) => {
+    const pendingPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'pending').length
+    const overduePayments = schedules.filter((s: RepaymentScheduleWithEvents) => {
       if (s.status === 'paid') return false
       return isPast(new Date(s.due_date))
     }).length

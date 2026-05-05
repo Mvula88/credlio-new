@@ -46,7 +46,7 @@ const PLANS = [
   {
     id: 'PRO',
     name: 'Pro',
-    price: 9.99,
+    price: 5.99,
     description: 'Unlimited searches for active lenders',
     features: [
       'Everything in Free',
@@ -67,7 +67,7 @@ const PLANS = [
   {
     id: 'BUSINESS',
     name: 'Business',
-    price: 17.99,
+    price: 11.99,
     description: 'Full marketplace + unlimited everything',
     features: [
       'Everything in Pro',
@@ -137,7 +137,7 @@ function BillingPageContent() {
         // Use the effective tier from usage status (considers launch period)
         setCurrentPlan(usage.tier || 'FREE')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading subscription:', error)
     } finally {
       setLoading(false)
@@ -170,7 +170,7 @@ function BillingPageContent() {
         throw new Error('Stripe failed to load')
       }
 
-      const { error } = await (stripe as any).redirectToCheckout({
+      const { error } = await (stripe as any & { redirectToCheckout: Function }).redirectToCheckout({
         sessionId: data.sessionId
       })
 

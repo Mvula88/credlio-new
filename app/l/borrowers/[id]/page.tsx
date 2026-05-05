@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import type { LoanWithRelations, RepaymentScheduleWithEvents } from '@/lib/types'
 import {
   Dialog,
   DialogContent,
@@ -209,8 +210,8 @@ export default function LenderBorrowerProfilePage() {
       // Filter to only show active/tracked loans in the main view
       // Tracked statuses: active, completed, defaulted, written_off
       const trackedStatuses = ['active', 'completed', 'defaulted', 'written_off']
-      const trackedLoans = (loansData || []).filter((loan: any) => trackedStatuses.includes(loan.status))
-      const pendingLoans = (loansData || []).filter((loan: any) => !trackedStatuses.includes(loan.status))
+      const trackedLoans = (loansData || []).filter((loan: LoanWithRelations) => trackedStatuses.includes(loan.status))
+      const pendingLoans = (loansData || []).filter((loan: LoanWithRelations) => !trackedStatuses.includes(loan.status))
 
       // Store all loans but mark which are pending
       setLoans(loansData || [])
@@ -243,7 +244,7 @@ export default function LenderBorrowerProfilePage() {
     }
   }
 
-  const getPaymentAnalytics = (loan: any) => {
+  const getPaymentAnalytics = (loan: LoanWithRelations) => {
     if (!loan || !loan.repayment_schedules) {
       return {
         totalPayments: 0,
@@ -259,12 +260,12 @@ export default function LenderBorrowerProfilePage() {
 
     const schedules = loan.repayment_schedules
     const totalPayments = schedules.length
-    const paidPayments = schedules.filter((s: any) => s.status === 'paid').length
+    const paidPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'paid').length
 
     let onTimePayments = 0
     let latePayments = 0
 
-    schedules.forEach((s: any) => {
+    schedules.forEach((s: RepaymentScheduleWithEvents) => {
       if (s.status === 'paid' && s.paid_at) {
         const dueDate = new Date(s.due_date)
         const paidDate = new Date(s.paid_at)
@@ -276,8 +277,8 @@ export default function LenderBorrowerProfilePage() {
       }
     })
 
-    const pendingPayments = schedules.filter((s: any) => s.status === 'pending').length
-    const overduePayments = schedules.filter((s: any) => {
+    const pendingPayments = schedules.filter((s: RepaymentScheduleWithEvents) => s.status === 'pending').length
+    const overduePayments = schedules.filter((s: RepaymentScheduleWithEvents) => {
       if (s.status === 'paid') return false
       return isPast(new Date(s.due_date))
     }).length
@@ -392,7 +393,7 @@ export default function LenderBorrowerProfilePage() {
     const allSchedules: any[] = []
     loans.forEach(loan => {
       if (loan.repayment_schedules) {
-        loan.repayment_schedules.forEach((s: any) => {
+        loan.repayment_schedules.forEach((s: RepaymentScheduleWithEvents) => {
           if (s.status === 'paid' && s.paid_at && s.due_date) {
             allSchedules.push(s)
           }
@@ -483,7 +484,7 @@ export default function LenderBorrowerProfilePage() {
     const allSchedules: any[] = []
     loans.forEach(loan => {
       if (loan.repayment_schedules) {
-        loan.repayment_schedules.forEach((s: any) => {
+        loan.repayment_schedules.forEach((s: RepaymentScheduleWithEvents) => {
           if (s.status === 'paid' && s.paid_at && s.due_date) {
             allSchedules.push({
               ...s,
@@ -541,8 +542,8 @@ export default function LenderBorrowerProfilePage() {
       // Add loan completion
       if (loan.status === 'completed' && loan.repayment_schedules) {
         const lastPaid = loan.repayment_schedules
-          .filter((s: any) => s.status === 'paid' && s.paid_at)
-          .sort((a: any, b: any) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime())[0]
+          .filter((s: RepaymentScheduleWithEvents) => s.status === 'paid' && s.paid_at)
+          .sort((a: RepaymentScheduleWithEvents, b: RepaymentScheduleWithEvents) => new Date(b.paid_at as string).getTime() - new Date(a.paid_at as string).getTime())[0]
 
         if (lastPaid) {
           events.push({
@@ -641,7 +642,7 @@ export default function LenderBorrowerProfilePage() {
 
       // Reload data to show new flag
       loadBorrowerProfile()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error submitting report:', error)
       alert('Failed to submit report. Please try again.')
     } finally {
@@ -684,7 +685,7 @@ export default function LenderBorrowerProfilePage() {
 
       // Reload data to show updated flag
       loadBorrowerProfile()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error resolving flag:', error)
       alert('Failed to resolve flag. Please try again.')
     } finally {

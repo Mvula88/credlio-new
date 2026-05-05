@@ -18,6 +18,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { getCurrencyByCountry, fromMinorUnits } from '@/lib/utils/currency'
+import type { LoanWithRelations, RepaymentScheduleWithEvents, RiskFlag, UserRole } from '@/lib/types'
 import {
   Users,
   Shield,
@@ -141,7 +142,7 @@ export default function AdminDashboard() {
           .select('role')
           .eq('user_id', user.id)
 
-        const roles = userRoles?.map((r: any) => r.role) || []
+        const roles = userRoles?.map((r: UserRole) => r.role) || []
         isAdmin = roles.includes('admin')
       }
 
@@ -159,7 +160,7 @@ export default function AdminDashboard() {
       await loadPendingKYC()
       await loadRiskAlerts()
       await loadRecentActivity()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading admin data:', error)
     } finally {
       setLoading(false)
@@ -223,10 +224,10 @@ export default function AdminDashboard() {
       .select('on_time_rate, evidence_rate, total_loans, total_reports')
 
     const avgOnTimeRate = lenderScores && lenderScores.length > 0
-      ? Math.round(lenderScores.reduce((sum: number, l: any) => sum + parseFloat(l.on_time_rate), 0) / lenderScores.length)
+      ? Math.round(lenderScores.reduce((sum: number, l: any) => sum + parseFloat(String(l.on_time_rate ?? 0)), 0) / lenderScores.length)
       : 0
 
-    const totalLoansOriginated = lenderScores?.reduce((sum: number, l: any) => sum + l.total_loans, 0) || 0
+    const totalLoansOriginated = lenderScores?.reduce((sum: number, l: any) => sum + (l.total_loans ?? 0), 0) || 0
 
     // LOAN METRICS
     const { data: loans } = await supabase
@@ -234,11 +235,11 @@ export default function AdminDashboard() {
       .select('principal_minor, status, apr_bps, term_months')
 
     // Keep in MINOR units for consistent formatting
-    const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
-    const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
-    const completedLoans = loans?.filter((l: any) => l.status === 'completed').length || 0
-    const defaultedLoans = loans?.filter((l: any) => l.status === 'defaulted').length || 0
-    const cancelledLoans = loans?.filter((l: any) => l.status === 'cancelled').length || 0
+    const totalLoanVolume = loans?.reduce((sum: number, loan: LoanWithRelations) => sum + (loan.principal_minor || 0), 0) || 0
+    const activeLoans = loans?.filter((l: LoanWithRelations) => l.status === 'active').length || 0
+    const completedLoans = loans?.filter((l: LoanWithRelations) => l.status === 'completed').length || 0
+    const defaultedLoans = loans?.filter((l: LoanWithRelations) => l.status === 'defaulted').length || 0
+    const cancelledLoans = loans?.filter((l: LoanWithRelations) => l.status === 'cancelled').length || 0
     const totalLoans = loans?.length || 0
     // Exclude cancelled loans from default rate calculation (they were never active)
     const processedLoans = totalLoans - cancelledLoans
@@ -247,7 +248,7 @@ export default function AdminDashboard() {
     // avgLoanSize in minor units
     const avgLoanSize = totalLoans > 0 ? Math.round(totalLoanVolume / totalLoans) : 0
     const avgAPR = loans && loans.length > 0
-      ? Math.round(loans.reduce((sum: number, l: any) => sum + l.apr_bps, 0) / loans.length / 100)
+      ? Math.round(loans.reduce((sum: number, l: any) => sum + (l.apr_bps ?? 0), 0) / loans.length / 100)
       : 0
 
     // PAYMENT METRICS
@@ -255,7 +256,7 @@ export default function AdminDashboard() {
       .from('repayment_schedules')
       .select('id, due_date, amount_due_minor')
 
-    const overduePayments = schedules?.filter((s: any) => new Date(s.due_date) < new Date()).length || 0
+    const overduePayments = schedules?.filter((s: RepaymentScheduleWithEvents) => new Date(s.due_date) < new Date()).length || 0
 
     const { count: totalRepayments } = await supabase
       .from('repayment_events')
@@ -271,7 +272,7 @@ export default function AdminDashboard() {
     let totalPaidPayments = 0
     let totalOverduePayments = 0
 
-    allSchedules?.forEach((schedule: any) => {
+    allSchedules?.forEach((schedule: RepaymentScheduleWithEvents) => {
       if (schedule.status === 'paid' && schedule.paid_at) {
         totalPaidPayments++
         const dueDate = new Date(schedule.due_date)
@@ -299,12 +300,12 @@ export default function AdminDashboard() {
 
     const borrowerPaymentHealth: { [key: string]: { onTime: number, late: number, overdue: number, total: number } } = {}
 
-    allLoansWithSchedules?.forEach((loan: any) => {
+    allLoansWithSchedules?.forEach((loan: LoanWithRelations) => {
       if (!borrowerPaymentHealth[loan.borrower_id]) {
         borrowerPaymentHealth[loan.borrower_id] = { onTime: 0, late: 0, overdue: 0, total: 0 }
       }
 
-      loan.repayment_schedules?.forEach((schedule: any) => {
+      loan.repayment_schedules?.forEach((schedule: RepaymentScheduleWithEvents) => {
         if (schedule.status === 'paid' && schedule.paid_at) {
           borrowerPaymentHealth[loan.borrower_id].total++
           const dueDate = new Date(schedule.due_date)
@@ -340,10 +341,10 @@ export default function AdminDashboard() {
       .is('resolved_at', null)
 
     const riskFlagsCount = {
-      payment_default: riskFlagsByType?.filter((r: any) => r.type === 'PAYMENT_DEFAULT').length || 0,
-      fraud_suspected: riskFlagsByType?.filter((r: any) => r.type === 'FRAUD_SUSPECTED').length || 0,
-      identity_mismatch: riskFlagsByType?.filter((r: any) => r.type === 'IDENTITY_MISMATCH').length || 0,
-      duplicate_account: riskFlagsByType?.filter((r: any) => r.type === 'DUPLICATE_ACCOUNT').length || 0,
+      payment_default: riskFlagsByType?.filter((r: RiskFlag) => r.type === 'PAYMENT_DEFAULT').length || 0,
+      fraud_suspected: riskFlagsByType?.filter((r: RiskFlag) => r.type === 'FRAUD_SUSPECTED').length || 0,
+      identity_mismatch: riskFlagsByType?.filter((r: RiskFlag) => r.type === 'IDENTITY_MISMATCH').length || 0,
+      duplicate_account: riskFlagsByType?.filter((r: RiskFlag) => r.type === 'DUPLICATE_ACCOUNT').length || 0,
     }
 
     // SUSPICIOUS ACTIVITY METRICS
@@ -424,7 +425,7 @@ export default function AdminDashboard() {
     })
 
     console.log('Statistics loaded successfully')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in loadStatistics:', error)
       // Set default stats so page doesn't hang
       setStats({
@@ -484,9 +485,9 @@ export default function AdminDashboard() {
           .eq('country_code', country.code)
 
         const totalLoans = loans?.length || 0
-        const activeLoans = loans?.filter((l: any) => l.status === 'active').length || 0
+        const activeLoans = loans?.filter((l: LoanWithRelations) => l.status === 'active').length || 0
         // Keep in MINOR units for consistent formatting
-        const totalLoanVolume = loans?.reduce((sum: number, loan: any) => sum + (loan.principal_minor || 0), 0) || 0
+        const totalLoanVolume = loans?.reduce((sum: number, loan: LoanWithRelations) => sum + (loan.principal_minor || 0), 0) || 0
 
         // Get risk flags by country
         const { count: openRiskFlags } = await supabase
@@ -512,7 +513,7 @@ export default function AdminDashboard() {
 
     setCountryStats(countryData)
     console.log('Country statistics loaded')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading country statistics:', error)
       setCountryStats([])
     }
@@ -538,7 +539,7 @@ export default function AdminDashboard() {
       .limit(10)
 
     setPendingKYC(data || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading pending KYC:', error)
       setPendingKYC([])
     }
@@ -633,7 +634,7 @@ export default function AdminDashboard() {
         .order('created_at', { ascending: false })
         .limit(10)
 
-      riskFlags?.forEach((flag: any) => {
+      riskFlags?.forEach((flag: RiskFlag) => {
         let severity = 'low'
         if (flag.severity === 'critical') severity = 'critical'
         else if (flag.severity === 'high') severity = 'high'
@@ -696,7 +697,7 @@ export default function AdminDashboard() {
       })
 
       setRiskAlerts(alerts.slice(0, 20)) // Top 20 alerts
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading risk alerts:', error)
       setRiskAlerts([])
     }
@@ -733,7 +734,7 @@ export default function AdminDashboard() {
         timestamp: u.created_at,
         icon: Users
       })) || []),
-      ...(recentLoans?.map((l: any) => ({
+      ...(recentLoans?.map((l: LoanWithRelations) => ({
         type: 'loan_created',
         description: `Loan approved: $${l.principal_amount}`,
         timestamp: l.created_at,
@@ -742,7 +743,7 @@ export default function AdminDashboard() {
     ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
     setRecentActivity(activities.slice(0, 10))
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading recent activity:', error)
       setRecentActivity([])
     }
@@ -765,7 +766,7 @@ export default function AdminDashboard() {
         await loadStatistics()
         setShowKYCDialog(false)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating KYC status:', error)
     }
   }

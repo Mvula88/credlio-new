@@ -110,7 +110,7 @@ export default function VerificationDetailPage() {
         }
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading verification data:', error)
       toast.error('Failed to load verification data')
     } finally {

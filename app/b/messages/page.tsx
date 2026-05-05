@@ -101,7 +101,7 @@ export default function BorrowerMessagesPage() {
 
       // Get unread count and lender info for each thread
       const threadsWithUnread = await Promise.all(
-        (threadData || []).map(async (thread: any) => {
+        (threadData || []).map(async (thread: Record<string, unknown>) => {
           const { count } = await supabase
             .from('messages')
             .select('*', { count: 'exact', head: true })

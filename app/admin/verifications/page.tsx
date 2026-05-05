@@ -164,7 +164,7 @@ export default function AdminVerificationsPage() {
       })
 
       setVerifications(mapped)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading verifications:', error)
     } finally {
       setLoading(false)
@@ -181,7 +181,7 @@ export default function AdminVerificationsPage() {
       if (!error && data) {
         setCountries(data)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading countries:', error)
     }
   }
