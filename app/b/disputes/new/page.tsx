@@ -29,6 +29,7 @@ function NewDisputePageContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [disputeType, setDisputeType] = useState('')
   const [loanId, setLoanId] = useState('')
+  const [riskFlagId, setRiskFlagId] = useState<string | null>(null)
   const [description, setDescription] = useState('')
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([])
   const [uploadingEvidence, setUploadingEvidence] = useState(false)
@@ -42,9 +43,11 @@ function NewDisputePageContent() {
     const loan = searchParams.get('loan')
     const amount = searchParams.get('amount')
     const reason = searchParams.get('reason')
+    const flag = searchParams.get('risk_flag_id')
 
     if (type) setDisputeType(type)
     if (loan) setLoanId(loan)
+    if (flag) setRiskFlagId(flag)
 
     // Pre-fill description for payment disputes
     if (type === 'payment_not_updated' && amount) {
@@ -98,6 +101,7 @@ function NewDisputePageContent() {
         .insert({
           borrower_id: borrower.id,
           loan_id: loanId || null,
+          risk_flag_id: riskFlagId || null,
           type: disputeType,
           description: description,
           status: 'open',

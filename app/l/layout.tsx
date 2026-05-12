@@ -33,6 +33,7 @@ import {
   ShieldCheck,
   Wallet,
   Crown,
+  Scale,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -78,6 +79,7 @@ const navigationGroups: NavigationGroup[] = [
     items: [
       { name: 'Affordability Check', href: '/l/affordability', icon: Wallet, badge: null },
       { name: 'Document Verification', href: '/l/verification', icon: ShieldCheck, badge: null },
+      { name: 'Disputes', href: '/l/disputes', icon: Scale, badge: null },
     ]
   },
   {

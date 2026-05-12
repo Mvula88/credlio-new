@@ -26,7 +26,8 @@ import {
   Bell,
   ChevronDown,
   ShoppingBag,
-  Flag
+  Flag,
+  Scale
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -40,6 +41,7 @@ const navigation = [
   { name: 'Repayments', href: '/b/repayments', icon: FileText },
   { name: 'Reports', href: '/b/reports', icon: Flag },
   { name: 'Credit Score', href: '/b/credit', icon: TrendingUp },
+  { name: 'Disputes', href: '/b/disputes', icon: Scale },
   { name: 'Settings', href: '/b/settings', icon: Settings },
 ]
 

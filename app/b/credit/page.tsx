@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -674,6 +675,17 @@ export default function CreditScorePage() {
                                   {format(new Date(flag.resolved_at), 'MMM d, yyyy')}
                                   {flag.resolution_reason && ` - ${flag.resolution_reason}`}
                                 </span>
+                              </div>
+                            )}
+
+                            {!isResolved && (
+                              <div className="mt-3">
+                                <Link
+                                  href={`/b/disputes/new?type=incorrect_repayment_status&risk_flag_id=${flag.id}`}
+                                  className="text-xs text-blue-600 hover:text-blue-800 underline"
+                                >
+                                  Dispute this flag
+                                </Link>
                               </div>
                             )}
                           </div>
