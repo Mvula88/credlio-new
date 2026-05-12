@@ -122,6 +122,7 @@ export default function LenderAffordabilityPage() {
   const [loanAmount, setLoanAmount] = useState<string>('')
   const [loanTerm, setLoanTerm] = useState<string>('12')
   const [interestRate, setInterestRate] = useState<string>('15')
+  const [extraRatePerInstallment, setExtraRatePerInstallment] = useState<string>('0')
   const [paymentFrequency, setPaymentFrequency] = useState<'monthly' | 'bi-weekly' | 'weekly' | 'daily'>('monthly')
 
   // Results
@@ -248,6 +249,7 @@ export default function LenderAffordabilityPage() {
     setLoanAmount('')
     setLoanTerm('12')
     setInterestRate('15')
+    setExtraRatePerInstallment('0')
 
     // Load saved assessments and existing loans for this borrower
     await Promise.all([
@@ -267,7 +269,7 @@ export default function LenderAffordabilityPage() {
         // If API fails, try direct query (will only show loans from current lender due to RLS)
         const { data: loans, error } = await supabase
           .from('loans')
-          .select('id, principal_amount, outstanding_balance, status, created_at, interest_rate, term_months')
+          .select('id, principal_amount, principal_minor, outstanding_balance, status, created_at, interest_rate, term_months, total_interest_percent, base_rate_percent, extra_rate_per_installment, num_installments, total_amount_minor, interest_amount_minor')
           .eq('borrower_id', borrowerId)
           .in('status', ['active', 'pending', 'approved', 'disbursed'])
           .order('created_at', { ascending: false })
@@ -278,24 +280,27 @@ export default function LenderAffordabilityPage() {
           return
         }
 
-        // Process loans from direct query
+        // Flat-interest model matching app/api/loans/create. Prefer the
+        // canonical total_amount_minor if present; otherwise reconstruct
+        // from base_rate + extra_rate × (installments - 1).
         const loansWithPayments = loans.map((loan: LoanWithRelations) => {
-          const monthlyRate = (loan.interest_rate || 15) / 100 / 12
-          const term = loan.term_months || 12
-          const principal = (loan.principal_amount ?? 0) / 100
-          let monthlyPayment = 0
-          if (monthlyRate > 0) {
-            monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, term)) /
-                            (Math.pow(1 + monthlyRate, term) - 1)
-          } else {
-            monthlyPayment = principal / term
-          }
+          const principalMinor = (loan.principal_minor ?? loan.principal_amount ?? 0)
+          const principal = principalMinor / 100
+          const installments = loan.num_installments || loan.term_months || 1
+          const baseRate = loan.base_rate_percent ?? loan.interest_rate ?? 15
+          const extraRate = loan.extra_rate_per_installment ?? 0
+          const totalRate = loan.total_interest_percent ??
+            (baseRate + extraRate * Math.max(0, installments - 1))
+          const totalAmount = loan.total_amount_minor
+            ? loan.total_amount_minor / 100
+            : principal + (principal * totalRate / 100)
+          const monthlyPayment = installments > 0 ? totalAmount / installments : 0
 
           return {
             id: loan.id,
             lender_name: 'Your Loan',
             principal_amount: principal,
-            outstanding_balance: (loan.outstanding_balance || loan.principal_amount || 0) / 100,
+            outstanding_balance: (loan.outstanding_balance || principalMinor) / 100,
             monthly_payment: monthlyPayment,
             status: loan.status,
             created_at: loan.created_at
@@ -363,16 +368,25 @@ export default function LenderAffordabilityPage() {
     const debt = parseFloat(existingDebt) || 0
     const amount = parseFloat(loanAmount) || 0
     const term = parseInt(loanTerm) || 12
-    const rate = parseFloat(interestRate) || 15
+    const baseRate = parseFloat(interestRate) || 15
+    const extraRate = parseFloat(extraRatePerInstallment) || 0
 
     if (income === 0) {
       toast.error('Please enter monthly income')
       return
     }
 
-    // Calculate monthly payment using amortization formula
-    const monthlyRate = rate / 100 / 12
-    const monthlyPayment = amount * (monthlyRate * Math.pow(1 + monthlyRate, term)) / (Math.pow(1 + monthlyRate, term) - 1)
+    // Flat-interest model matching app/api/loans/create:
+    //   total_rate = base_rate + extra_rate * (installments - 1)
+    //   interest = principal * total_rate / 100
+    //   total = principal + interest
+    //   payment = total / installments
+    // This mirrors how informal cashloan operators actually quote loans —
+    // not APR amortization. See loan-create route for the canonical math.
+    const totalRate = baseRate + extraRate * Math.max(0, term - 1)
+    const interestAmount = amount * totalRate / 100
+    const totalRepayable = amount + interestAmount
+    const monthlyPayment = term > 0 ? totalRepayable / term : 0
 
     // Calculate payment based on frequency
     let paymentAmount = monthlyPayment
@@ -425,9 +439,11 @@ export default function LenderAffordabilityPage() {
       recommendation = 'Poor affordability. High risk - consider rejection or significant loan reduction.'
     }
 
-    // Calculate maximum recommended loan
-    const maxMonthlyPayment = income * 0.35 - debt // 35% DTI is good target
-    const maxRecommendedLoan = maxMonthlyPayment * (Math.pow(1 + monthlyRate, term) - 1) / (monthlyRate * Math.pow(1 + monthlyRate, term))
+    // Calculate maximum recommended loan using the same flat-interest model.
+    // maxMonthlyPayment × term = principal × (1 + totalRate/100)
+    // → principal = (maxMonthlyPayment × term) / (1 + totalRate/100)
+    const maxMonthlyPayment = Math.max(0, income * 0.35 - debt) // 35% DTI is good target
+    const maxRecommendedLoan = (maxMonthlyPayment * term) / (1 + totalRate / 100)
 
     // Stress test calculations
     const income10 = income * 0.9 // 10% income drop
@@ -894,7 +910,7 @@ export default function LenderAffordabilityPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="rate">Interest Rate (%)</Label>
+                    <Label htmlFor="rate">Base Interest Rate (%)</Label>
                     <Input
                       id="rate"
                       type="number"
@@ -903,7 +919,24 @@ export default function LenderAffordabilityPage() {
                       value={interestRate}
                       onChange={(e) => setInterestRate(e.target.value)}
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Flat % of principal for the whole loan (not APR).
+                    </p>
                   </div>
+                </div>
+                <div>
+                  <Label htmlFor="extraRate">Extra Rate Per Installment (%)</Label>
+                  <Input
+                    id="extraRate"
+                    type="number"
+                    step="0.1"
+                    placeholder="0"
+                    value={extraRatePerInstallment}
+                    onChange={(e) => setExtraRatePerInstallment(e.target.value)}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Added per extra installment after the first. Leave at 0 for a flat-rate loan. Example: 30% base + 5% extra × 3 months = 45% total.
+                  </p>
                 </div>
                 <div>
                   <Label htmlFor="frequency">Payment Frequency</Label>

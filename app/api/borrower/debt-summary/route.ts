@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     // Use admin client to fetch all loans for this borrower (bypasses RLS for credit bureau)
     const { data: loans, error: loansError } = await supabaseAdmin
       .from('loans')
-      .select('id, principal_amount, outstanding_balance, status, created_at, interest_rate, term_months, lender_id')
+      .select('id, principal_amount, principal_minor, outstanding_balance, status, created_at, interest_rate, term_months, total_interest_percent, base_rate_percent, extra_rate_per_installment, num_installments, total_amount_minor, lender_id')
       .eq('borrower_id', borrowerId)
       .in('status', ['active', 'pending', 'approved', 'disbursed'])
       .order('created_at', { ascending: false })
@@ -86,25 +86,27 @@ export async function GET(request: NextRequest) {
       lenderNames[l.user_id] = l.business_name || 'Lender'
     })
 
-    // Calculate monthly payments
+    // Flat-interest model matching app/api/loans/create. Prefer the canonical
+    // total_amount_minor stored on the loan; otherwise reconstruct from
+    // base_rate + extra_rate × (installments - 1).
     const loansWithPayments = loans.map(loan => {
-      const monthlyRate = (loan.interest_rate || 15) / 100 / 12
-      const term = loan.term_months || 12
-      const principal = loan.principal_amount / 100
-
-      let monthlyPayment = 0
-      if (monthlyRate > 0 && term > 0) {
-        monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, term)) /
-                        (Math.pow(1 + monthlyRate, term) - 1)
-      } else {
-        monthlyPayment = principal / (term || 1)
-      }
+      const principalMinor = (loan.principal_minor ?? loan.principal_amount ?? 0)
+      const principal = principalMinor / 100
+      const installments = loan.num_installments || loan.term_months || 1
+      const baseRate = loan.base_rate_percent ?? loan.interest_rate ?? 15
+      const extraRate = loan.extra_rate_per_installment ?? 0
+      const totalRate = loan.total_interest_percent ??
+        (baseRate + extraRate * Math.max(0, installments - 1))
+      const totalAmount = loan.total_amount_minor
+        ? loan.total_amount_minor / 100
+        : principal + (principal * totalRate / 100)
+      const monthlyPayment = installments > 0 ? totalAmount / installments : 0
 
       return {
         id: loan.id,
         lender_name: lenderNames[loan.lender_id] || 'Lender',
         principal_amount: principal,
-        outstanding_balance: (loan.outstanding_balance || loan.principal_amount) / 100,
+        outstanding_balance: (loan.outstanding_balance || principalMinor) / 100,
         monthly_payment: Math.round(monthlyPayment * 100) / 100,
         status: loan.status,
         created_at: loan.created_at

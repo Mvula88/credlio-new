@@ -302,6 +302,9 @@ export interface LoanWithRelations extends Loan {
   total_loans?: number
   total_interest_percent?: number
   base_rate_percent?: number
+  extra_rate_per_installment?: number
+  num_installments?: number
+  interest_amount_minor?: number
   risk_flags?: RiskFlag[]
   loan_offers?: LoanOffer[]
 }
