@@ -38,24 +38,23 @@ export async function POST(req: NextRequest) {
 
     console.log('[CRON] Starting overdue reports check...')
 
-    // Step 0: Auto-flag tracked-loan defaults across all lenders.
-    // refresh_risks_and_scores scans repayment_schedules whose due_date has
-    // passed without sufficient payment and creates SYSTEM_AUTO rows in
-    // risk_flags (LATE_1_7 / LATE_8_30 / LATE_31_60 / DEFAULT), then
-    // recalculates borrower_scores. This is what makes cross-lender
-    // visibility work — without it, only manually-filed reports surface.
-    // 48h grace period: if the lender records the repayment within 2 days
-    // of the due date, no auto-flag is created.
-    const { data: riskRefresh, error: riskError } = await supabase.rpc(
-      'refresh_risks_and_scores',
-      { p_grace_hours: 48 }
+    // Step 0: Run the daily loan-maintenance pipeline. This single RPC handles:
+    //   1. send_payment_reminders — 3-day heads-up to lender + borrower
+    //   2. update_overdue_schedules — mark schedules as overdue
+    //   3. refresh_risks_and_scores(48) — auto-flag missed payments past the
+    //      48h grace period (this is what makes cross-lender visibility work)
+    //   4. notify_about_new_auto_flags — lender + borrower notifications for
+    //      newly-created SYSTEM_AUTO flags
+    //   5. check_loan_defaults — mark loans defaulted at 90+ days late
+    const { data: maintenance, error: maintenanceError } = await supabase.rpc(
+      'run_daily_loan_maintenance'
     )
 
-    if (riskError) {
-      console.error('[CRON] refresh_risks_and_scores error:', riskError)
+    if (maintenanceError) {
+      console.error('[CRON] run_daily_loan_maintenance error:', maintenanceError)
       // Non-fatal: continue with the borrower_reports sweep below.
     } else {
-      console.log('[CRON] Risk refresh:', riskRefresh)
+      console.log('[CRON] Daily maintenance:', maintenance)
     }
 
     // Calculate date 7 days ago
@@ -170,7 +169,7 @@ export async function POST(req: NextRequest) {
 
     const result = {
       success: true,
-      riskRefresh: riskRefresh ?? null,
+      maintenance: maintenance ?? null,
       reportsChecked: overdueReports?.length || 0,
       reportsUpdated: updatedCount,
       notificationsCreated,
