@@ -7,6 +7,8 @@ import { useForm, Controller } from 'react-hook-form'
 import { createClient } from '@/lib/supabase/client'
 import { borrowerOnboardingSchema, type BorrowerOnboardingInput } from '@/lib/validations/auth'
 import { hashNationalIdAsync } from '@/lib/auth'
+import { extractImageMetadata } from '@/lib/metadata-extraction'
+import { computeAHash } from '@/lib/perceptual-hash'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -405,11 +407,18 @@ export default function BorrowerOnboardingPage() {
       const blob = await response.blob()
       const file = new File([blob], `selfie_${Date.now()}.jpg`, { type: 'image/jpeg' })
 
-      // Extract metadata
+      // SHA-256 of the file bytes — used for duplicate-detection across accounts.
       const arrayBuffer = await file.arrayBuffer()
       const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
       const hashArray = Array.from(new Uint8Array(hashBuffer))
       const fileHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+      // Real EXIF analysis — replaces the previous hardcoded flags.
+      const imageMeta = await extractImageMetadata(file)
+
+      // Perceptual hash for cross-borrower dedup. The DB trigger fires on
+      // INSERT and high-risk-flags any second borrower trying the same image.
+      const perceptualHash = await computeAHash(file)
 
       const now = new Date()
       const fileDate = new Date(file.lastModified)
@@ -455,19 +464,26 @@ export default function BorrowerOnboardingPage() {
           user_id: user.id,
           document_type: 'selfie_with_id',
           file_hash: fileHash,
-          file_url: storageData.path, // Store the storage path
+          file_url: storageData.path,
           file_size_bytes: file.size,
           file_extension: 'jpg',
-          exif_data: {},
+          exif_data: imageMeta.exifRaw ?? {},
+          camera_make: imageMeta.make ?? null,
+          camera_model: imageMeta.model ?? null,
+          software_used: imageMeta.software ?? null,
+          photo_taken_at: imageMeta.dateTime ? imageMeta.dateTime.toISOString() : null,
+          gps_latitude: imageMeta.gps?.latitude ?? null,
+          gps_longitude: imageMeta.gps?.longitude ?? null,
           file_created_at: new Date(file.lastModified).toISOString(),
-          file_modified_at: new Date(file.lastModified).toISOString(),
+          file_modified_at: imageMeta.modifyDate ? imageMeta.modifyDate.toISOString() : new Date(file.lastModified).toISOString(),
           created_recently: hoursSinceCreation < 24,
-          missing_exif_data: true,
-          is_screenshot: false,
-          edited_with_software: false,
-          modified_after_creation: false,
-          duplicate_hash: false
-          // risk_score and risk_factors will be auto-calculated by trigger
+          missing_exif_data: imageMeta.noExifData,
+          is_screenshot: imageMeta.isScreenshot,
+          edited_with_software: imageMeta.hasBeenEdited,
+          modified_after_creation: imageMeta.modifiedAfterCreation,
+          duplicate_hash: false,
+          perceptual_hash: perceptualHash
+          // risk_score and risk_factors are computed by the DB trigger
         }, {
           onConflict: 'borrower_id,document_type'
         })

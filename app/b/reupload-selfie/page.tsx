@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Camera, CheckCircle, ArrowLeft, Loader2 } from 'lucide-react'
+import { extractImageMetadata } from '@/lib/metadata-extraction'
+import { computeAHash } from '@/lib/perceptual-hash'
 
 export default function ReuploadSelfiePage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
@@ -87,11 +89,16 @@ export default function ReuploadSelfiePage() {
       const blob = await response.blob()
       const file = new File([blob], `selfie_${Date.now()}.jpg`, { type: 'image/jpeg' })
 
-      // Extract metadata
+      // SHA-256 hash for duplicate detection across accounts.
       const arrayBuffer = await file.arrayBuffer()
       const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer)
       const hashArray = Array.from(new Uint8Array(hashBuffer))
       const fileHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+      // Real EXIF / fraud-signal analysis.
+      const imageMeta = await extractImageMetadata(file)
+      // Cross-borrower duplicate-detection fingerprint.
+      const perceptualHash = await computeAHash(file)
 
       const now = new Date()
       const fileDate = new Date(file.lastModified)
@@ -138,15 +145,22 @@ export default function ReuploadSelfiePage() {
           file_url: storageData.path,
           file_size_bytes: file.size,
           file_extension: 'jpg',
-          exif_data: {},
+          exif_data: imageMeta.exifRaw ?? {},
+          camera_make: imageMeta.make ?? null,
+          camera_model: imageMeta.model ?? null,
+          software_used: imageMeta.software ?? null,
+          photo_taken_at: imageMeta.dateTime ? imageMeta.dateTime.toISOString() : null,
+          gps_latitude: imageMeta.gps?.latitude ?? null,
+          gps_longitude: imageMeta.gps?.longitude ?? null,
           file_created_at: new Date(file.lastModified).toISOString(),
-          file_modified_at: new Date(file.lastModified).toISOString(),
+          file_modified_at: imageMeta.modifyDate ? imageMeta.modifyDate.toISOString() : new Date(file.lastModified).toISOString(),
           created_recently: hoursSinceCreation < 24,
-          missing_exif_data: true,
-          is_screenshot: false,
-          edited_with_software: false,
-          modified_after_creation: false,
-          duplicate_hash: false
+          missing_exif_data: imageMeta.noExifData,
+          is_screenshot: imageMeta.isScreenshot,
+          edited_with_software: imageMeta.hasBeenEdited,
+          modified_after_creation: imageMeta.modifiedAfterCreation,
+          duplicate_hash: false,
+          perceptual_hash: perceptualHash
         }, {
           onConflict: 'borrower_id,document_type'
         })

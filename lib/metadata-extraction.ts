@@ -65,7 +65,8 @@ export interface ImageMetadata {
   make?: string       // Camera manufacturer
   model?: string      // Camera model
   software?: string   // Software used
-  dateTime?: Date     // When photo was taken
+  dateTime?: Date     // When photo was taken (DateTimeOriginal)
+  modifyDate?: Date   // When file was last written
   gps?: {
     latitude?: number
     longitude?: number
@@ -77,10 +78,15 @@ export interface ImageMetadata {
   fileSize?: number
   format?: string
 
-  // Fraud detection
-  hasBeenEdited: boolean
-  suspiciousSoftware: boolean
-  noExifData: boolean
+  // Raw EXIF (for storing in DB)
+  exifRaw?: Record<string, unknown>
+
+  // Fraud detection flags — these map 1:1 to borrower_documents columns
+  hasBeenEdited: boolean      // → edited_with_software
+  suspiciousSoftware: boolean // legacy alias of hasBeenEdited (kept for older callers)
+  noExifData: boolean         // → missing_exif_data
+  isScreenshot: boolean       // → is_screenshot
+  modifiedAfterCreation: boolean // → modified_after_creation
 
   // Risk factors
   riskFactors: string[]
@@ -204,64 +210,139 @@ export async function extractPDFMetadata(file: File): Promise<PDFMetadata> {
   }
 }
 
+// Software signatures that indicate the photo was edited or fabricated rather
+// than being a raw camera capture. Lowercased; substring match.
+const EDITING_SOFTWARE_SIGNATURES = [
+  'photoshop', 'lightroom', 'gimp', 'pixlr', 'canva', 'picsart',
+  'snapseed', 'facetune', 'meitu', 'beautyplus', 'youcam',
+  'paint.net', 'paint', 'affinity', 'corel', 'acdsee',
+  'gemini', 'midjourney', 'stable diffusion', 'dall-e', 'firefly'
+]
+
+const SCREENSHOT_SOFTWARE_SIGNATURES = [
+  'screenshot', 'screen capture', 'snipping tool', 'lightshot',
+  'snagit', 'greenshot', 'shareX'
+]
+
+function hasSignature(value: string | undefined, signatures: string[]): boolean {
+  if (!value) return false
+  const lower = value.toLowerCase()
+  return signatures.some(sig => lower.includes(sig))
+}
+
 /**
- * Extract metadata from image files
+ * Extract metadata from image files using exifr.
+ * Returns fraud-detection flags that map directly to borrower_documents columns.
  */
 export async function extractImageMetadata(file: File): Promise<ImageMetadata> {
   const riskFactors: string[] = []
   let riskScore = 0
 
-  try {
-    // Use EXIF.js or similar library for EXIF extraction
-    // For now, we'll do basic checks
+  // Pull dimensions in parallel with EXIF parsing.
+  const [img, exif] = await Promise.all([
+    loadImage(file).catch(() => null),
+    parseExif(file).catch(() => null),
+  ])
 
-    const img = await loadImage(file)
+  const make = exif?.Make as string | undefined
+  const model = exif?.Model as string | undefined
+  const software = (exif?.Software ?? exif?.CreatorTool) as string | undefined
+  const dateTime = (exif?.DateTimeOriginal ?? exif?.CreateDate) as Date | undefined
+  const modifyDate = exif?.ModifyDate as Date | undefined
 
-    // Check for editing software in filename
-    const suspiciousSoftware = file.name.toLowerCase().includes('photoshop') ||
-                               file.name.toLowerCase().includes('gimp') ||
-                               file.name.toLowerCase().includes('edited')
+  // No EXIF at all, or EXIF with no camera-origin tags. A real phone photo
+  // always carries Make + Model + DateTimeOriginal — absence means the file
+  // was re-saved through software that stripped EXIF (or was never a camera
+  // capture in the first place).
+  const hasCameraSignature = !!(make && model && dateTime)
+  const noExifData = !exif || Object.keys(exif).length === 0 || !hasCameraSignature
 
-    if (suspiciousSoftware) {
-      riskFactors.push('Filename suggests image editing')
-      riskScore += 20
-    }
+  if (noExifData) {
+    riskFactors.push('Missing photo metadata')
+    riskScore += 60
+  }
 
-    // Check file size (suspiciously small might be screenshot)
-    if (file.size < 50000) { // Less than 50KB
-      riskFactors.push('File size very small - may be screenshot or compressed')
-      riskScore += 15
-    }
+  // Software tag identifies the program that last wrote the file. Photoshop /
+  // GIMP / AI generators leave a fingerprint here.
+  const hasBeenEdited = hasSignature(software, EDITING_SOFTWARE_SIGNATURES) ||
+                        hasSignature(file.name, ['photoshop', 'gimp', 'edited'])
 
-    // Check if very recent file
-    const fileDate = new Date(file.lastModified)
-    const now = new Date()
-    if ((now.getTime() - fileDate.getTime()) < (24 * 60 * 60 * 1000)) {
-      riskFactors.push('File modified within last 24 hours')
-      riskScore += 10
-    }
+  if (hasBeenEdited) {
+    riskFactors.push(`Edited with photo software${software ? ': ' + software : ''}`)
+    riskScore += 70
+  }
 
-    return {
-      width: img.width,
-      height: img.height,
-      fileSize: file.size,
-      format: file.type,
-      hasBeenEdited: false, // Would need EXIF analysis
-      suspiciousSoftware,
-      noExifData: true, // Would check EXIF
-      riskFactors,
-      riskScore: Math.min(riskScore, 100)
-    }
-  } catch (error: any) {
-    console.error('Error extracting image metadata:', error)
-    return {
-      hasBeenEdited: false,
-      suspiciousSoftware: false,
-      noExifData: true,
-      riskFactors: ['Failed to extract metadata'],
-      riskScore: 50
+  // Screenshots: either the software tag says so, or the filename does (most
+  // platforms prefix screenshots with "Screenshot" or "Screen Shot").
+  const filenameLooksLikeScreenshot = /^(screenshot|screen[\s_-]?shot)/i.test(file.name)
+  const isScreenshot = hasSignature(software, SCREENSHOT_SOFTWARE_SIGNATURES) ||
+                       filenameLooksLikeScreenshot
+
+  if (isScreenshot) {
+    riskFactors.push('Appears to be a screenshot')
+    riskScore += 70
+  }
+
+  // Modified after creation: file was re-saved through some tool after the
+  // camera wrote it. >10s tolerance to avoid flagging the EXIF write itself.
+  let modifiedAfterCreation = false
+  if (dateTime && modifyDate) {
+    modifiedAfterCreation = modifyDate.getTime() - dateTime.getTime() > 10_000
+    if (modifiedAfterCreation) {
+      riskFactors.push('File modified after creation')
+      riskScore += 40
     }
   }
+
+  // Fresh capture is normal but worth recording.
+  const fileDate = new Date(file.lastModified)
+  const now = new Date()
+  if ((now.getTime() - fileDate.getTime()) < (24 * 60 * 60 * 1000)) {
+    riskFactors.push('Document created recently')
+    riskScore += 10
+  }
+
+  // Suspiciously small files are often screenshots or heavily recompressed.
+  if (file.size < 50_000) {
+    riskFactors.push('File size very small — may be a screenshot or recompression')
+    riskScore += 15
+  }
+
+  const gps = (exif?.latitude || exif?.longitude) ? {
+    latitude: exif.latitude as number | undefined,
+    longitude: exif.longitude as number | undefined,
+  } : undefined
+
+  return {
+    make,
+    model,
+    software,
+    dateTime,
+    modifyDate,
+    gps,
+    width: img?.width,
+    height: img?.height,
+    fileSize: file.size,
+    format: file.type,
+    exifRaw: exif ?? undefined,
+    hasBeenEdited,
+    suspiciousSoftware: hasBeenEdited,
+    noExifData,
+    isScreenshot,
+    modifiedAfterCreation,
+    riskFactors,
+    riskScore: Math.min(riskScore, 100),
+  }
+}
+
+// Parse EXIF on the client using exifr. Dynamic import keeps the bundle off
+// the server-side render path. Returns null when the file has no EXIF.
+async function parseExif(file: File): Promise<Record<string, any> | null> {
+  if (typeof window === 'undefined') return null
+  const exifr = (await import('exifr')).default
+  // `gps: true` exposes latitude/longitude as decimal degrees.
+  const data = await exifr.parse(file, { gps: true })
+  return (data && Object.keys(data).length > 0) ? data : null
 }
 
 /**

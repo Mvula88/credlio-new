@@ -240,9 +240,13 @@ export default function DocumentVerificationPage() {
         return
       }
 
-      // Generate file hash
+      // Generate file hash + perceptual hash for cross-borrower dedup
       const fileHash = await generateFileHash(file)
       const metadataHash = generateMetadataHash(metadata)
+      // pHash only applies to images; for PDFs we rely on file_hash + metadata.
+      const perceptualHash = file.type.startsWith('image/')
+        ? await (await import('@/lib/perceptual-hash')).computeAHash(file)
+        : null
 
       // Save verification to database
       const { error: saveError } = await supabase
@@ -255,6 +259,7 @@ export default function DocumentVerificationPage() {
           metadata: metadata,
           metadata_hash: metadataHash,
           file_hash: fileHash,
+          perceptual_hash: perceptualHash,
           creator_software: 'creator' in metadata ? metadata.creator : undefined,
           creation_date: 'creationDate' in metadata ? metadata.creationDate : undefined,
           modification_date: 'modificationDate' in metadata ? metadata.modificationDate : undefined,
