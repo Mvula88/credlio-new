@@ -34,7 +34,9 @@ import {
   Building2,
   User,
   MessageSquare,
-  Banknote
+  Banknote,
+  FileSearch,
+  Activity
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -54,6 +56,8 @@ const navigation = [
   { name: 'Fraud Signals', href: '/admin/fraud', icon: AlertTriangle },
   { name: 'Notifications', href: '/admin/notifications', icon: Bell },
   { name: 'Reports', href: '/admin/reports', icon: FileText },
+  { name: 'Audit Log', href: '/admin/audit', icon: FileSearch },
+  { name: 'Cron Jobs', href: '/admin/cron', icon: Activity },
   { name: 'Settings', href: '/admin/settings', icon: Settings },
 ]
 
@@ -227,10 +231,6 @@ export default function AdminLayout({
                   <DropdownMenuItem onClick={() => router.push('/admin/settings')} className="cursor-pointer hover:bg-accent/50">
                     <Settings className="mr-2 h-4 w-4 text-primary" />
                     Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push('/admin/profile')} className="cursor-pointer hover:bg-accent/50">
-                    <UserCheck className="mr-2 h-4 w-4 text-primary" />
-                    Profile
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer hover:bg-destructive/10 text-destructive">

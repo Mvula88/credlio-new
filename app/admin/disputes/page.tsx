@@ -108,6 +108,21 @@ export default function DisputesPage() {
             }
           }
 
+          // Get linked risk flag info if risk_flag_id exists.
+          // Without this the admin has no way to see what flag is being
+          // disputed, and resolving the dispute would leave the flag active.
+          if (dispute.risk_flag_id) {
+            const { data: flagData } = await supabase
+              .from('risk_flags')
+              .select('id, type, origin, reason, created_at, resolved_at, amount_at_issue_minor')
+              .eq('id', dispute.risk_flag_id)
+              .single()
+
+            if (flagData) {
+              enrichedDispute.risk_flag = flagData
+            }
+          }
+
           // Get loan request info if request_id exists
           if (dispute.request_id) {
             const { data: requestData } = await supabase
@@ -162,6 +177,36 @@ export default function DisputesPage() {
       if (error) {
         console.error('Error updating dispute:', error)
         return
+      }
+
+      // Close the loop: if admin sided with the borrower AND the dispute
+      // was filed against a specific risk flag, release that flag too.
+      // resolve_risk_flag sets resolved_at, type='CLEARED' and writes
+      // resolution_reason; the next cron run recalculates the borrower's
+      // score. We also recompute immediately so the lender's UI updates
+      // without waiting for 02:00 UTC.
+      const linkedFlag = selectedDispute?.risk_flag
+      const borrowerId = selectedDispute?.borrower_id
+      if (
+        status === 'resolved_in_favor_borrower'
+        && linkedFlag?.id
+        && !linkedFlag?.resolved_at
+      ) {
+        const { error: flagError } = await supabase.rpc('resolve_risk_flag', {
+          p_risk_id: linkedFlag.id,
+          p_resolution_reason: `Released via dispute resolution. ${resolutionNote || ''}`.trim()
+        })
+
+        if (flagError) {
+          console.error('Failed to release linked risk flag:', flagError)
+        } else if (borrowerId) {
+          const { error: scoreError } = await supabase.rpc('calculate_borrower_score', {
+            p_borrower_id: borrowerId
+          })
+          if (scoreError) {
+            console.error('Failed to recalculate borrower score:', scoreError)
+          }
+        }
       }
 
       await loadDisputes()
@@ -569,6 +614,37 @@ export default function DisputesPage() {
                 <div>
                   <Label className="text-xs text-gray-600">Description</Label>
                   <p className="mt-1 p-3 bg-gray-50 rounded-lg">{selectedDispute.description}</p>
+                </div>
+              )}
+
+              {selectedDispute.risk_flag && (
+                <div>
+                  <Label className="text-xs text-gray-600">Linked Risk Flag</Label>
+                  <div className="mt-1 p-3 bg-orange-50 border border-orange-200 rounded-lg space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-orange-100 text-orange-800">
+                        {selectedDispute.risk_flag.type?.replace(/_/g, ' ')}
+                      </Badge>
+                      <Badge variant="outline">
+                        {selectedDispute.risk_flag.origin === 'SYSTEM_AUTO' ? '🤖 System Auto' : 'Lender Reported'}
+                      </Badge>
+                      {selectedDispute.risk_flag.resolved_at && (
+                        <Badge className="bg-green-100 text-green-800">Already resolved</Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-700">{selectedDispute.risk_flag.reason}</p>
+                    <p className="text-xs text-gray-500">
+                      Created {format(new Date(selectedDispute.risk_flag.created_at), 'MMM d, yyyy')}
+                      {selectedDispute.risk_flag.amount_at_issue_minor && (
+                        <> · Amount at issue: {(selectedDispute.risk_flag.amount_at_issue_minor / 100).toFixed(2)}</>
+                      )}
+                    </p>
+                    {!selectedDispute.risk_flag.resolved_at && (
+                      <p className="text-xs text-orange-700 mt-1">
+                        Resolving the dispute "in favor of borrower" will automatically release this flag and recalculate the borrower's credit score.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 

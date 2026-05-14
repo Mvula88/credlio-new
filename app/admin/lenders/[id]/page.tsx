@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,7 +33,8 @@ import {
   User,
   Briefcase,
   Image,
-  ExternalLink
+  ExternalLink,
+  RefreshCw
 } from 'lucide-react'
 import { format } from 'date-fns'
 
@@ -41,6 +44,9 @@ export default function AdminLenderDetailPage() {
   const [suspendDialog, setSuspendDialog] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [photoDialog, setPhotoDialog] = useState<{ open: boolean; url: string }>({ open: false, url: '' })
+  const [quotaLoading, setQuotaLoading] = useState(false)
+  const [quotaReason, setQuotaReason] = useState('')
+  const [quotaResult, setQuotaResult] = useState<string | null>(null)
   const router = useRouter()
   const params = useParams()
   const supabase = createClient()
@@ -89,6 +95,26 @@ export default function AdminLenderDetailPage() {
       console.error('Error loading lender details:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResetQuota = async () => {
+    if (!lender?.user_id) return
+    setQuotaLoading(true)
+    setQuotaResult(null)
+    try {
+      const { data, error } = await supabase.rpc('admin_reset_lender_quota', {
+        p_user_id: lender.user_id,
+        p_reason: quotaReason || null
+      })
+      if (error) throw error
+      setQuotaResult(`Cleared ${data ?? 0} usage row(s) for this month. Lender has fresh quota.`)
+      setQuotaReason('')
+    } catch (e: any) {
+      console.error('Reset quota error:', e)
+      setQuotaResult(`Error: ${e?.message ?? 'Failed to reset quota'}`)
+    } finally {
+      setQuotaLoading(false)
     }
   }
 
@@ -308,6 +334,44 @@ export default function AdminLenderDetailPage() {
                 )}
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Manage Quota */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5" />
+              Cross-Lender Search Quota
+            </CardTitle>
+            <CardDescription>
+              FREE-tier lenders can view 2 other lenders&apos; borrowers per month. Use this to extend a trial or undo a misclick.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="quotaReason">Reason (optional, recorded in audit log)</Label>
+              <Input
+                id="quotaReason"
+                value={quotaReason}
+                onChange={(e) => setQuotaReason(e.target.value)}
+                placeholder="e.g. extending trial by request"
+                disabled={quotaLoading}
+              />
+            </div>
+            <Button
+              onClick={handleResetQuota}
+              disabled={quotaLoading}
+              variant="outline"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              {quotaLoading ? 'Resetting...' : "Reset this month's quota"}
+            </Button>
+            {quotaResult && (
+              <Alert>
+                <AlertDescription>{quotaResult}</AlertDescription>
+              </Alert>
+            )}
           </CardContent>
         </Card>
 

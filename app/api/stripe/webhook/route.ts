@@ -54,16 +54,28 @@ export async function POST(req: NextRequest) {
           const userId = session.metadata.user_id
           const tier = getTierFromPriceId(session.metadata.plan_id || '')
 
-          // Update subscriptions table (this is what the app reads)
+          // If admin manually activated this user, do NOT overwrite their
+          // tier from Stripe — only attach the Stripe IDs so the manual
+          // activation stays authoritative.
+          const { data: existing } = await supabase
+            .from('subscriptions')
+            .select('manually_activated_by')
+            .eq('user_id', userId)
+            .maybeSingle()
+
+          const payload: Record<string, unknown> = {
+            user_id: userId,
+            stripe_customer_id: session.customer as string,
+            stripe_subscription_id: session.subscription as string,
+            updated_at: new Date().toISOString()
+          }
+          if (!existing?.manually_activated_by) {
+            payload.tier = tier
+          }
+
           await supabase
             .from('subscriptions')
-            .upsert({
-              user_id: userId,
-              tier: tier,
-              stripe_customer_id: session.customer as string,
-              stripe_subscription_id: session.subscription as string,
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id' })
+            .upsert(payload, { onConflict: 'user_id' })
 
           // Also update profiles for backwards compatibility
           await supabase
@@ -88,20 +100,30 @@ export async function POST(req: NextRequest) {
           const priceId = subscription.items.data[0]?.price?.id || ''
           const tier = getTierFromPriceId(priceId)
 
-          // Update subscriptions table
+          // Defer to manual activation if present (see checkout.session.completed).
+          const { data: existing } = await supabase
+            .from('subscriptions')
+            .select('manually_activated_by')
+            .eq('user_id', userId)
+            .maybeSingle()
+
+          const payload: Record<string, unknown> = {
+            user_id: userId,
+            stripe_customer_id: subscription.customer as string,
+            stripe_subscription_id: subscription.id,
+            stripe_price_id: priceId,
+            current_period_start: new Date(((subscription as any).current_period_start || 0) * 1000).toISOString(),
+            current_period_end: new Date(((subscription as any).current_period_end || 0) * 1000).toISOString(),
+            cancel_at_period_end: (subscription as any).cancel_at_period_end || false,
+            updated_at: new Date().toISOString()
+          }
+          if (!existing?.manually_activated_by) {
+            payload.tier = tier
+          }
+
           await supabase
             .from('subscriptions')
-            .upsert({
-              user_id: userId,
-              tier: tier,
-              stripe_customer_id: subscription.customer as string,
-              stripe_subscription_id: subscription.id,
-              stripe_price_id: priceId,
-              current_period_start: new Date(((subscription as any).current_period_start || 0) * 1000).toISOString(),
-              current_period_end: new Date(((subscription as any).current_period_end || 0) * 1000).toISOString(),
-              cancel_at_period_end: (subscription as any).cancel_at_period_end || false,
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id' })
+            .upsert(payload, { onConflict: 'user_id' })
 
           // Also update profiles
           await supabase
