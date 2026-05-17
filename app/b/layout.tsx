@@ -27,7 +27,8 @@ import {
   ChevronDown,
   ShoppingBag,
   Flag,
-  Scale
+  Scale,
+  Mail
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -38,6 +39,7 @@ const navigation = [
   { name: 'Overview', href: '/b/overview', icon: Home },
   { name: 'My Loans', href: '/b/loans', icon: CreditCard },
   { name: 'Loan Requests', href: '/b/requests', icon: ShoppingBag },
+  { name: 'Document Requests', href: '/b/document-requests', icon: Mail },
   { name: 'Repayments', href: '/b/repayments', icon: FileText },
   { name: 'Reports', href: '/b/reports', icon: Flag },
   { name: 'Credit Score', href: '/b/credit', icon: TrendingUp },

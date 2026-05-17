@@ -13,6 +13,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { RepaymentEvent, RepaymentScheduleWithEvents } from '@/lib/types'
+import { LoanVerificationChecklist } from '@/components/LoanVerificationChecklist'
+import { BorrowerRiskPanel } from '@/components/BorrowerRiskPanel'
+import { PaymentReminderButton } from '@/components/PaymentReminderButton'
 import {
   Table,
   TableBody,
@@ -1097,6 +1100,11 @@ export default function LoanDetailPage() {
         </div>
       </div>
 
+      {/* Manual payment reminder — visible while the loan is active. */}
+      {loan.status === 'active' && (
+        <PaymentReminderButton loanId={loan.id} />
+      )}
+
       {/* Loan Breakdown - Clear Interest Calculation */}
       <Card className="border-2 border-blue-200 bg-blue-50/30">
         <CardHeader>
@@ -1387,6 +1395,28 @@ export default function LoanDetailPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Borrower risk evidence — shown right above the checklist so the
+          lender can review what they're confirming. */}
+      {['pending_offer', 'pending_signatures', 'pending_disbursement'].includes(loan.status) && loan.borrower_id && (
+        <BorrowerRiskPanel borrowerId={loan.borrower_id} />
+      )}
+
+      {/* Pre-disbursement verification checklist (lender-side gate). */}
+      {['pending_offer', 'pending_signatures', 'pending_disbursement'].includes(loan.status) && loan.borrower_id && (
+        <LoanVerificationChecklist
+          loanId={loan.id}
+          loanStatus={loan.status}
+          borrowerId={loan.borrower_id}
+          docsVerifiedAt={(loan as any).lender_docs_verified_at ?? null}
+          videoVerifiedAt={(loan as any).lender_video_verified_at ?? null}
+          metadataVerifiedAt={(loan as any).lender_metadata_verified_at ?? null}
+          docsNotes={(loan as any).lender_docs_verification_notes ?? null}
+          videoNotes={(loan as any).lender_video_verification_notes ?? null}
+          metadataNotes={(loan as any).lender_metadata_verification_notes ?? null}
+          onChange={loadLoanDetails}
+        />
       )}
 
       {/* Send Money & Upload Proof Section - Show for pending_disbursement status */}

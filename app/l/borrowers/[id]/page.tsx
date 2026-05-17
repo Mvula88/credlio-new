@@ -56,6 +56,7 @@ import { Flame, Star, Clock, MessageSquare, Sparkles, FileText } from 'lucide-re
 import { Textarea } from '@/components/ui/textarea'
 import { differenceInMonths, differenceInYears } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
+import { BorrowerUnpaidSummary } from '@/components/BorrowerUnpaidSummary'
 
 export default function LenderBorrowerProfilePage() {
   const params = useParams()
@@ -782,6 +783,13 @@ export default function LenderBorrowerProfilePage() {
             Message
           </Button>
           <Button
+            variant="outline"
+            onClick={() => router.push(`/l/borrowers/${borrowerId}/request-document`)}
+          >
+            <FileCheck className="h-4 w-4 mr-2" />
+            Request Document
+          </Button>
+          <Button
             onClick={() => router.push(`/l/borrowers/${borrowerId}/verify`)}
             className="bg-gradient-to-r from-primary to-secondary"
           >
@@ -790,6 +798,11 @@ export default function LenderBorrowerProfilePage() {
           </Button>
         </div>
       </div>
+
+      {/* Cross-lender unpaid summary — the headline number a lender wants
+          to see when sizing up a borrower. Pulls from get_borrower_unpaid_summary
+          which spans every lender's loans. */}
+      <BorrowerUnpaidSummary borrowerId={borrowerId} />
 
       {/* Info: Only showing this lender's activity */}
       <Alert className="bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/30">

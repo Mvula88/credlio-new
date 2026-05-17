@@ -78,7 +78,7 @@ const navigationGroups: NavigationGroup[] = [
     title: 'Risk & Compliance',
     items: [
       { name: 'Affordability Check', href: '/l/affordability', icon: Wallet, badge: null },
-      { name: 'Document Verification', href: '/l/verification', icon: ShieldCheck, badge: null },
+      { name: 'Document Verification', href: '/l/document-requests', icon: ShieldCheck, badge: null },
       { name: 'Disputes', href: '/l/disputes', icon: Scale, badge: null },
     ]
   },
