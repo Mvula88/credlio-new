@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { TruncationBanner } from '@/components/TruncationBanner'
 import {
   Select,
   SelectContent,
@@ -151,6 +152,7 @@ export default function AdminLendersPage() {
           )
         `)
         .order('created_at', { ascending: false })
+        .limit(500)
 
       if (error) {
         console.error('Supabase error - Full object:', error)
@@ -273,6 +275,8 @@ export default function AdminLendersPage() {
           <p className="text-gray-600 mt-1">View lender profiles and onboarding information</p>
         </div>
       </div>
+
+      <TruncationBanner count={lenders.length} />
 
       {/* Search and Filter Card */}
       <Card>

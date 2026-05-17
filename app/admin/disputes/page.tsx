@@ -52,6 +52,7 @@ export default function DisputesPage() {
         .from('disputes')
         .select('*')
         .order('created_at', { ascending: false })
+        .limit(500)
 
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter)

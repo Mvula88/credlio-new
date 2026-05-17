@@ -157,6 +157,7 @@ export default function BorrowersPage() {
         `)
         .eq('lender_id', user.id)
         .order('created_at', { ascending: false })
+        .limit(500)
 
       if (loansError) {
         console.error('Error loading my borrowers:', loansError)

@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import { TruncationBanner } from '@/components/TruncationBanner'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ShieldAlert, AlertTriangle, Shield, ShieldCheck, Search, Loader2, Check, Eye, Ban, History, User } from 'lucide-react'
@@ -84,6 +85,7 @@ export default function RiskManagementPage() {
         `)
         .is('resolved_at', null)
         .order('created_at', { ascending: false })
+        .limit(500)
 
       if (error) throw error
 
@@ -190,6 +192,8 @@ export default function RiskManagementPage() {
           Monitor and manage platform risks • {format(new Date(), 'MMMM dd, yyyy')}
         </p>
       </div>
+
+      <TruncationBanner count={riskFlags.length} />
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

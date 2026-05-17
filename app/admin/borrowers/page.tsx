@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Search, User, Phone, Mail, TrendingUp, AlertTriangle, CheckCircle, Shield } from 'lucide-react'
+import { TruncationBanner } from '@/components/TruncationBanner'
 import { ExportButton } from '@/components/ExportButton'
 import { exportToCSV, formatBorrowerForExport } from '@/lib/export'
 import { isPast } from 'date-fns'
@@ -76,6 +77,7 @@ export default function AdminBorrowersPage() {
           )
         `)
         .order('created_at', { ascending: false })
+        .limit(500)
 
       if (error) {
         console.error('Supabase error details:', JSON.stringify(error, null, 2))
@@ -295,6 +297,8 @@ export default function AdminBorrowersPage() {
           label="Export All Borrowers"
         />
       </div>
+
+      <TruncationBanner count={borrowers.length} />
 
       {/* Search Card */}
       <Card>

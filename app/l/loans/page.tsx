@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { LoanWithRelations, RepaymentEvent, RepaymentScheduleWithEvents } from '@/lib/types'
+import { TruncationBanner } from '@/components/TruncationBanner'
 import {
   Table,
   TableBody,
@@ -159,6 +160,7 @@ export default function LoansPage() {
         `)
         .eq('lender_id', lender.user_id)
         .order('created_at', { ascending: false })
+        .limit(500)
 
       console.log('Loans query result:', { loanData, error })
       console.log('Number of loans found:', loanData?.length || 0)
@@ -476,6 +478,8 @@ export default function LoansPage() {
           </div>
         </div>
       </div>
+
+      <TruncationBanner count={loans.length} />
 
       {/* Action Required Banners */}
       {getPendingSignaturesLoans().length > 0 && (

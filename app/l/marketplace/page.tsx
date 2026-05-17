@@ -50,6 +50,7 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
+import { TruncationBanner } from '@/components/TruncationBanner'
 import { getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 
 export default function MarketplacePage() {
@@ -238,6 +239,7 @@ export default function MarketplacePage() {
         .eq('status', 'open')
         .eq('country_code', profile.country_code) // COUNTRY FILTER: Only same country
         .order('created_at', { ascending: false })
+        .limit(500)
 
       console.log('Marketplace - fetching requests for country:', profile.country_code)
       console.log('Marketplace requests data:', requests)
@@ -574,6 +576,8 @@ export default function MarketplacePage() {
         <h1 className="text-3xl font-bold text-gray-900">Loan Requests</h1>
         <p className="text-gray-600 mt-1">Browse loan requests and make competitive offers</p>
       </div>
+
+      <TruncationBanner count={loanRequests.length} />
 
       {/* Launch Period Banner */}
       {usageStatus?.is_launch_period && (
