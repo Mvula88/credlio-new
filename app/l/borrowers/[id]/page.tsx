@@ -83,6 +83,7 @@ export default function LenderBorrowerProfilePage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [messageDialogOpen, setMessageDialogOpen] = useState(false)
   const [messageText, setMessageText] = useState('')
+  const [quotaBlocked, setQuotaBlocked] = useState<{ blocked: boolean; message: string }>({ blocked: false, message: '' })
   const [messageSubject, setMessageSubject] = useState('')
   const [sendingMessage, setSendingMessage] = useState(false)
   const [lenderTier, setLenderTier] = useState<string>('FREE')
@@ -114,6 +115,29 @@ export default function LenderBorrowerProfilePage() {
       })
       if (tierData) {
         setLenderTier(tierData)
+      }
+
+      // Quota gate: viewing a borrower the lender did not register counts
+      // toward the cross-lender search quota (2/month on FREE). Own
+      // borrowers (created_by_lender = caller) are exempt — the RPC
+      // handles that internally. Without this check, direct URL access
+      // would bypass the quota wall that the search page enforces.
+      const { data: quotaResult, error: quotaError } = await supabase.rpc(
+        'check_borrower_search_quota',
+        { p_user_id: user.id, p_borrower_id: borrowerId }
+      )
+
+      if (quotaError) {
+        console.error('Quota check error:', quotaError)
+        // Fail-open — mirrors the search page behaviour.
+      } else if (quotaResult && !quotaResult.allowed) {
+        setQuotaBlocked({
+          blocked: true,
+          message: quotaResult.upgrade_message
+            || 'You have reached your free monthly limit of 2 cross-lender borrower views. Upgrade to PRO or BUSINESS to see this borrower.'
+        })
+        setLoading(false)
+        return
       }
 
       // IMPORTANT: This page handles TWO types of borrowers:
@@ -709,6 +733,39 @@ export default function LenderBorrowerProfilePage() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+      </div>
+    )
+  }
+
+  if (quotaBlocked.blocked) {
+    return (
+      <div className="container mx-auto py-12 max-w-2xl">
+        <Card className="border-amber-300 bg-amber-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-900">
+              <AlertTriangle className="h-5 w-5" />
+              Cross-lender view limit reached
+            </CardTitle>
+            <CardDescription className="text-amber-800">
+              This borrower was registered by another lender, so viewing them counts toward your monthly limit.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-amber-900">{quotaBlocked.message}</p>
+            <p className="text-sm text-amber-900">
+              <strong>What stays free:</strong> viewing borrowers you registered yourself is always unlimited.
+              The monthly limit only applies to borrowers other lenders have brought to Credlio.
+            </p>
+            <div className="flex gap-2">
+              <Button onClick={() => router.push('/l/billing')}>
+                See upgrade options
+              </Button>
+              <Button variant="outline" onClick={() => router.push('/l/borrowers')}>
+                Back to borrowers
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
