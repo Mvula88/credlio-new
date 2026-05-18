@@ -46,7 +46,7 @@ export default function LenderLandingPage() {
             <div className="flex justify-center">
               <Badge variant="outline" className="px-4 py-1.5 text-sm">
                 <Shield className="w-3 h-3 mr-2" />
-                Trusted Credit Verification Platform
+                Cross-Lender Borrower Reputation Platform
               </Badge>
             </div>
 
@@ -85,21 +85,21 @@ export default function LenderLandingPage() {
                 <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
                   <Shield className="h-5 w-5 text-green-600" />
                 </div>
-                <span className="text-sm font-medium">Bank-level Security</span>
+                <span className="text-sm font-medium">Documents stay off-platform</span>
               </div>
 
               <div className="flex items-center space-x-2 text-gray-600">
                 <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                   <TrendingUp className="h-5 w-5 text-blue-600" />
                 </div>
-                <span className="text-sm font-medium">Real-time Verification</span>
+                <span className="text-sm font-medium">Admin-verified profiles</span>
               </div>
 
               <div className="flex items-center space-x-2 text-gray-600">
                 <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
                   <CheckCircle className="h-5 w-5 text-purple-600" />
                 </div>
-                <span className="text-sm font-medium">Trusted by Thousands</span>
+                <span className="text-sm font-medium">Cross-lender reputation</span>
               </div>
             </div>
           </div>
@@ -139,9 +139,9 @@ export default function LenderLandingPage() {
               <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mx-auto">
                 <CheckCircle className="h-6 w-6 text-purple-600" />
               </div>
-              <h3 className="text-lg font-semibold">Secure & Compliant</h3>
+              <h3 className="text-lg font-semibold">Privacy by Design</h3>
               <p className="text-gray-600 text-sm">
-                Bank-grade encryption with complete country data isolation
+                Borrower documents go directly to the lender by email — they never touch our servers. Data is country-isolated by region.
               </p>
             </div>
           </div>

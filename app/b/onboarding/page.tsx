@@ -554,20 +554,20 @@ export default function BorrowerOnboardingPage() {
               <CardContent className="space-y-6">
                 <Alert className="border-blue-200 bg-blue-50">
                   <Shield className="h-4 w-4 text-blue-600" />
-                  <AlertTitle>Your Data is Protected</AlertTitle>
+                  <AlertTitle>How your data is handled</AlertTitle>
                   <AlertDescription>
                     <ul className="mt-2 space-y-1 text-sm">
                       <li className="flex items-start">
                         <Lock className="h-3 w-3 mt-0.5 mr-2 text-blue-600" />
-                        Your identity information is encrypted and secure
+                        Profile data stays in your country and never leaves the region
                       </li>
                       <li className="flex items-start">
                         <Lock className="h-3 w-3 mt-0.5 mr-2 text-blue-600" />
-                        We protect your privacy and never share your personal data
+                        Loan documents (ID, payslips, bank statements) go directly from you to the lender — never to us
                       </li>
                       <li className="flex items-start">
                         <CheckCircle className="h-3 w-3 mt-0.5 mr-2 text-blue-600" />
-                        Complete verification once, recognized by all lenders
+                        Verify your identity once. Each lender may still ask for loan-specific documents when you apply.
                       </li>
                     </ul>
                   </AlertDescription>
@@ -1222,8 +1222,8 @@ export default function BorrowerOnboardingPage() {
         </Card>
 
         <p className="mt-6 text-center text-xs text-gray-500">
-          Your information is protected by bank-level encryption and never shared
-          outside your country. We comply with all local data protection regulations.
+          Your profile data stays in your country and is never shared outside the region.
+          Documents you send to lenders go directly by email — they never pass through our servers.
         </p>
       </div>
     </div>

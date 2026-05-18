@@ -37,6 +37,15 @@ import {
 import { format, addMonths } from 'date-fns'
 import { getCurrencyByCountry, getCurrencyInfo, formatCurrency as formatCurrencyUtil, type CurrencyInfo } from '@/lib/utils/currency'
 
+type InflightLoan = {
+  loan_id: string
+  lender_name: string
+  status: string
+  principal_minor: number
+  currency: string
+  borrower_accepted_at: string | null
+}
+
 export default function PendingLoanOffersPage() {
   const [loading, setLoading] = useState(true)
   const [pendingOffers, setPendingOffers] = useState<any[]>([])
@@ -46,6 +55,12 @@ export default function PendingLoanOffersPage() {
   const [declineReason, setDeclineReason] = useState('')
   const [processing, setProcessing] = useState(false)
   const [actionResult, setActionResult] = useState<{ success: boolean; message: string } | null>(null)
+  // Acknowledgment dialog: shown when the borrower has other loans in
+  // pending_signatures / pending_disbursement at the moment of accept.
+  const [ackDialogOpen, setAckDialogOpen] = useState(false)
+  const [ackLoanId, setAckLoanId] = useState<string | null>(null)
+  const [ackInflightLoans, setAckInflightLoans] = useState<InflightLoan[]>([])
+  const [ackConfirmChecked, setAckConfirmChecked] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -139,13 +154,14 @@ export default function PendingLoanOffersPage() {
     }).format(amountMinor / 100)
   }
 
-  const handleAcceptOffer = async (loanId: string) => {
+  const handleAcceptOffer = async (loanId: string, acknowledgedInflight = false) => {
     setProcessing(true)
     setActionResult(null)
 
     try {
       const { data, error } = await supabase.rpc('accept_loan_offer', {
-        p_loan_id: loanId
+        p_loan_id: loanId,
+        p_acknowledged_inflight: acknowledgedInflight,
       })
 
       if (error) {
@@ -153,20 +169,36 @@ export default function PendingLoanOffersPage() {
         throw error
       }
 
-      const result = data as { success: boolean; message?: string; error?: string }
+      const result = data as {
+        success: boolean
+        message?: string
+        error?: string
+        requires_acknowledgment?: boolean
+        inflight_loans?: InflightLoan[]
+        cooling_off_hours_remaining?: number
+      }
 
       if (result.success) {
         setActionResult({ success: true, message: result.message || 'Loan offer accepted successfully!' })
-        // Remove from list
         setPendingOffers(prev => prev.filter(o => o.id !== loanId))
         setSelectedOffer(null)
-        // Redirect to loans page after a short delay
-        setTimeout(() => {
-          router.push('/b/loans')
-        }, 2000)
-      } else {
-        setActionResult({ success: false, message: result.error || 'Failed to accept offer' })
+        setAckDialogOpen(false)
+        setTimeout(() => router.push('/b/loans'), 2000)
+        return
       }
+
+      // Borrower has in-flight loans — pop the disclosure modal.
+      if (result.requires_acknowledgment) {
+        setAckLoanId(loanId)
+        setAckInflightLoans(result.inflight_loans ?? [])
+        setAckConfirmChecked(false)
+        setAckDialogOpen(true)
+        return
+      }
+
+      // Cooling-off rejection — render the message verbatim from the RPC,
+      // it already includes the time remaining.
+      setActionResult({ success: false, message: result.error || 'Failed to accept offer' })
     } catch (error: any) {
       console.error('Error accepting offer:', error)
       setActionResult({ success: false, message: error.message || 'An error occurred' })
@@ -481,6 +513,74 @@ export default function PendingLoanOffersPage() {
                   <X className="h-4 w-4 mr-2" />
                   Decline Offer
                 </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Acknowledgment dialog — pops up when the borrower has other in-flight
+          loans. The borrower must check the box confirming awareness that
+          they'll owe multiple lenders. The check is logged on the new loan
+          row via `borrower_acknowledged_inflight_snapshot`. */}
+      <Dialog open={ackDialogOpen} onOpenChange={setAckDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-700">
+              <AlertCircle className="h-5 w-5" />
+              You already have {ackInflightLoans.length} loan{ackInflightLoans.length === 1 ? '' : 's'} in progress
+            </DialogTitle>
+            <DialogDescription>
+              You can still accept this offer, but you need to understand that you'll owe both lenders.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="rounded-lg border bg-orange-50 p-3 space-y-2">
+              <p className="text-sm font-medium">Other loans in progress (not yet disbursed):</p>
+              <ul className="text-sm space-y-1">
+                {ackInflightLoans.map(l => (
+                  <li key={l.loan_id} className="flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      <strong>{l.lender_name}</strong>
+                      {' — '}
+                      {l.currency} {(l.principal_minor / 100).toLocaleString()}
+                    </span>
+                    <Badge variant="secondary">
+                      {l.status === 'pending_signatures' ? 'Awaiting signatures' :
+                        l.status === 'pending_disbursement' ? 'Awaiting disbursement' : l.status}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4"
+                checked={ackConfirmChecked}
+                onChange={e => setAckConfirmChecked(e.target.checked)}
+              />
+              <span>
+                I understand that I will owe these other lenders AND this new loan. I confirm I can repay all of them.
+                I understand the platform records this acknowledgment.
+              </span>
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAckDialogOpen(false)} disabled={processing}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => ackLoanId && handleAcceptOffer(ackLoanId, true)}
+              disabled={!ackConfirmChecked || processing}
+            >
+              {processing ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Accepting…</>
+              ) : (
+                <>Accept anyway</>
               )}
             </Button>
           </DialogFooter>

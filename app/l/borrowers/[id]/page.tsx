@@ -57,6 +57,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { differenceInMonths, differenceInYears } from 'date-fns'
 import { getCurrencyByCountry, formatCurrency as formatCurrencyUtil } from '@/lib/utils/currency'
 import { BorrowerUnpaidSummary } from '@/components/BorrowerUnpaidSummary'
+import { BorrowerInflightLoans } from '@/components/BorrowerInflightLoans'
 
 export default function LenderBorrowerProfilePage() {
   const params = useParams()
@@ -860,6 +861,11 @@ export default function LenderBorrowerProfilePage() {
           to see when sizing up a borrower. Pulls from get_borrower_unpaid_summary
           which spans every lender's loans. */}
       <BorrowerUnpaidSummary borrowerId={borrowerId} />
+
+      {/* In-flight loans elsewhere on the platform. Loud warning if the
+          borrower has accepted another lender's offer that hasn't been
+          disbursed yet — disbursing now could lead to double exposure. */}
+      <BorrowerInflightLoans borrowerId={borrowerId} />
 
       {/* Info: Only showing this lender's activity */}
       <Alert className="bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/30">

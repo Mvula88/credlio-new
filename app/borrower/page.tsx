@@ -86,7 +86,7 @@ export default function BorrowerLandingPage() {
                 <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                   <Star className="h-5 w-5 text-blue-600" />
                 </div>
-                <span className="text-sm font-medium">Universal Credit Score</span>
+                <span className="text-sm font-medium">Cross-Lender Reputation</span>
               </div>
 
               <div className="flex items-center space-x-2 text-gray-600">
@@ -120,9 +120,9 @@ export default function BorrowerLandingPage() {
               <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mx-auto">
                 <Star className="h-6 w-6 text-blue-600" />
               </div>
-              <h3 className="text-lg font-semibold">Universal Credit Score</h3>
+              <h3 className="text-lg font-semibold">Cross-Lender Reputation</h3>
               <p className="text-gray-600 text-sm">
-                Your score is visible to all lenders. Good behavior benefits you everywhere
+                Your repayment history is visible to all lenders on the platform. Pay on time once — it benefits you everywhere.
               </p>
             </div>
 
@@ -140,9 +140,9 @@ export default function BorrowerLandingPage() {
               <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto">
                 <Shield className="h-6 w-6 text-green-600" />
               </div>
-              <h3 className="text-lg font-semibold">Protected Identity</h3>
+              <h3 className="text-lg font-semibold">Your Documents Stay With You</h3>
               <p className="text-gray-600 text-sm">
-                Your ID is encrypted and stored securely. Privacy is guaranteed
+                We store a one-way hash of your ID number for matching — never the document itself. Loan documents go directly to lenders by email, not through us.
               </p>
             </div>
           </div>
