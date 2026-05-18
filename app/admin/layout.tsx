@@ -39,7 +39,8 @@ import {
   Activity,
   Fingerprint,
   Video,
-  Clock
+  Clock,
+  Globe2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -52,6 +53,7 @@ const navigation = [
   { name: 'Lenders', href: '/admin/lenders', icon: Building2 },
   { name: 'Verifications', href: '/admin/verifications', icon: UserCheck },
   { name: 'Duplicates', href: '/admin/duplicates', icon: Fingerprint },
+  { name: 'Cross-Country Alerts', href: '/admin/cross-country-alerts', icon: Globe2 },
   { name: 'Document Requests', href: '/admin/document-requests', icon: FileCheck },
   { name: 'Video Attestations', href: '/admin/video-attestations', icon: Video },
   { name: 'Stuck Loans', href: '/admin/stuck-loans', icon: Clock },

@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Verify user is a lender
+    // Verify user is a lender and capture their country for isolation.
     const { data: lender } = await supabase
       .from('lenders')
       .select('id')
@@ -34,6 +34,34 @@ export async function GET(request: NextRequest) {
 
     if (!lender) {
       return NextResponse.json({ error: 'Only lenders can access this data' }, { status: 403 })
+    }
+
+    // Country isolation: this endpoint uses service-role to bypass RLS, so we
+    // have to enforce country isolation manually. The lender may only see
+    // debt for borrowers in their own country.
+    const { data: lenderProfile } = await supabase
+      .from('profiles')
+      .select('country_code')
+      .eq('user_id', user.id)
+      .single()
+
+    const lenderCountry = lenderProfile?.country_code
+    if (!lenderCountry) {
+      return NextResponse.json({ error: 'Lender country not set' }, { status: 403 })
+    }
+
+    // Confirm the target borrower is in the lender's country before going further.
+    const { data: borrowerRecord } = await supabaseAdmin
+      .from('borrowers')
+      .select('country_code')
+      .eq('id', borrowerId)
+      .maybeSingle()
+
+    if (!borrowerRecord || borrowerRecord.country_code !== lenderCountry) {
+      // Either the borrower doesn't exist or they're in another country —
+      // either way, this lender doesn't get to see their data. Returning
+      // 'empty' rather than 404 to avoid revealing whether the ID exists.
+      return NextResponse.json({ loans: [], totalMonthlyDebt: 0, loanCount: 0 })
     }
 
     // Quota: 2 unique borrower checks per month for FREE tier.
@@ -58,10 +86,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Use admin client to fetch all loans for this borrower (bypasses RLS for credit bureau)
+    // Country isolation enforced via lenderCountry filter below.
     const { data: loans, error: loansError } = await supabaseAdmin
       .from('loans')
       .select('id, principal_amount, principal_minor, outstanding_balance, status, created_at, interest_rate, term_months, total_interest_percent, base_rate_percent, extra_rate_per_installment, num_installments, total_amount_minor, lender_id')
       .eq('borrower_id', borrowerId)
+      .eq('country_code', lenderCountry)
       .in('status', ['active', 'pending', 'approved', 'disbursed'])
       .order('created_at', { ascending: false })
 
