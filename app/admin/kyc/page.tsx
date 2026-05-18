@@ -68,6 +68,8 @@ export default function KYCVerificationPage() {
             full_name,
             country_code,
             phone_e164,
+            phone_country_code,
+            phone_country_mismatch,
             created_at
           )
         `)
@@ -516,6 +518,16 @@ export default function KYCVerificationPage() {
                   {getRiskBadge(selectedVerification.overall_risk_score)}
                 </div>
               </div>
+
+              {/* Phone-country mismatch — yellow flag */}
+              {selectedVerification.borrowers?.phone_country_mismatch && (
+                <Alert className="border-yellow-300 bg-yellow-50">
+                  <AlertCircle className="h-4 w-4 text-yellow-700" />
+                  <AlertDescription className="text-yellow-900">
+                    <strong>Phone-country mismatch:</strong> account is in <strong>{selectedVerification.borrowers?.country_code}</strong> but phone number is from <strong>{selectedVerification.borrowers?.phone_country_code}</strong>. Could be a diaspora signup or a VPN-spoofed registration. Worth confirming with the borrower.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {/* Duplicate Warning */}
               {selectedVerification.duplicate_detected && (

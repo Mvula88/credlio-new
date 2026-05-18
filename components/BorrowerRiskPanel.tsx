@@ -43,6 +43,12 @@ type VerifStatus = {
   rejection_reason: string | null
 }
 
+type BorrowerCore = {
+  country_code: string | null
+  phone_country_code: string | null
+  phone_country_mismatch: boolean | null
+}
+
 function riskBadgeVariant(level: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (level === 'high') return 'destructive'
   if (level === 'medium') return 'secondary'
@@ -63,12 +69,13 @@ export function BorrowerRiskPanel({ borrowerId }: Props) {
   const [selfies, setSelfies] = useState<SelfieRow[]>([])
   const [docs, setDocs] = useState<DocVerifRow[]>([])
   const [verif, setVerif] = useState<VerifStatus | null>(null)
+  const [core, setCore] = useState<BorrowerCore | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     void (async () => {
       try {
-        const [selfieRes, docRes, statusRes] = await Promise.all([
+        const [selfieRes, docRes, statusRes, coreRes] = await Promise.all([
           supabase
             .from('borrower_documents')
             .select('id, document_type, risk_score, risk_factors, perceptual_hash, cross_borrower_match_borrower_id, status, uploaded_at')
@@ -84,10 +91,16 @@ export function BorrowerRiskPanel({ borrowerId }: Props) {
             .select('verification_status, overall_risk_score, overall_risk_level, smile_id_outcome, rejection_reason')
             .eq('borrower_id', borrowerId)
             .maybeSingle(),
+          supabase
+            .from('borrowers')
+            .select('country_code, phone_country_code, phone_country_mismatch')
+            .eq('id', borrowerId)
+            .maybeSingle(),
         ])
         setSelfies(selfieRes.data ?? [])
         setDocs(docRes.data ?? [])
         setVerif(statusRes.data ?? null)
+        setCore(coreRes.data ?? null)
       } catch (e: any) {
         setError(e.message ?? 'Failed to load risk data')
       } finally {
@@ -149,6 +162,19 @@ export function BorrowerRiskPanel({ borrowerId }: Props) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Phone-country mismatch — yellow flag. Account country and the
+            phone number country don't match, often a sign of a VPN-spoofed
+            signup. Doesn't auto-block — it's context for the lender. */}
+        {core?.phone_country_mismatch && (
+          <Alert className="border-yellow-300 bg-yellow-50">
+            <AlertTriangle className="h-4 w-4 text-yellow-700" />
+            <AlertTitle className="text-yellow-900">Phone country doesn't match account country</AlertTitle>
+            <AlertDescription className="text-yellow-900">
+              Account is registered in <strong>{core.country_code}</strong> but the borrower's phone number is from <strong>{core.phone_country_code}</strong>. Could be a diaspora signup or a VPN-spoofed registration — confirm with the borrower before proceeding.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Cross-borrower duplicate alerts — the loudest signal */}
         {crossBorrowerHits.length > 0 && (
           <Alert variant="destructive">
