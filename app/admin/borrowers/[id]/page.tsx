@@ -761,6 +761,34 @@ export default function AdminBorrowerProfilePage() {
                       </div>
                     </CardHeader>
                     <CardContent>
+                      {/* In-flight acknowledgment — shown when the borrower
+                          acknowledged having other in-progress loans at the
+                          moment of accepting this one. Dispute evidence. */}
+                      {loan.borrower_acknowledged_inflight_snapshot && (
+                        <Alert className="mb-4 border-orange-300 bg-orange-50">
+                          <AlertTriangle className="h-4 w-4 text-orange-700" />
+                          <AlertDescription className="text-sm">
+                            <p className="font-medium text-orange-900 mb-1">
+                              Borrower acknowledged {Array.isArray(loan.borrower_acknowledged_inflight_snapshot) ? loan.borrower_acknowledged_inflight_snapshot.length : 1} in-flight loan(s) when accepting this one
+                              {loan.borrower_acknowledged_inflight_at && (
+                                <span className="font-normal text-orange-800">
+                                  {' '}— at {new Date(loan.borrower_acknowledged_inflight_at).toLocaleString()}
+                                </span>
+                              )}
+                            </p>
+                            <ul className="list-disc list-inside text-xs text-orange-800 space-y-0.5 mt-1">
+                              {(Array.isArray(loan.borrower_acknowledged_inflight_snapshot) ? loan.borrower_acknowledged_inflight_snapshot : []).map((entry: any, i: number) => (
+                                <li key={i}>
+                                  <span className="font-mono">{entry.lender_name ?? entry.lender_id?.slice(0, 8)}</span>
+                                  {entry.currency && entry.principal_minor != null && ` — ${entry.currency} ${(entry.principal_minor / 100).toLocaleString()}`}
+                                  {entry.status && ` · ${entry.status.replace(/_/g, ' ')}`}
+                                </li>
+                              ))}
+                            </ul>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {/* Small Circular Chart */}
                         <div className="flex flex-col items-center justify-center">

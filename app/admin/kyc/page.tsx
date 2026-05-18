@@ -569,6 +569,48 @@ export default function KYCVerificationPage() {
                                   </AlertDescription>
                                 </Alert>
                               )}
+
+                              {/* Cross-borrower match — loud red alert if this image appears under another borrower. */}
+                              {doc.cross_borrower_match_borrower_id && (
+                                <Alert className="mt-3 border-red-300 bg-red-50">
+                                  <AlertCircle className="h-4 w-4 text-red-700" />
+                                  <AlertDescription className="text-sm text-red-900">
+                                    <strong>Cross-borrower duplicate:</strong> this image fingerprint also appears under{' '}
+                                    <a href={`/admin/borrowers/${doc.cross_borrower_match_borrower_id}`} className="underline font-medium">
+                                      another borrower
+                                    </a>. Likely rented document or re-registration.
+                                  </AlertDescription>
+                                </Alert>
+                              )}
+
+                              {/* EXIF / fraud-signal flags as a compact grid. */}
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 text-xs">
+                                <FlagRow label="Missing EXIF metadata" on={doc.missing_exif_data} bad />
+                                <FlagRow label="Appears to be a screenshot" on={doc.is_screenshot} bad />
+                                <FlagRow label="Edited with photo software" on={doc.edited_with_software} bad />
+                                <FlagRow label="Modified after creation" on={doc.modified_after_creation} bad />
+                                <FlagRow label="Created recently (<24h)" on={doc.created_recently} />
+                                <FlagRow label="Duplicate file hash" on={doc.duplicate_hash} bad />
+                              </div>
+
+                              {/* Camera / EXIF metadata when present. */}
+                              {(doc.camera_make || doc.camera_model || doc.software_used || doc.photo_taken_at) && (
+                                <div className="mt-3 rounded-md border bg-muted/30 p-2 text-xs space-y-0.5">
+                                  <p className="font-medium text-muted-foreground uppercase tracking-wider">Camera metadata</p>
+                                  {doc.camera_make && <p>Camera: {doc.camera_make} {doc.camera_model ?? ''}</p>}
+                                  {doc.software_used && <p>Software: <span className="font-mono">{doc.software_used}</span></p>}
+                                  {doc.photo_taken_at && <p>Taken: {new Date(doc.photo_taken_at).toLocaleString()}</p>}
+                                  {(doc.gps_latitude || doc.gps_longitude) && (
+                                    <p>GPS: {doc.gps_latitude?.toFixed(4)}, {doc.gps_longitude?.toFixed(4)}</p>
+                                  )}
+                                </div>
+                              )}
+
+                              {doc.perceptual_hash && (
+                                <p className="mt-2 text-xs text-muted-foreground font-mono">
+                                  pHash: {doc.perceptual_hash}
+                                </p>
+                              )}
                             </div>
                           </div>
                         </CardContent>
@@ -609,6 +651,17 @@ export default function KYCVerificationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+function FlagRow({ label, on, bad = false }: { label: string; on: boolean | undefined | null; bad?: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className={`inline-block h-2 w-2 rounded-full ${on ? (bad ? 'bg-red-500' : 'bg-orange-400') : 'bg-gray-300'}`} />
+      <span className={on ? (bad ? 'text-red-700 font-medium' : 'text-orange-700') : 'text-muted-foreground'}>
+        {label}: {on ? 'YES' : 'no'}
+      </span>
     </div>
   )
 }

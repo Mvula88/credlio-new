@@ -36,7 +36,10 @@ import {
   MessageSquare,
   Banknote,
   FileSearch,
-  Activity
+  Activity,
+  Fingerprint,
+  Video,
+  Clock
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RoleSwitcher } from '@/components/RoleSwitcher'
@@ -48,6 +51,10 @@ const navigation = [
   { name: 'Borrowers', href: '/admin/borrowers', icon: User },
   { name: 'Lenders', href: '/admin/lenders', icon: Building2 },
   { name: 'Verifications', href: '/admin/verifications', icon: UserCheck },
+  { name: 'Duplicates', href: '/admin/duplicates', icon: Fingerprint },
+  { name: 'Document Requests', href: '/admin/document-requests', icon: FileCheck },
+  { name: 'Video Attestations', href: '/admin/video-attestations', icon: Video },
+  { name: 'Stuck Loans', href: '/admin/stuck-loans', icon: Clock },
   { name: 'Risk Management', href: '/admin/risk', icon: ShieldAlert },
   { name: 'Loan Agreements', href: '/admin/agreements', icon: FileSignature },
   { name: 'Disbursements', href: '/admin/disbursements', icon: Banknote },

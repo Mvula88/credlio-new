@@ -40,11 +40,12 @@ export default function DisputesPage() {
   const [assigningTo, setAssigningTo] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
   const supabase = createClient()
 
   useEffect(() => {
     loadDisputes()
-  }, [statusFilter, priorityFilter])
+  }, [statusFilter, priorityFilter, typeFilter])
 
   const loadDisputes = async () => {
     try {
@@ -60,6 +61,12 @@ export default function DisputesPage() {
 
       if (priorityFilter !== 'all') {
         query = query.eq('priority', priorityFilter)
+      }
+
+      if (typeFilter === 'auto') {
+        query = query.eq('type', 'late_payment_auto')
+      } else if (typeFilter === 'manual') {
+        query = query.neq('type', 'late_payment_auto')
       }
 
       const { data, error } = await query
@@ -413,7 +420,7 @@ export default function DisputesPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Status</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -443,6 +450,19 @@ export default function DisputesPage() {
                   <SelectItem value="high">High</SelectItem>
                   <SelectItem value="medium">Medium</SelectItem>
                   <SelectItem value="low">Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Source</Label>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sources</SelectItem>
+                  <SelectItem value="auto">System auto-disputes (15-day overdue)</SelectItem>
+                  <SelectItem value="manual">Lender-filed disputes</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -484,6 +504,11 @@ export default function DisputesPage() {
                             <Badge className={getPriorityColor(dispute.priority)}>
                               {dispute.priority?.toUpperCase()}
                             </Badge>
+                            {dispute.type === 'late_payment_auto' && (
+                              <Badge variant="outline" className="border-orange-400 text-orange-700 bg-orange-50">
+                                AUTO (15-day overdue)
+                              </Badge>
+                            )}
                           </div>
                           <CardDescription>{dispute.title || dispute.reason}</CardDescription>
                         </div>
